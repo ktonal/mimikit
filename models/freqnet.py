@@ -162,6 +162,7 @@ class FreqNet(Model):
 
         gate_c, residuals_c, skips_c = self.gate_c, self.residuals_c, self.skips_c
         layer_f, strict, learn_padding = self.lf[0], self.strict, self.learn_padding
+        conv_kwargs = getattr(self, "conv_kwargs", {})
 
         # Input Encoder
         self.inpt = GatedLinearInput(1025, residuals_c)
@@ -169,7 +170,7 @@ class FreqNet(Model):
         # Autoregressive Part
         self.blocks = nn.ModuleList([
             FreqBlock(gate_c, residuals_c, skips_c, n_layers, layer_f,
-                      strict=strict, learn_padding=learn_padding)
+                      strict=strict, learn_padding=learn_padding, **conv_kwargs)
             for n_layers in self.layers
         ])
 
