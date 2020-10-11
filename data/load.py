@@ -169,8 +169,7 @@ def load(features, metadata, mode,
          shuffle=True, batch_size=None, drop_last=False,
          num_workers=0,
          **frame_sampler_kwargs):
-    if not isinstance(features, tuple):
-        features = (features, )
+
     # prepare
     features = tuple(prepare_data(src, metadata, pre_cat, device, shft)
                      for src, shft in zip(features, shifts if shifts is not None else [0] * len(features)))

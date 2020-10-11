@@ -10,7 +10,7 @@ from ..data import load
 
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("cafca initialized with device:", DEVICE)
+print("mmk initialized with device:", DEVICE)
 
 
 def is_notebook():

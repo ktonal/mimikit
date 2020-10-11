@@ -24,7 +24,8 @@ class FreqLayer(nn.Module):
     def __init__(self, gate_c, residuals_c, skips_c, strict=False, learn_padding=False, **kwargs):
         super(FreqLayer, self).__init__()
         self.gate = GatedConv(residuals_c, gate_c, **kwargs)
-        kwargs.pop("kernel_size")
+        if "kernel_size" in kwargs:
+            kwargs.pop("kernel_size")
         self.residuals = nn.Conv1d(gate_c, residuals_c, 1, **kwargs)
         self.skips = nn.Conv1d(gate_c, skips_c, 1, **kwargs)
         self.pad_y = Padder(residuals_c, self.output_len_diff(strict), learn_padding)
@@ -141,27 +142,26 @@ for k, v in layer_funcs.items():
 
 class FreqNet(Model):
 
-    @property
-    def strict(self):
-        return self.lf.keywords.get("strict", False)
+    def is_strict(self):
+        return self.lf[0].keywords.get("strict", False)
 
     @property
     def shift(self):
-        return sum(2 ** i + i * int(self.strict) for i in self.layers)
+        return sum(2 ** i + i * int(self.is_strict()) for i in self.layers)
 
     @property
     def receptive_field(self):
-        return self.shift - sum(i * int(self.strict) for i in self.layers)
+        return self.shift - sum(i * int(self.is_strict()) for i in self.layers)
 
     @property
     def concat_side(self):
-        return self.lf.keywords.get("concat_outputs", 0)
+        return self.lf[0].keywords.get("concat_outputs", 0)
 
     def __init__(self, **kwargs):
         super(FreqNet, self).__init__(**kwargs)
 
         gate_c, residuals_c, skips_c = self.gate_c, self.residuals_c, self.skips_c
-        layer_f, strict, learn_padding = self.lf[0], self.strict, self.learn_padding
+        layer_f, learn_padding = self.lf[0], self.learn_padding
         conv_kwargs = getattr(self, "conv_kwargs", {})
 
         # Input Encoder
@@ -170,7 +170,7 @@ class FreqNet(Model):
         # Autoregressive Part
         self.blocks = nn.ModuleList([
             FreqBlock(gate_c, residuals_c, skips_c, n_layers, layer_f,
-                      strict=strict, learn_padding=learn_padding, **conv_kwargs)
+                      strict=self.is_strict(), learn_padding=learn_padding, **conv_kwargs)
             for n_layers in self.layers
         ])
 
@@ -192,7 +192,7 @@ class FreqNet(Model):
     def training_step(self, batch, batch_idx):
         batch, target = batch
 
-        if self.strict:
+        if self.is_strict():
             # discard the last time steps of the input to get an output of same length as target
             batch = batch[:, :-sum(i for i in self.layers)]
 
