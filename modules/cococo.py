@@ -1,3 +1,0 @@
-
-
-# Coarse Conjunctive Convolution
