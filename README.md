@@ -14,9 +14,9 @@ whether in Colab environment or not, simply clone this repo :
 and install the requirements :
 
 ```
-cd mmk/
-pip install -r requirements.txt
+pip install -r mmk/requirements.txt
 ```
 
+## Models
 
- 
+There is currently one available model : `FreqNet`. Check out `notebooks/freqnet.ipynb` for its usage and documentation.
