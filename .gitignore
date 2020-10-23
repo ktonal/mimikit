@@ -1,5 +1,3 @@
 *__pycache__*
 *pyc
-dist/*
-alcokit.egg-info/*
-build/*
+*.ipynb*
