@@ -9,7 +9,9 @@ The `notebooks/` can be used in google colab to train models and generate sounds
 
 whether in Colab environment or not, simply clone this repo :
 
-```git clone https://github.com/antoinedaurat/mmk.git```
+```
+git clone https://github.com/antoinedaurat/mmk.git
+```
 
 and install the requirements :
 
