@@ -2,6 +2,7 @@ numpy
 pandas
 librosa==0.8
 h5py
+tables==3.5.1
 torch
 pytorch-lightning
 tqdm
