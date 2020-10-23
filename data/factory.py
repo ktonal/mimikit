@@ -168,7 +168,7 @@ def create_datasets_from_defs(target, defs, mode="w"):
             layout = params["layout"]
             layout.reset_index(drop=False, inplace=True)
             layout = layout.rename(columns={"index": "name"})
-            pd.DataFrame(layout).to_hdf(target, "layouts/" + name, "r+")
+            pd.DataFrame(layout).to_hdf(target, "layouts/" + name, "r+", format="table")
         f.close()
     return
 
@@ -202,8 +202,8 @@ def aggregate_dbs(target, dbs, mode="w", remove_sources=False):
     for arg in args: integrate(*arg)
     if remove_sources:
         for src in dbs: os.remove(src)
-    infos.to_hdf(target, "info", "r+")
-    metadata.to_hdf(target, "metadata", "r+")
+    infos.to_hdf(target, "info", "r+", format="table")
+    metadata.to_hdf(target, "metadata", "r+", format="table")
 
 
 def make_root_db(db_name, root_directory, extract_func=default_extract_func, extension_filter=is_audio_file,
