@@ -90,7 +90,7 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
             if issubclass(type(data), np.ndarray):
                 ds = f.create_dataset(name=name, shape=data.shape, data=data)
                 ds.attrs.update(attrs)
-                info.loc[0, name] = ds.dtype, ds.shape, sizeof_fmt(data.nbytes)
+                info.at[0, [(name, "dtype"), (name, "shape"), (name, "size")]] = tuple([ds.dtype, ds.shape, sizeof_fmt(data.nbytes)])
             elif issubclass(type(data), pd.DataFrame):
                 pd.DataFrame(data).to_hdf(tmp_db, name, "r+")
             f.flush()
@@ -202,8 +202,9 @@ def aggregate_dbs(target, dbs, mode="w", remove_sources=False):
     for arg in args: integrate(*arg)
     if remove_sources:
         for src in dbs: os.remove(src)
-    infos.to_hdf(target, "info", "r+", format="table")
-    metadata.to_hdf(target, "metadata", "r+", format="table")
+    infos = infos.astype(object)
+    infos.to_hdf(target, "info", "r+")
+    metadata.to_hdf(target, "metadata", "r+")
 
 
 def make_root_db(db_name, root_directory, extract_func=default_extract_func, extension_filter=is_audio_file,
