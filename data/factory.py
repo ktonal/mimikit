@@ -85,18 +85,21 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
     rv = extract_func(abs_path)
     info = _empty_info(rv.keys())
     info.loc[0, [("directory", ""), ("name", "")]] = split_path(abs_path)
-    with h5py.File(tmp_db, mode) as f:
-        for name, (attrs, data) in rv.items():
-            if issubclass(type(data), np.ndarray):
-                ds = f.create_dataset(name=name, shape=data.shape, data=data)
-                ds.attrs.update(attrs)
-                info.at[0, [(name, "dtype"), (name, "shape"), (name, "size")]] = tuple([ds.dtype, ds.shape, sizeof_fmt(data.nbytes)])
-            elif issubclass(type(data), pd.DataFrame):
-                pd.DataFrame(data).to_hdf(tmp_db, name, "r+")
-            f.flush()
-        if "info" in f.keys():
-            prior = pd.read_hdf(tmp_db, "info", "r")
-            info = pd.concat((prior, info.iloc[:, 2:]), axis=1)
+    f = h5py.File(tmp_db, mode)
+    for name, (attrs, data) in rv.items():
+        if issubclass(type(data), np.ndarray):
+            ds = f.create_dataset(name=name, shape=data.shape, data=data)
+            ds.attrs.update(attrs)
+            info.at[0, [(name, "dtype"), (name, "shape"), (name, "size")]] = tuple([ds.dtype, ds.shape, sizeof_fmt(data.nbytes)])
+        elif issubclass(type(data), pd.DataFrame):
+            f.close()
+            pd.DataFrame(data).to_hdf(tmp_db, name, "r+")
+            f = h5py.File(tmp_db, "r+")
+    f.flush()
+    f.close()
+    if "info" in f.keys():
+        prior = pd.read_hdf(tmp_db, "info", "r")
+        info = pd.concat((prior, info.iloc[:, 2:]), axis=1)
     info.to_hdf(tmp_db, "info", "r+")
     return tmp_db
 
@@ -161,14 +164,18 @@ def ds_definitions_from_infos(infos):
 
 
 def create_datasets_from_defs(target, defs, mode="w"):
-    with h5py.File(target, mode) as f:
-        for name, params in defs.items():
-            f.create_dataset(name, shape=params["shape"], dtype=params["dtype"])
-            layout = params["layout"]
-            layout.reset_index(drop=False, inplace=True)
-            layout = layout.rename(columns={"index": "name"})
-            pd.DataFrame(layout).to_hdf(target, "layouts/" + name, "r+", format="table")
+    f = h5py.File(target, mode)
+    for name, params in defs.items():
+        f.create_dataset(name, shape=params["shape"], dtype=params["dtype"])
+        layout = params["layout"]
+        layout.reset_index(drop=False, inplace=True)
+        layout = layout.rename(columns={"index": "name"})
+        f.flush()
         f.close()
+        pd.DataFrame(layout).to_hdf(target, "layouts/" + name, "r+", format="table")
+        f = h5py.File(target, "r+")
+    f.flush()
+    f.close()
     return
 
 
