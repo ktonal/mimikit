@@ -97,8 +97,7 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
         if "info" in f.keys():
             prior = pd.read_hdf(tmp_db, "info", "r")
             info = pd.concat((prior, info.iloc[:, 2:]), axis=1)
-        info.to_hdf(tmp_db, "info", "r+")
-    f.close()
+    info.to_hdf(tmp_db, "info", "r+")
     return tmp_db
 
 
