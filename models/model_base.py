@@ -43,7 +43,6 @@ def DefaultHP(**kwargs):
         # train stuff
         batch_size=64,
         batch_length=64,
-        shifts=(0, 0),
         # optim / scheduler
         max_lr=1e-3,
         betas=(.9, .9),
@@ -75,11 +74,15 @@ class Model(pl.LightningModule):
         for k, v in self.hparams.items():
             setattr(self, k, v)
 
+    @property
+    def shift(self):
+        raise NotImplementedError("base class `Model` doesn't implement the shift property")
+
     def prepare_data(self):
         # Default data routine
         db = self.database
-        self.dl = load([db.fft] * len(self.shifts), self.train_set.copy(), "frame",
-                       k=self.batch_length, stride=1, shifts=self.shifts,
+        self.dl = load([db.fft] * 2, self.train_set.copy(), "frame",
+                       k=self.batch_length, stride=1, shifts=(0, self.shift),
                        batch_size=self.batch_size, shuffle=True,
                        pre_cat=True, device=DEVICE)
 
