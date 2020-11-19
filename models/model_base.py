@@ -42,7 +42,7 @@ def DefaultHP(**kwargs):
         train_set=None,
         # train stuff
         batch_size=64,
-        batch_length=64,
+        sequence_length=64,
         # optim / scheduler
         max_lr=1e-3,
         betas=(.9, .9),
@@ -81,7 +81,7 @@ class Model(pl.LightningModule):
     def prepare_data(self):
         # Default data routine
         self.dl = load([self.input_feature] * 2, self.train_set.copy(), "frame",
-                       k=self.batch_length, stride=1, shifts=(0, self.shift),
+                       k=self.sequence_length, stride=1, shifts=(0, self.shift),
                        batch_size=self.batch_size, shuffle=True,
                        pre_cat=True, device=DEVICE)
 

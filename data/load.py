@@ -47,17 +47,17 @@ class FrameSampler(Sampler):
     """
     returns SLICE indices
     """
-    def __init__(self, N, k=1, stride=1, shifts=tuple(), shuffle=True):
+    def __init__(self, N, sequence_length=1, stride=1, shifts=tuple(), shuffle=True):
         super(FrameSampler, self).__init__([0])
-        self.base_idx = np.arange(N - k - sum(shifts) + 1, step=stride)
-        self.k = k
+        self.base_idx = np.arange(N - sequence_length - sum(shifts) + 1, step=stride)
+        self.sequence_length = sequence_length
         self.N = len(self.base_idx)
         self.shuffle = shuffle
 
     def __iter__(self):
         if self.shuffle:
             np.random.shuffle(self.base_idx)
-        return iter(slice(i, i+self.k) for i in self.base_idx)
+        return iter(slice(i, i + self.sequence_length) for i in self.base_idx)
 
     def __len__(self):
         return self.N
