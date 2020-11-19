@@ -165,7 +165,7 @@ class FreqNet(Model):
         conv_kwargs = getattr(self, "conv_kwargs", {})
 
         # Input Encoder
-        self.inpt = GatedLinearInput(self.input_dim, model_dim)
+        self.inpt = GatedLinearInput(self.input_feature.dim, model_dim)
 
         # Autoregressive Part
         self.blocks = nn.ModuleList([
@@ -175,7 +175,7 @@ class FreqNet(Model):
         ])
 
         # Output Decoder
-        self.outpt = AbsLinearOutput(model_dim, self.input_dim)
+        self.outpt = AbsLinearOutput(model_dim, self.input_feature.dim)
 
     def forward(self, x):
         """

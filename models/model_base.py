@@ -38,9 +38,8 @@ def DefaultHP(**kwargs):
     defaults = dict(
         loss_fn=mean_L1_prop,
         # data
-        database=None,
+        input_feature=None,
         train_set=None,
-        input_dim=1025,
         # train stuff
         batch_size=64,
         batch_length=64,
@@ -81,8 +80,7 @@ class Model(pl.LightningModule):
 
     def prepare_data(self):
         # Default data routine
-        db = self.database
-        self.dl = load([db.fft] * 2, self.train_set.copy(), "frame",
+        self.dl = load([self.input_feature] * 2, self.train_set.copy(), "frame",
                        k=self.batch_length, stride=1, shifts=(0, self.shift),
                        batch_size=self.batch_size, shuffle=True,
                        pre_cat=True, device=DEVICE)
