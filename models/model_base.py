@@ -81,7 +81,7 @@ class Model(pl.LightningModule):
     def prepare_data(self):
         # Default data routine
         self.dl = load([self.input_feature] * 2, self.train_set.copy(), "frame",
-                       k=self.sequence_length, stride=1, shifts=(0, self.shift),
+                       sequence_length=self.sequence_length, stride=1, shifts=(0, self.shift),
                        batch_size=self.batch_size, shuffle=True,
                        pre_cat=True, device=DEVICE)
 
