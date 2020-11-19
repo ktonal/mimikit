@@ -151,7 +151,7 @@ class FreqNet(Model):
 
     @property
     def receptive_field(self):
-        return self.shift - sum(i * int(self.is_strict()) for i in self.layers)
+        return sum(2 ** i for i in self.layers)
 
     @property
     def concat_side(self):
@@ -214,6 +214,7 @@ class FreqNet(Model):
         return {"loss": recon}
 
     def generation_slices(self, step_length=1):
+        rf = self.receptive_field
         if self.concat_side in (0, -1):
-            return slice(-self.receptive_field, None), slice(None, step_length)
-        return slice(-self.receptive_field, None), slice(self.shift, self.shift+step_length)
+            return slice(-rf, None), slice(None, step_length)
+        return slice(-rf, None), slice(rf, rf+step_length)
