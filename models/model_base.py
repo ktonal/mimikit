@@ -106,6 +106,8 @@ class Model(pl.LightningModule):
 
     @staticmethod
     def load(clazz, version_dir, epoch=None):
+        if version_dir[-1] != "/":
+            version_dir += "/"
         hp = torch.load(version_dir + "hparams.pt")
         hp["overwrite"] = False
         instance = clazz(**hp)
