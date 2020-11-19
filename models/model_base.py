@@ -40,6 +40,7 @@ def DefaultHP(**kwargs):
         # data
         database=None,
         train_set=None,
+        input_dim=1025,
         # train stuff
         batch_size=64,
         batch_length=64,
