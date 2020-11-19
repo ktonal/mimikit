@@ -21,15 +21,15 @@ class Padder(nn.Module):
 
 
 class FreqLayer(nn.Module):
-    def __init__(self, gate_c, residuals_c, skips_c, strict=False, learn_padding=False, **kwargs):
+    def __init__(self, model_dim, strict=False, learn_padding=False, **kwargs):
         super(FreqLayer, self).__init__()
-        self.gate = GatedConv(residuals_c, gate_c, **kwargs)
+        self.gate = GatedConv(model_dim, model_dim, **kwargs)
         if "kernel_size" in kwargs:
             kwargs.pop("kernel_size")
-        self.residuals = nn.Conv1d(gate_c, residuals_c, 1, **kwargs)
-        self.skips = nn.Conv1d(gate_c, skips_c, 1, **kwargs)
-        self.pad_y = Padder(residuals_c, self.output_len_diff(strict), learn_padding)
-        self.pad_skip = Padder(skips_c, self.output_len_diff(strict), learn_padding)
+        self.residuals = nn.Conv1d(model_dim, model_dim, 1, **kwargs)
+        self.skips = nn.Conv1d(model_dim, model_dim, 1, **kwargs)
+        self.pad_y = Padder(model_dim, self.output_len_diff(strict), learn_padding)
+        self.pad_skip = Padder(model_dim, self.output_len_diff(strict), learn_padding)
 
     def forward(self, x):
         y = self.gate(x)
@@ -42,10 +42,10 @@ class FreqLayer(nn.Module):
 
 
 class FreqBlock(nn.Module):
-    def __init__(self, gate_c, residuals_c, skips_c, n_layers, layer_func, **kwargs):
+    def __init__(self, model_dim, n_layers, layer_func, **kwargs):
         super(FreqBlock, self).__init__()
         self.block = nn.ModuleList(
-            [FreqLayer(gate_c, residuals_c, skips_c,
+            [FreqLayer(model_dim,
                        dilation=2 ** i, **kwargs) for i in range(n_layers)])
         self.layer_func = layer_func
 
@@ -160,22 +160,22 @@ class FreqNet(Model):
     def __init__(self, **kwargs):
         super(FreqNet, self).__init__(**kwargs)
 
-        gate_c, residuals_c, skips_c = self.gate_c, self.residuals_c, self.skips_c
+        model_dim = self.model_dim
         layer_f, learn_padding = self.lf[0], self.learn_padding
         conv_kwargs = getattr(self, "conv_kwargs", {})
 
         # Input Encoder
-        self.inpt = GatedLinearInput(1025, residuals_c)
+        self.inpt = GatedLinearInput(self.input_dim, model_dim)
 
         # Autoregressive Part
         self.blocks = nn.ModuleList([
-            FreqBlock(gate_c, residuals_c, skips_c, n_layers, layer_f,
+            FreqBlock(model_dim, n_layers, layer_f,
                       strict=self.is_strict(), learn_padding=learn_padding, **conv_kwargs)
             for n_layers in self.layers
         ])
 
         # Output Decoder
-        self.outpt = AbsLinearOutput(skips_c, 1025)
+        self.outpt = AbsLinearOutput(model_dim, self.input_dim)
 
     def forward(self, x):
         """
