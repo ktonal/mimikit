@@ -66,6 +66,10 @@ def show(S, figsize=(), db_scale=True, title="", **kwargs):
     S_hat = to_db(S) if db_scale else S
     if figsize:
         plt.figure(figsize=figsize)
+    if "x_axis" not in kwargs:
+        kwargs["x_axis"] = "frames"
+    if "y_axis" not in kwargs:
+        kwargs["y_axis"] = "frames"
     ax = specshow(S_hat, sr=SR, **kwargs)
     plt.colorbar()
     plt.tight_layout()
