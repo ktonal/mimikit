@@ -37,11 +37,24 @@ class Database(object):
         with h5py.File(h5_file, "r") as f:
             # add found features as self.feature_name = FeatureProxy(self.h5_file, feature_name)
             self._register_features(self.features)
+            self._register_dataframes(self.dataframes)
 
     @property
     def features(self):
         names = self.info.iloc[:, 2:].T.index.get_level_values(0)
         return list(set(names))
+
+    @property
+    def dataframes(self):
+        keys = set()
+
+        def func(k, v):
+            if "pandas_type" in v.attrs.keys() and k.split("/")[0] not in ("layouts", "info", "metadata"):
+                keys.add(k)
+            return None
+
+        self.visit(func)
+        return list(keys)
 
     def visit(self, func=print):
         with h5py.File(self.h5_file, "r") as f:
@@ -71,5 +84,9 @@ class Database(object):
             setattr(self, name, FeatureProxy(self.h5_file, name))
         return None
 
+    def _register_dataframes(self, names):
+        for name in names:
+            setattr(self, name, self._get_dataframe(name))
+        return None
 
 
