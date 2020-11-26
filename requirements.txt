@@ -4,7 +4,7 @@ librosa==0.8
 h5py
 tables==3.5.1
 torch
-pytorch-lightning
+pytorch-lightning==1.0.8
 tqdm
 matplotlib
 scipy
