@@ -70,8 +70,8 @@ class Model(pl.LightningModule):
 
     def __init__(self, **kwargs):
         super(Model, self).__init__()
-        self.hparams = DefaultHP(**kwargs)
-        for k, v in self.hparams.items():
+        self.haparams = DefaultHP(**kwargs)
+        for k, v in self.haparams.items():
             setattr(self, k, v)
 
     @property
