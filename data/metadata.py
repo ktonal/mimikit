@@ -46,7 +46,7 @@ class Metadata(pd.DataFrame):
         return np.cumsum(self["duration"].values)
 
     @property
-    def flat(self):
+    def all_indices(self):
         return np.array([i for ev in self.events for i in range(ev.start, ev.stop)])
 
     def slices(self, time_axis=0):
