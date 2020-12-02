@@ -12,7 +12,7 @@ class FeatureProxy(object):
         with h5py.File(h5_file, "r") as f:
             ds = f[self.name]
             self.N = ds.shape[0]
-            self.dims = ds.shape
+            self.shape = ds.shape
             self.attrs = {k: v for k, v in ds.attrs.items()}
 
     def __len__(self):

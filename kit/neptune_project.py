@@ -15,8 +15,8 @@ def upload_database(db, api_token, project_name, experiment_name):
                                          params={
                                              "name": experiment_name,
                                              "feature": feature,
-                                             "dim": feat_prox.dim,
-                                             "size": feat_prox.N,
+                                             "dim": feat_prox.shape[-1],
+                                             "size": feat_prox.shape[0],
                                              "files": len(db.metadata)})
     exp.log_artifact(db.h5_file)
     return exp.stop()
