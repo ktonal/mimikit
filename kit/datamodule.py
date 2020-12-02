@@ -79,7 +79,7 @@ Feature = NewType("Feature",
                         np.ndarray, torch.Tensor, Sequence, Generator])
 
 
-class DataModuleBase(pl.LightningDataModule):
+class MMKDataModule(pl.LightningDataModule):
 
     def __init__(self,
                  feature: [Feature, Tuple[Feature]],
@@ -89,7 +89,7 @@ class DataModuleBase(pl.LightningDataModule):
                  train_val_split=1.,
                  **loader_kwargs,
                  ):
-        super(DataModuleBase, self).__init__()
+        super(MMKDataModule, self).__init__()
         self.feature = feature
         self.subset_idx = subset_idx
         self.malloc_device = malloc_device
@@ -127,7 +127,7 @@ class DataModuleBase(pl.LightningDataModule):
         return None
 
     def transfer_batch_to_device(self, batch, device):
-        return super(DataModuleBase, self).transfer_batch_to_device(batch, device)
+        return super(MMKDataModule, self).transfer_batch_to_device(batch, device)
 
     ###############################
     # Machinery to prepare features :
@@ -190,7 +190,7 @@ class DataModuleBase(pl.LightningDataModule):
             if issubclass(type(dataset), IterableDataset):
                 raise ValueError("Cannot take a subset of an IterableDataset. Please set `subset_idx` to None or "
                                  "pass a feature of another class.")
-            subset_idx = DataModuleBase._subset_idx_to_indexing_object(subset_idx)
+            subset_idx = MMKDataModule._subset_idx_to_indexing_object(subset_idx)
             dataset = Subset(dataset, subset_idx)
 
         return dataset
@@ -198,7 +198,7 @@ class DataModuleBase(pl.LightningDataModule):
     @staticmethod
     def _feature_to_tensor(feature, subset_idx):
         feat_class = type(feature)
-        subset_idx = DataModuleBase._subset_idx_to_indexing_object(subset_idx)
+        subset_idx = MMKDataModule._subset_idx_to_indexing_object(subset_idx)
 
         # because h5 feature can be huge and need sorted indices,
         # we single this case out and return the "subseted" feature right away
