@@ -112,7 +112,7 @@ class TestDataModule(unittest.TestCase):
                 kwargs = case["loader_kwargs"]
                 case.pop("loader_kwargs")
                 feat = case["feature"]
-                dm = DataModuleBase(**case, **kwargs)
+                dm = MMKDataModule(**case, **kwargs)
 
                 # catch invalid device-allocations of any type of datasets and generator
                 if case["malloc_device"] is not None and \

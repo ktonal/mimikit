@@ -1,5 +1,6 @@
-from .model_base import Model
-from ..modules import GatedLinearInput, AbsLinearOutput, GatedConv
+from ..kit import ShiftedSeqsPairWrapper, MMKHooks, EpochEndPrintHook
+from ..modules import GatedLinearInput, AbsLinearOutput, GatedConv, mean_L1_prop
+from pytorch_lightning import LightningModule
 
 from functools import partial
 import torch
@@ -140,42 +141,70 @@ for k, v in layer_funcs.items():
     layer_funcs[k] = (v,)
 
 
-class FreqNet(Model):
+class FreqNet(MMKHooks,
+              EpochEndPrintHook,
+              LightningModule):
 
-    def is_strict(self):
-        return self.lf[0].keywords.get("strict", False)
-
-    @property
-    def shift(self):
-        return sum(2 ** i + i * int(self.is_strict()) for i in self.layers)
-
-    @property
-    def receptive_field(self):
-        return sum(2 ** i for i in self.layers)
-
-    @property
-    def concat_side(self):
-        return self.lf[0].keywords.get("concat_outputs", 0)
+    datamodule_defaults = dict(
+        ds_wrapper=ShiftedSeqsPairWrapper,
+        batch_size=64,
+        sequence_length=64,
+    )
+    model_defaults = dict(
+        loss_fn=mean_L1_prop,
+        model_dim=512,
+        conv_kwargs=dict(groups=1),
+        lf=layer_funcs["residuals_left"],
+        layers=(int(np.log2(8)),),
+        layer_wise_loss=False,  # TODO!
+        learn_padding=False,
+    )
+    optim_defaults = dict(
+        max_lr=5e-4,
+        betas=(.9, .9),
+        div_factor=3.,
+        final_div_factor=1.,
+        pct_start=.25,
+        cycle_momentum=False,
+        max_epochs=100,
+    )
 
     def __init__(self, **kwargs):
-        super(FreqNet, self).__init__(**kwargs)
+        super(FreqNet, self).__init__()
+        self.input_dim = None
+        self.inpt = None
+        self.blocks = None
+        self.outpt = None
 
-        model_dim = self.model_dim
-        layer_f, learn_padding = self.lf[0], self.learn_padding
-        conv_kwargs = getattr(self, "conv_kwargs", {})
+    def setup(self, stage: str):
 
-        # Input Encoder
-        self.inpt = GatedLinearInput(self.input_feature.dim, model_dim)
+        if stage == "fit":
 
-        # Autoregressive Part
-        self.blocks = nn.ModuleList([
-            FreqBlock(model_dim, n_layers, layer_f,
-                      strict=self.is_strict(), learn_padding=learn_padding, **conv_kwargs)
-            for n_layers in self.layers
-        ])
+            dm = self.datamodule
+            if not dm.has_prepared_data:
+                dm.prepare_data()
+                dm.setup("fit")
+            elif not dm.has_setup_fit:
+                dm.setup("fit")
+            self.input_dim = dm.dims[0][-1]
 
-        # Output Decoder
-        self.outpt = AbsLinearOutput(model_dim, self.input_feature.dim)
+            # Now we can build the modules
+            model_dim = self.model_dim
+            layer_f, learn_padding = self.lf[0], self.learn_padding
+            conv_kwargs = getattr(self, "conv_kwargs", {})
+
+            # Input Encoder
+            self.inpt = GatedLinearInput(self.input_dim, model_dim)
+
+            # Auto-regressive Blocks
+            self.blocks = nn.ModuleList([
+                FreqBlock(model_dim, n_layers, layer_f,
+                          strict=self.is_strict(), learn_padding=learn_padding, **conv_kwargs)
+                for n_layers in self.layers
+            ])
+
+            # Output Decoder
+            self.outpt = AbsLinearOutput(model_dim, self.input_dim)
 
     def forward(self, x):
         """
@@ -212,6 +241,47 @@ class FreqNet(Model):
         recon = self.loss_fn(output, target)
         self.ep_losses += [recon.item()]
         return {"loss": recon}
+
+    def configure_optimizers(self):
+        # for warm restarts
+        if self.trainer is not None and self.trainer.optimizers is not None \
+                and len(self.trainer.optimizers) >= 1:
+            return self.trainer.optimizers
+        self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
+        self.sched = torch.optim.lr_scheduler.OneCycleLR(self.opt,
+                                                         steps_per_epoch=len(self.dl),
+                                                         epochs=self.max_epochs,
+                                                         max_lr=self.max_lr, div_factor=self.div_factor,
+                                                         final_div_factor=self.final_div_factor,
+                                                         pct_start=self.pct_start,
+                                                         cycle_momentum=self.cycle_momentum
+                                                         )
+        return [self.opt], [{"scheduler": self.sched, "interval": "step", "frequency": 1}]
+
+    def is_strict(self):
+        return self.lf[0].keywords.get("strict", False)
+
+    @property
+    def shift(self):
+        return sum(2 ** i + i * int(self.is_strict()) for i in self.layers)
+
+    @property
+    def receptive_field(self):
+        return sum(2 ** i for i in self.layers)
+
+    @property
+    def concat_side(self):
+        return self.lf[0].keywords.get("concat_outputs", 0)
+
+    def prepare_data(self):
+        # Default data routine
+        self.dl = load([self.input_feature] * 2, self.train_set.copy(), "frame",
+                       sequence_length=self.sequence_length, stride=1, shifts=(0, self.shift),
+                       batch_size=self.batch_size, shuffle=True,
+                       pre_cat=True, device=self.device)
+
+    def train_dataloader(self):
+        return self.dl
 
     def generation_slices(self, step_length=1):
         rf = self.receptive_field

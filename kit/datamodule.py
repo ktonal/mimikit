@@ -105,6 +105,8 @@ class MMKDataModule(pl.LightningDataModule):
 
     def setup(self, stage=None):
         dataset = self._prepare_feature()
+        # this is the 'official' attributes for this
+        self.dims = self.infer_dims(dataset)
         if is_map_style_dataset(dataset):
             tr_length = int(self.train_val_split * len(dataset))
             lengths = (tr_length, len(dataset) - tr_length)
@@ -297,3 +299,15 @@ class MMKDataModule(pl.LightningDataModule):
             kwargs.setdefault("pin_memory", True)
             kwargs.setdefault("num_workers", cpu_count())
         return kwargs
+
+    @staticmethod
+    def infer_dims(dataset):
+        """returns all the shapes found in the first example of `dataset` as a list"""
+        if is_map_style_dataset(dataset):
+            example = dataset[0]
+        else:
+            example = next(iter(dataset))
+        if isinstance(example, tuple):
+            return [x.shape for x in example]
+        else:
+            return [example.shape]
