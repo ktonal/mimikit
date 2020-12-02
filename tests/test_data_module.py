@@ -1,7 +1,7 @@
 import unittest
 
-from mmk.data.dataset_wrappers import InputEqualTargetWrapper
-from ..data.load import *
+from mmk.kit.ds_wrappers import InputEqualTargetWrapper
+from mmk.kit.datamodule import *
 from ..data.factory import file_to_db, Database
 import os
 from sklearn.model_selection import ParameterGrid
