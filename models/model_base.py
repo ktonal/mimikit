@@ -1,13 +1,11 @@
 import torch
 from IPython import get_ipython
 import numpy as np
-import torch.nn as nn
 import pytorch_lightning as pl
 from time import time, gmtime
 import os
 import shutil
-from ..data import load
-
+from ..modules.loss_functions import mean_L1_prop
 
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print("mmk initialized with device:", DEVICE)
@@ -15,7 +13,8 @@ print("mmk initialized with device:", DEVICE)
 
 def is_notebook():
     shell = get_ipython().__class__.__name__
-    if shell == 'ZMQInteractiveShell':
+    if shell in ('ZMQInteractiveShell', "Shell"):
+        # loacl and colab notebooks
         return True
     elif shell == 'TerminalInteractiveShell':
         return False
@@ -27,11 +26,6 @@ if is_notebook():
     from tqdm.notebook import tqdm
 else:
     from tqdm import tqdm
-
-
-def mean_L1_prop(output, target):
-    L = nn.L1Loss(reduction="none")(output, target).sum(dim=(0, -1), keepdim=True)
-    return 100 * (L / target.abs().sum(dim=(0, -1), keepdim=True)).mean()
 
 
 def DefaultHP(**kwargs):
@@ -77,32 +71,6 @@ class Model(pl.LightningModule):
     @property
     def shift(self):
         raise NotImplementedError("base class `Model` doesn't implement the shift property")
-
-    def prepare_data(self):
-        # Default data routine
-        self.dl = load([self.input_feature] * 2, self.train_set.copy(), "frame",
-                       sequence_length=self.sequence_length, stride=1, shifts=(0, self.shift),
-                       batch_size=self.batch_size, shuffle=True,
-                       pre_cat=True, device=DEVICE)
-
-    def train_dataloader(self):
-        return self.dl
-
-    def configure_optimizers(self):
-        # for warm restarts
-        if self.trainer is not None and self.trainer.optimizers is not None \
-                and len(self.trainer.optimizers) >= 1:
-            return self.trainer.optimizers
-        self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
-        self.sched = torch.optim.lr_scheduler.OneCycleLR(self.opt,
-                                                         steps_per_epoch=len(self.dl),
-                                                         epochs=self.max_epochs,
-                                                         max_lr=self.max_lr, div_factor=self.div_factor,
-                                                         final_div_factor=self.final_div_factor,
-                                                         pct_start=self.pct_start,
-                                                         cycle_momentum=self.cycle_momentum
-                                                         )
-        return [self.opt], [{"scheduler": self.sched, "interval": "step", "frequency": 1}]
 
     @staticmethod
     def load(clazz, version_dir, epoch=None):
