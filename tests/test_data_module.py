@@ -1,4 +1,6 @@
 import unittest
+
+from mmk.data.dataset_wrappers import InputEqualTargetWrapper
 from ..data.load import *
 from ..data.factory import file_to_db, Database
 import os
@@ -78,7 +80,7 @@ CASES = ParameterGrid(
 
         "ds_wrapper": [
             None,
-            AutoEncodingWrapper()
+            InputEqualTargetWrapper()
         ],
 
         "train_val_split": [1., .5],
