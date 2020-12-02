@@ -88,10 +88,20 @@ class ShiftedSeqsPairWrapper(InputEqualTargetWrapper):
         self.shift = shift
         self.sequence_length = sequence_length
         self.stride = stride
+        self.N = None
+
+    def __call__(self, *datasets: Dataset):
+        super(ShiftedSeqsPairWrapper, self).__call__(*datasets)
+        self.N = len(self.datasets[0])
+
+    def __len__(self):
+        return (self.N - self.sequence_length - self.shift + 1) // self.stride
 
     def _item_to_slices(self, item):
-        # TODO
-        pass
+        i = item * self.stride
+        input_slice = slice(i, i + self.sequence_length)
+        target_slice = slice(i + self.shift, i + self.shift + self.sequence_length)
+        return input_slice, target_slice
 
     def __getitem__(self, item):
-        return tuple(ds[i] for i, ds in zip([item, item+self.shift], self.datasets))
+        return tuple(ds[idx] for ds, idx in zip(self.datasets, self._item_to_slices(item)))
