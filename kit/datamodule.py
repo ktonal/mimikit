@@ -1,10 +1,11 @@
 import torch
-from torch.utils.data import Dataset, IterableDataset, TensorDataset, Subset, DataLoader, \
+from torch.utils.data import Dataset as TorchDataset, IterableDataset, TensorDataset, Subset, DataLoader, \
     random_split
 import pytorch_lightning as pl
 import numpy as np
 from typing import Sequence, Tuple, Generator, NewType, Union
 from multiprocessing import cpu_count
+
 from mmk.data import FeatureProxy
 from mmk.kit.ds_wrappers import DatasetWrapper, IterableDatasetWrapper, is_map_style_dataset
 from mmk.data.metadata import Metadata
@@ -42,12 +43,13 @@ class SingleTensorDataset(TensorDataset):
     """
     torch's class has a getitem that returns tuples of tuples...
     """
+
     def __getitem__(self, item):
         rv = super(SingleTensorDataset, self).__getitem__(item)
         return rv[0]
 
 
-class H5Dataset(Dataset):
+class H5Dataset(TorchDataset):
     """
     just wraps a FeatureProxy in a Dataset class
     """
@@ -67,6 +69,9 @@ class GeneratorDataset(IterableDataset):
     just wrap a Generator in an IterableDataset
     """
 
+    def __getitem__(self, index):
+        pass
+
     def __init__(self, generator):
         self.generator = generator
 
@@ -75,8 +80,107 @@ class GeneratorDataset(IterableDataset):
 
 
 Feature = NewType("Feature",
-                  Union[Dataset, IterableDataset, FeatureProxy,
+                  Union[TorchDataset, IterableDataset, FeatureProxy,
                         np.ndarray, torch.Tensor, Sequence, Generator])
+
+
+class Dataset(TorchDataset):
+
+    @property
+    def n_features(self):
+        return len(self._shape)
+
+    @property
+    def dims(self):
+        return self._shape
+
+    @property
+    def shape(self):
+        return self._shape
+
+    def size(self):
+        return self._shape
+
+    @property
+    def dtype(self):
+        return self._dtype
+
+    @property
+    def device(self):
+        return self._device
+
+    @property
+    def indices(self):
+        return self._indices
+
+    @property
+    def style(self):
+        return is_map_style_dataset(self)
+
+    @property
+    def attrs(self):
+        return self._attrs
+
+    @staticmethod
+    def __new__(cls, *objects):
+        """"""
+        pass
+
+    def __init__(self):
+        self._nd_object = None
+        self._generator = None
+        self._shape = tuple()
+        self._dtype = tuple()
+        self._device = tuple()
+        self._indices = None
+        self._attrs = dict()
+
+    def __len__(self):
+        pass
+
+    def __call__(self, *args, **kwargs):
+        pass
+
+    def __getitem__(self, item):
+        pass
+
+    def __iter__(self):
+        pass
+
+    def build(self, *args, **kwargs):
+        """build storage from sources"""
+        pass
+
+    def prepare(self):
+        """instantiate storage or connection to storage"""
+        pass
+
+    def setup(self):
+        """storage to indexable/iterable object"""
+        pass
+
+    def wraps_in(self, *wrappers):
+        """add batch definition, augmentations (and transforms?) with wrapper"""
+        pass
+
+    def transform_item(self, item):
+        """callback to do something with the items before they are passed to __getitem__"""
+        pass
+
+    def load(self, **kwargs):
+        """'transform' to dispenser (Dataloader)"""
+        pass
+
+    def to(self, device):
+        """move to device"""
+        pass
+
+    def transform(self, function):
+        pass
+
+    def random_example(self, n):
+        """get n random examples"""
+        pass
 
 
 class MMKDataModule(pl.LightningDataModule):
@@ -152,7 +256,7 @@ class MMKDataModule(pl.LightningDataModule):
             dataset = tuple(self._prepare_single_feature(feat, subset_idx, malloc_device) for feat in feature)
         else:
             dataset = self._prepare_single_feature(feature, subset_idx, malloc_device)
-    
+
         if ds_wrapper is not None:
             if not isinstance(dataset, tuple):
                 dataset = (dataset,)
@@ -178,9 +282,9 @@ class MMKDataModule(pl.LightningDataModule):
         return dataset
         """
         if malloc_device is not None:
-            if issubclass(type(feature), Dataset):
+            if issubclass(type(feature), TorchDataset):
                 raise ValueError("Cannot allocate a %s to a device's memory." % type(feature) +
-                                 " Please set `malloc_device` to None " 
+                                 " Please set `malloc_device` to None "
                                  "or pass a `feature` object of one of the following type: "
                                  "mmk.data.FeatureProxy, np.ndarray, torch.Tensor, Sequence")
             feature = self._feature_to_tensor(feature, subset_idx)
@@ -232,7 +336,7 @@ class MMKDataModule(pl.LightningDataModule):
     @staticmethod
     def _feature_to_dataset(feature):
         feat_class = type(feature)
-        if issubclass(feat_class, Dataset):
+        if issubclass(feat_class, TorchDataset):
             dataset = feature
         elif issubclass(feat_class, torch.Tensor):
             dataset = SingleTensorDataset(feature)
@@ -253,7 +357,7 @@ class MMKDataModule(pl.LightningDataModule):
     def _wrap_dataset(feat, wrapper):
         if issubclass(wrapper, DatasetWrapper):
             if not isinstance(feat, tuple):
-                feat = (feat, )
+                feat = (feat,)
             feat = wrapper(*feat)
         else:
             raise TypeError("Expected `ds_wrapper` to be a subclass of `DatasetWrapper` or `IterableDatasetWrapper`,"

@@ -104,4 +104,5 @@ class ShiftedSeqsPairWrapper(InputEqualTargetWrapper):
         return input_slice, target_slice
 
     def __getitem__(self, item):
-        return tuple(ds[idx] for ds, idx in zip(self.datasets, self._item_to_slices(item)))
+        return tuple(ds[idx] for ds, idx in
+                     zip(self.datasets, self._item_to_slices(item)))
