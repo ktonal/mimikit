@@ -119,26 +119,50 @@ class Dataset(TorchDataset):
 
     @property
     def attrs(self):
+        """
+        @return: `attrs` : dict of user-specified infos he wants to keep close (e.g. {"sr": 22050, "time-axis": 0})
+        """
         return self._attrs
 
     @staticmethod
-    def __new__(cls, *objects):
-        """"""
+    def __new__(cls,
+                sources=None,  # remote locations of data
+                files=None,   # local paths to data
+                objects=None,   # 'datasetable' objects like arrays, tensors or generators
+                datasets=None,  # Datasets we want to wrap or augment
+                wrappers=None,  # wrappers to specify batch creation
+                augmentations=None,   # see the docstring of the `augment` method
+                ):
+        """
+        create a new Dataset either from sources, from files, from python objects or from Datasets.
+        Having instantiation here allows to define subclasses that explicitly deal only with sources or only with files
+        and to instantiate the class most appropriate to the user's input. It's also handy for declaring Datasets
+        on the fly at any step of the workflow described below in the "WORKFLOWS" note.
+        """
         pass
 
     def __init__(self):
-        self._nd_object = None
-        self._generator = None
+        """
+        Here we initialize the instance.
+        """
+        self._source = None
+        self._file = None
+        self._object = None
+        self._wrapper = None
+        self._augmentation = None
         self._shape = tuple()
         self._dtype = tuple()
         self._device = tuple()
         self._indices = None
         self._attrs = dict()
 
-    def __len__(self):
+    def __call__(self, *args, **kwargs):
+        """
+        Method used to wrap around an other Dataset. Only used in the wrapper classes.
+        """
         pass
 
-    def __call__(self, *args, **kwargs):
+    def __len__(self):
         pass
 
     def __getitem__(self, item):
@@ -147,20 +171,53 @@ class Dataset(TorchDataset):
     def __iter__(self):
         pass
 
-    def build(self, *args, **kwargs):
-        """build storage from sources"""
+    """
+    WORKFLOWS :
+    The Idea behind the four following methods is two-fold :
+    
+    1. we want to enable 2 different workflows. One where we fetch data prior to training and this could mean download 
+    data to disks, or load files as tensors into RAM. The other where we only specify a promise that will be executed 
+    during training ; for instance, we collect file-names and file-lengths prior to training but we load them as tensors
+    into the RAM only when they're requested by the Trainer during training.
+    
+    2. In either workflow, we need to execute tasks that should run in parallel workers/threads and return objects that
+    allow us to keep track of properties of the underlying data, e.g. shapes and lengths. Both requirements being already
+    full-filled by torch's synergy between Dataloaders and Datasets, we only require that the methods executed
+    in parallel (`download_source` and `load_file`) return Dataset objects!
+    Then, we can flexibly define any data-fetching pipeline by simply specifying which steps/methods should be run 
+    prior to training and which steps/methods should be kept as promises. Simple, efficient, and without any 
+    "yet-an-other-API" overhead : at any step, we use the same slight extension of torch's Dataset! 
+    """
+
+    def download_source(self, *args, **kwargs):
+        """method to download a single source.
+        @returns: Dataset object"""
+        pass
+
+    def load_file(self, path):
+        """method to load a single file.
+        Here's the place to define how an audio file should be transformed (e.g. stft) and to extract some features from
+        it (e.g. segments' or filenames' labels).
+        @returns: Dataset object"""
         pass
 
     def prepare(self):
-        """instantiate storage or connection to storage"""
-        pass
+        """perform here the steps that create files prior to training. For instance, download from neptune/youtube or
+        aggregate transformed files into a .h5 DB.
+        Base class implementation of this method creates a simple multiprocessing Pool that calls
+        `download_source` on all the sources if some were passed to the constructor."""
+        return None
 
     def setup(self):
-        """storage to indexable/iterable object"""
-        pass
+        """perform here the steps that create python objects (e.g. Datasets of Tensors, generators...)
+         prior to training.
+         Base class implementation of this method creates a simple multiprocessing Pool that calls
+        `load_file` on all the files created by `prepare()` or passed to the constructor, it then packs the results into
+        an appropriate Dataset class and concatenate all of them into a single Dataset object"""
+        return None
 
     def wraps_in(self, *wrappers):
-        """add batch definition, augmentations (and transforms?) with wrapper"""
+        """add batch definition, augmentations (and transforms?) with wrapper(s)"""
         pass
 
     def transform_item(self, item):
@@ -168,14 +225,21 @@ class Dataset(TorchDataset):
         pass
 
     def load(self, **kwargs):
-        """'transform' to dispenser (Dataloader)"""
+        """pack self into a batch producer (Dataloader)"""
         pass
 
     def to(self, device):
-        """move to device"""
+        """move any underlying tensor to some device"""
         pass
 
     def transform(self, function):
+        """transform any underlying tensor"""
+        pass
+
+    def augment(self, *augmentations):
+        """`augmentations` are tuples whose first elements are probabilities (0. < float <= 1) for the augmentations
+        to occur during training and the second elements, functions that takes a batch as single argument
+         and return a transformed batch - the augmentation"""
         pass
 
     def random_example(self, n):
