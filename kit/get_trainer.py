@@ -4,6 +4,7 @@ from pytorch_lightning.loggers import NeptuneLogger
 from .pl_loggers import MMKDefaultLogger
 from .pl_checkpoint import MMKCheckpoint
 from .pl_callbacks import EpochProgressBarCallback
+from pytorch_lightning.trainer import Trainer
 
 
 def get_trainer(root_dir=None,
@@ -67,4 +68,4 @@ def get_trainer(root_dir=None,
     # Figure out gpus (with tpus one would probably have to set gpus=None)
     kwargs.setdefault("gpus", torch.cuda.device_count())
 
-    return default_root_dir, next_version, kwargs
+    return Trainer(default_root_dir=default_root_dir, **kwargs)
