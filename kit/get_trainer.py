@@ -28,10 +28,12 @@ def get_trainer(root_dir=None,
         version = int(version)
         if version == -1:
             versions = [int(v.split("_")[1]) for v in os.listdir(root_dir) if "version" in v]
-            next_version = 1 + (max(versions) if any(versions) else -1)
+            # print("VERSIONS FOUND:", versions)
+            next_version = 1 + (max(versions) if versions else -1)
         else:
             next_version = version  # this overwrites any existing files!
         default_root_dir = os.path.join(root_dir, "version_" + str(next_version))
+        # print("ROOT_DIR:", default_root_dir)
     else:
         next_version = 0
         default_root_dir = root_dir
