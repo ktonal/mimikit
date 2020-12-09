@@ -3,6 +3,7 @@ from zipfile import ZipFile
 import os
 import numpy as np
 
+
 # TODO : pack those in a class initialized with a token and a project and add log_audio & log_image from neptunecontrib
 
 
@@ -34,7 +35,7 @@ def upload_model(model, api_token, project_name, experiment_name=""):
     session = Session.with_default_backend(api_token=api_token)
     model_project = session.get_project(project_name)
     exp = model_project.create_experiment(name=experiment_name if experiment_name else model.path,
-                                         params=model.hparams)
+                                          params=model.hparams)
     losses = np.load(model.path + "tr_losses.npy")
     for j in losses:
         exp.log_metric("reconstruction_loss", j)
