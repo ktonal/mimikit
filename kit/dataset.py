@@ -25,6 +25,13 @@ def map_if_multi(attr):
 class Dataset(TorchDataset):
 
     @property
+    def data(self):
+        """
+        give access to the underlying data to wrappers and co
+        """
+        return self._object
+
+    @property
     def n_features(self):
         return self.n_features
 
