@@ -1,9 +1,11 @@
 import h5py
 import numpy as np
 import pandas as pd
-import os
 from multiprocessing import cpu_count, Pool
 import logging
+from typing import Iterable
+import os
+
 from .api import Database
 from .metadata import Metadata
 from .transforms import default_extract_func
@@ -12,33 +14,68 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 
-# FileSystem Stuff
+# Helper class and Functions
 
-AUDIO_EXTENSIONS = ("wav", "aif", "aiff", "mp3", "m4a", "mp4")
+class AudioFileWalker:
 
+    AUDIO_EXTENSIONS = ("wav", "aif", "aiff", "mp3", "m4a", "mp4")
 
-def is_audio_file(file):
-    return file.split(".")[-1] in AUDIO_EXTENSIONS and "._" not in file
+    def __init__(self, roots=None, files=None):
+        """
+        recursively find audio files from `roots` and/or collect audio_files passed in `files`
+        @param roots: a single path (string, os.Path) or an Iterable of paths
+                      from which to collect audio files recursively
+        @param files: a single path (string, os.Path) or an Iterable of paths
+        N.B. : any file whose extension isn't in AudioFileWalker.AUDIO_EXTENSIONS will be ignored,
+        regardless whether it was found recursively or passed through the `files` argument.
 
+        AudioFileWalker implements `__iter__`, hence files can be retrieved in different ways.
+        For instance so:
+        ```
+        files = list(AudioFileWalker(roots=some_roots, files=some_files))
+        ```
+        """
+        generators = []
 
-def flat_dir(directory, ext_filter=is_audio_file):
-    files = []
-    for root, dirname, filenames in os.walk(directory):
-        for f in filenames:
-            if ext_filter(f):
-                files += [os.path.join(root, f)]
-    return sorted(files)
+        if roots is not None and isinstance(roots, Iterable):
+            if isinstance(roots, str):
+                assert os.path.exists(roots), "%s does not exist." % roots
+                generators += [AudioFileWalker.walk_root(roots)]
+            else:
+                for r in roots:
+                    assert os.path.exists(r), "%s does not exist." % r
+                generators += [AudioFileWalker.walk_root(root) for root in roots]
 
+        if files is not None and isinstance(files, Iterable):
+            if isinstance(files, str):
+                assert os.path.exists(files), "%s does not exist." % files
+                generators += [(f for f in [files] if AudioFileWalker.is_audio_file(files))]
+            else:
+                for f in files:
+                    assert os.path.exists(f), "%s does not exist." % f
+                generators += [(f for f in files if AudioFileWalker.is_audio_file(f))]
 
-def fs_dict(root, extension_filter=is_audio_file):
-    root_name = os.path.split(root.strip("/"))[-1]
-    items = [(d, list(filter(extension_filter, f))) for d, _, f in os.walk(root)]
-    if not items:
-        raise ValueError("no audio files found on path %s" % root)
-    return root_name, dict(item for item in items if len(item[1]) > 0)
+        self.generators = generators
 
+    def __iter__(self):
+        for generator in self.generators:
+            for file in generator:
+                yield file
 
-# Helper Functions
+    @staticmethod
+    def walk_root(root):
+        audio_files = (os.path.join(directory, audio_file)
+                       for directory, _, files in os.walk(root)
+                       for audio_file in filter(AudioFileWalker.is_audio_file, files))
+        return audio_files
+
+    @staticmethod
+    def is_audio_file(filename):
+        # filter out hidden files (isn't cross-platform, but, it's a start!...)
+        if filename.startswith("."):
+            return False
+        return os.path.splitext(filename)[-1].strip(".") in AudioFileWalker.AUDIO_EXTENSIONS
+
 
 def sizeof_fmt(num, suffix='b'):
     """
@@ -106,13 +143,10 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
 
 # Multiprocessing routine
 
-def make_db_for_each_file(root_directory,
+def make_db_for_each_file(file_walker,
                           extract_func=default_extract_func,
-                          extension_filter=is_audio_file,
                           n_cores=cpu_count()):
-    root_name, tree = fs_dict(root_directory, extension_filter)
-    args = [(os.path.join(dir, file), extract_func)
-            for dir, files in tree.items() for file in files]
+    args = [(file, extract_func) for file in file_walker]
     with Pool(n_cores) as p:
         tmp_dbs = p.starmap(file_to_db, args)
     return tmp_dbs
@@ -213,7 +247,7 @@ def aggregate_dbs(target, dbs, mode="w", remove_sources=False):
     metadata.to_hdf(target, "metadata", "r+")
 
 
-def make_root_db(db_name, root_directory, extract_func=default_extract_func, extension_filter=is_audio_file,
+def make_root_db(db_name, file_walker, extract_func=default_extract_func,
                  n_cores=cpu_count(), remove_sources=True):
-    dbs = make_db_for_each_file(root_directory, extract_func, extension_filter, n_cores)
+    dbs = make_db_for_each_file(file_walker, extract_func, n_cores)
     aggregate_dbs(db_name, dbs, "w", remove_sources)
