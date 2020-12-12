@@ -29,8 +29,8 @@ class AudioFileWalker:
         N.B. : any file whose extension isn't in AudioFileWalker.AUDIO_EXTENSIONS will be ignored,
         regardless whether it was found recursively or passed through the `files` argument.
 
-        AudioFileWalker implements `__iter__`, hence files can be retrieved in different ways.
-        For instance so:
+        to retrieve the files from an AudioFileWalker just iterate through it.
+        Example:
         ```
         files = list(AudioFileWalker(roots=some_roots, files=some_files))
         ```
