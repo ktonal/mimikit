@@ -25,11 +25,13 @@ class Case:
     def assert_attr_is_multi(self, attr):
         ds = self.ds
         result = getattr(ds, attr)
+        print(result)
         assert isinstance(result, tuple) and len(result) == len(self.data_object), (result, len(self.data_object))
 
     def assert_attr_is_not_None(self, attr):
         ds = self.ds
         result = getattr(ds, attr)
+        print(result)
         assert result is not None
 
 
@@ -56,6 +58,7 @@ def test_computed_properties_of_valid_cases(init_valid_case):
     else:
         for attr in attrs:
             case.assert_attr_is_multi(attr)
+    print(case.ds[0])
 
 
 def test_methods_on_valid_cases(init_valid_case):

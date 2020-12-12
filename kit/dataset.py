@@ -1,24 +1,26 @@
 import torch
 import numpy as np
-from torch.utils.data import Dataset as TorchDataset, Subset
+from torch.utils.data import Dataset as TorchDataset, Subset, random_split, DataLoader
 from torch.utils.data._utils.collate import default_convert
-
+import pytorch_lightning as pl
 from functools import update_wrapper
+import warnings
 
 
 def map_if_multi(attr):
     def decorator(fn):
         def wrapper(self, *arg, **kwargs):
             if isinstance(getattr(self, attr), tuple):
-                return tuple(getattr(x, fn.__name__)(*arg, **kwargs) for x in getattr(self, attr))
+                return tuple(getattr(x, fn.__name__)(*arg, **kwargs)[0] for x in getattr(self, attr))
             else:
-                return fn(self, *arg, **kwargs)
+                # for consistency, we always return a tuple
+                # noinspection PyRedundantParentheses
+                return (fn(self, *arg, **kwargs), )
 
         return update_wrapper(wrapper, fn,
                               # for some reason, __mod__ causes errors when using functools.wraps
                               ("__name__", '__qualname__', '__doc__', '__annotations__'),
                               ("__dict__",))
-
     return decorator
 
 
@@ -112,6 +114,8 @@ class Dataset(TorchDataset):
         return self._object[item]
 
     def __iter__(self):
+        if isinstance(self._object, tuple):
+            return zip(*[iter(obj) for obj in self._object])
         return iter(self._object)
 
     @staticmethod
@@ -198,13 +202,13 @@ class Dataset(TorchDataset):
     @map_if_multi("_object")
     def to_tensor(self):
         if issubclass(type(self._object), torch.Tensor):
-            return self
+            return
         elif self._style == "iter":
             raise TypeError("Cannot convert 'iter' style objects to tensor.")
         maybe_tensor = default_convert(self._object[:])
         if issubclass(type(maybe_tensor), torch.Tensor):
             self._object = maybe_tensor
-            return self
+            return
         else:
             raise RuntimeWarning("torch couldn't convert data_object to tensor. data_object is still of "
                                  "class %s" % str(type(self._object)))
@@ -217,46 +221,96 @@ class Dataset(TorchDataset):
             self._object = self._object[np.sort(indices)]
         else:  # TODO : Should be a proper wrapper:
             self._object = Subset(self._object, indices)
-        return self
 
     @map_if_multi("_object")
     def to(self, device):
         """move any underlying tensor to some device"""
-        pass
-
-    def download_source(self, *args, **kwargs):
-        """method to download a single source.
-        @returns: Dataset object"""
-        pass
-
-    def load_file(self, path):
-        """method to load a single file.
-        Here's the place to define how an audio file should be transformed (e.g. stft) and to extract some features from
-        it (e.g. segments' or filenames' labels).
-        @returns: Dataset object"""
-        pass
-
-    def wrap_in(self, *wrappers):
-        """add batch definition, augmentations (and transforms?) with wrapper(s)"""
-        pass
+        if isinstance(self._object, torch.Tensor):
+            self._object.to(device)
 
     def split(self, splits):
-        pass
+        """
+        @param splits: Sequence of floats or ints possibly containing None. The sequence of elements
+        corresponds to the proportion (floats), the number of examples (ints) or the absence of
+        train-set, validation-set, test-set, other sets... in that order.
+        @return: the *-sets
+        """
+        nones = []
+        if any(x is None for x in splits):
+            if splits[0] is None:
+                raise ValueError("the train-set's split cannot be None")
+            nones = [i for i, x in zip(range(len(splits)), splits) if x is None]
+            splits = [x for x in splits if x is not None]
+        if all(type(x) is float for x in splits):
+            splits = [x / sum(splits) for x in splits]
+            N = len(self)
+            # leave the last one out for now because of rounding
+            as_ints = [int(N * x) for x in splits[:-1]]
+            # check that the last is not zero
+            if N - sum(as_ints) == 0:
+                raise ValueError("the last split rounded to zero element. Please provide a greater float or consider "
+                                 "passing ints.")
+            as_ints += [N - sum(as_ints)]
+            splits = as_ints
+        sets = list(random_split(self, splits))
+        if any(nones):
+            sets = [None if i in nones else sets.pop(0) for i in range(len(sets + nones))]
+        return tuple(sets)
 
     def load(self, **kwargs):
         """pack self into a batch producer (Dataloader)"""
-        pass
+        return DataLoader(self, **kwargs)
 
-    def transform(self, function):
-        """transform any underlying tensor"""
-        pass
-
-    def augment(self, *augmentations):
-        """`augmentations` are tuples whose first elements are probabilities (0. < float <= 1) for the augmentations
-        to occur during training and the second elements, functions that takes a batch as single argument
-         and return a transformed batch - the augmentation"""
-        pass
-
-    def random_example(self, n):
+    def random_examples(self, n):
         """get n random examples"""
-        pass
+        if "map" not in self.style:
+            raise NotImplemented("Cannot sample random examples from generator objects")
+        idx = np.random.randint(0, len(self), n)
+        features = zip(*[self[i] for i in idx])
+        features = [torch.stack(feat) if isinstance(feat[0], torch.Tensor) else np.stack(feat)
+                    for feat in features]
+        return features
+
+    def to_datamodule(self,
+                      to_tensor=False,
+                      to_gpu=False,
+                      splits=None,
+                      **loader_kwargs):
+        if to_gpu:
+            self.to_tensor()
+            if not torch.cuda.is_available():
+                warnings.warn("You requested to move data to the gpu with `to_gpu=True` "
+                              "but, currently, no gpu is available.")
+            else:
+                self.to("gpu")
+
+        if to_tensor and not to_gpu:
+            self.to_tensor()
+
+        if splits is None:
+            splits = (1.,)
+        sets = self.split(splits)
+
+        class DataModule(pl.LightningDataModule):
+            train_ds = None
+            val_ds = None
+            test_ds = None
+            loader_kwargs = {}
+
+            def train_dataloader(self):
+                if self.train_ds is not None:
+                    return DataLoader(self.train_ds, **self.loader_kwargs)
+
+            def val_dataloader(self):
+                if self.val_ds is not None:
+                    return DataLoader(self.val_ds, **self.loader_kwargs)
+
+            def test_dataloader(self):
+                if self.test_ds is not None:
+                    return DataLoader(self.test_ds, **self.loader_kwargs)
+
+        dm = DataModule()
+        for ds, attr in zip(sets, ["train_ds", "val_ds", "test_ds"]):
+            setattr(dm, attr, ds)
+        setattr(dm, "loader_kwargs", loader_kwargs)
+        return dm
