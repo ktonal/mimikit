@@ -1,7 +1,7 @@
 import pytest
 from ...kit.get_trainer import get_trainer
-from ...kit.pl_loggers import MMKDefaultLogger
-from ...kit.pl_checkpoint import MMKCheckpoint
+from ...kit.loggers import MMKDefaultLogger
+from ...kit.checkpoint import MMKCheckpoint
 from sklearn.model_selection import ParameterGrid
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers.neptune import NeptuneLogger
