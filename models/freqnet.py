@@ -1,4 +1,4 @@
-from ..kit import ShiftedSeqsPairWrapper, MMKHooks, EpochEndPrintHook, MMKDataModule
+from ..kit import ShiftedSeqsPair, MMKHooks, EpochEndPrintHook, Dataset
 from ..modules import GatedLinearInput, AbsLinearOutput, GatedConv, mean_L1_prop
 from pytorch_lightning import LightningModule
 import warnings
@@ -6,6 +6,7 @@ from functools import partial
 import torch
 import torch.nn as nn
 import numpy as np
+from multiprocessing import cpu_count
 
 
 class Padder(nn.Module):
@@ -151,8 +152,6 @@ class FreqNet(MMKHooks,
         layers=(int(np.log2(8)),),
         layer_wise_loss=False,  # TODO!
         learn_padding=False,
-        sequence_length=64,
-        batch_size=64,
     )
     optim_defaults = dict(
         max_lr=5e-4,
@@ -163,42 +162,54 @@ class FreqNet(MMKHooks,
         cycle_momentum=False,
         max_epochs=100,
     )
+    # group all data-related params (splits, loaders- and wrappers-args, preparation steps...)
+    # N.B.: this would mean that each model would have to implement the steps
+    # that transform raw data to a, for him, consumable loader or DataModule.
+    data_defaults = dict(
+        db_subset=None,
+        batch_size=64,
+        sequence_length=64,
+        splits=[.85, .15],
+        wrappers=None,
+        to_tensor=True,
+        to_gpu=True,
+    )
 
     def __init__(self,
-                 datamodule: MMKDataModule,
+                 inputs,
                  model_args: dict,
-                 optim_args: dict):
+                 optim_args: dict,
+                 data_args: dict):
         super(FreqNet, self).__init__()
-        self._init_datamodule_and_hparams(datamodule, model_args, optim_args)
-        self.input_dim = None
-        self.inpt = None
-        self.blocks = None
-        self.outpt = None
+        # validate and inject params als attributes
+        self._init_hparams(model_args, optim_args, data_args)
+        # build the datamodule
+        ds = Dataset(inputs)
+        self.input_dim = ds.shape
+        ds = ShiftedSeqsPair(self.sequence_length, self.shift)(ds)
+        self.datamodule = ds.to_datamodule(self.to_gpu,
+                                           self.to_tensor,
+                                           self.splits,
+                                           batch_size=self.batch_size,
+                                           num_workers=1 if self.to_gpu else cpu_count() // 2
+                                           )
+        # Now we can build the model
+        model_dim = self.model_dim
+        layer_f, learn_padding = self.lf[0], self.learn_padding
+        conv_kwargs = getattr(self, "conv_kwargs", {})
 
-    def setup(self, stage: str):
+        # Input Encoder
+        self.inpt = GatedLinearInput(self.input_dim, model_dim)
 
-        if stage == "fit":
-            self.datamodule.prepare_data()
-            self.datamodule.setup("fit")
-            self.input_dim = self.datamodule.dims[0][-1]
+        # Auto-regressive Blocks
+        self.blocks = nn.ModuleList([
+            FreqBlock(model_dim, n_layers, layer_f,
+                      strict=self.is_strict(), learn_padding=learn_padding, **conv_kwargs)
+            for n_layers in self.layers
+        ])
 
-            # Now we can build the modules
-            model_dim = self.model_dim
-            layer_f, learn_padding = self.lf[0], self.learn_padding
-            conv_kwargs = getattr(self, "conv_kwargs", {})
-
-            # Input Encoder
-            self.inpt = GatedLinearInput(self.input_dim, model_dim)
-
-            # Auto-regressive Blocks
-            self.blocks = nn.ModuleList([
-                FreqBlock(model_dim, n_layers, layer_f,
-                          strict=self.is_strict(), learn_padding=learn_padding, **conv_kwargs)
-                for n_layers in self.layers
-            ])
-
-            # Output Decoder
-            self.outpt = AbsLinearOutput(model_dim, self.input_dim)
+        # Output Decoder
+        self.outpt = AbsLinearOutput(model_dim, self.input_dim)
 
     def forward(self, x):
         """
@@ -273,7 +284,7 @@ class FreqNet(MMKHooks,
             return slice(-rf, None), slice(None, step_length)
         return slice(-rf, None), slice(rf, rf + step_length)
 
-    def _init_datamodule_and_hparams(self, datamodule, model_args, optim_args):
+    def _init_hparams(self, model_args, optim_args, data_args):
         # (TODO: Validate hparams)
         # initialize and store hparams
         hparams = dict()
@@ -286,14 +297,9 @@ class FreqNet(MMKHooks,
             setattr(self, key, optim_args.get(key, self.optim_defaults[key]))
             hparams.update({key: getattr(self, key)})
         # data part
-        # make sure we're clear to do what we plan to!
-        FreqNet._validate_datamodule(datamodule)
-        # we need to instantiate and add the ds_wrapper here because it depends on the computed self.shift
-        datamodule.ds_wrapper = ShiftedSeqsPairWrapper(self.sequence_length, self.shift)
-        hparams.update(subset_idx=datamodule.subset_idx)
-        hparams.update(train_val_split=datamodule.train_val_split)
-        datamodule.loader_kwargs.setdefault("batch_size", self.batch_size)
-        self.datamodule = datamodule
+        for key in self.data_defaults.keys():
+            setattr(self, key, data_args.get(key, self.data_defaults[key]))
+            hparams.update({key: getattr(self, key)})
 
         self._validate_hparams(hparams)
         self.save_hyperparameters(hparams)
@@ -302,27 +308,3 @@ class FreqNet(MMKHooks,
         if hparams["sequence_length"] < self.receptive_field:
             raise ValueError("Expected `sequence_length` to be >= to self.receptive_field."
                              "%i < %i" % (hparams["sequence_length"], self.receptive_field))
-
-    @staticmethod
-    def _validate_datamodule(datamodule):
-        if not isinstance(datamodule, MMKDataModule):
-            raise TypeError("Expected `datamodule` to be an instance of `MMKDataModule`. "
-                            "Got %s" % str(type(datamodule)))
-        if isinstance(datamodule.feature, tuple) and len(datamodule.feature) > 1:
-            raise ValueError(("Expected `datamodule` to have a single `feature`. Got %i." % len(datamodule.feature)) +
-                             " FreqNet takes care of building correct batches of inputs and targets "
-                             "and you do not need to do it yourself.")
-        if datamodule.has_setup_fit:
-            raise RuntimeError("Expected `datamodule` to haven't been setup for fit."
-                               " Please, do not call `datamodule.setup('fit')` before passing it."
-                               " This step needs to (and will) be called manually in FreqNet.setup('fit').")
-        if datamodule.ds_wrapper is not None:
-            raise ValueError("Expected `datamodule.ds_wrapper` to be None. Got object of type : %s."
-                             "Please, do not set the `ds_wrapper` arg of the datamodule since FreqNet needs to "
-                             "take care of it itself.")
-        if datamodule.loader_kwargs.get("batch_size", None) is not None:
-            warnings.warn("You provided `batch_size` as a `loader_args` to the `datamodule` instead of as "
-                          "a `model_args` to FreqNet. In order to ensure a single source of truth, FreqNet overrides"
-                          " any `batch_size` passed to the datamodule with the one passed through FreqNet's "
-                          "`model_args`, which defaults to FreqNet.model_defaults['batch_size'].")
-
