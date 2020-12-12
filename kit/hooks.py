@@ -27,7 +27,7 @@ class EpochEndPrintHook:
     def on_epoch_end(self):
         to_print = "Epoch %i " % self.current_epoch
         for k, v in self._ep_metrics.items():
-            to_print += "- %s :%.4f " % (k, v / self._batch_count)
+            to_print += "- %s : %.4f " % (k, v / self._batch_count)
         self.print(to_print)
 
     def on_fit_start(self):

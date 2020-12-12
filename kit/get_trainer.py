@@ -80,5 +80,5 @@ def get_trainer(root_dir=None,
 
     # Figure out gpus (with tpus one would probably have to set gpus=None)
     kwargs.setdefault("gpus", torch.cuda.device_count())
-
+    print("Checkpoints and logs will be saved in", os.path.abspath(default_root_dir))
     return Trainer(default_root_dir=default_root_dir, **kwargs)

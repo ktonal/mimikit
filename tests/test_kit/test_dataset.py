@@ -12,53 +12,56 @@ class Case:
             self._ds = Dataset(self.data_object)
         return self._ds
 
-    def __init__(self, data_object):
+    def __init__(self, data_object, expected):
         self.data_object = data_object
+        self.expected = expected
         self._ds = None
 
-    def should_be_multi(self):
-        return isinstance(self.data_object, tuple) and len(self.data_object) > 1
-
-    def assert_ds_is_not_None(self):
-        assert self.ds is not None
-
-    def assert_attr_is_multi(self, attr):
-        ds = self.ds
-        result = getattr(ds, attr)
-        print(result)
-        assert isinstance(result, tuple) and len(result) == len(self.data_object), (result, len(self.data_object))
-
-    def assert_attr_is_not_None(self, attr):
-        ds = self.ds
-        result = getattr(ds, attr)
-        print(result)
-        assert result is not None
+    def __repr__(self):
+        return str(self.data_object)
 
 
 valid_data_objects = [
-    np.random.randn(10, 10),
-    torch.randn(10, 10),
-    (np.random.randn(10, 10), np.random.randn(10, 10)),
-    [list(range(10)) for _ in range(10)],
+    Case(np.random.randn(10, 10),
+         dict(shape=((10, 10),),
+              style=("map",),
+              dtype=(torch.float64,),
+              device=("cpu",),
+              )),
+    Case(torch.randn(10, 10, requires_grad=False),
+         dict(shape=((10, 10),),
+              style=("map",),
+              dtype=(torch.float32,),
+              device=("cpu",),
+              )),
+    Case((np.random.randn(10, 10), np.random.randn(10, 10)),
+         dict(shape=((10, 10), (10, 10)),
+              style=("map", "map"),
+              dtype=(torch.float64, torch.float64),
+              device=("cpu", "cpu"),
+              )),
+    Case([list(range(10)) for _ in range(10)],
+         dict(shape=((10, 10),),
+              style=("map",),
+              dtype=(torch.int64,),
+              device=("cpu",),
+              )
+         )
 ]
 
 
 @pytest.fixture(params=valid_data_objects)
 def init_valid_case(request):
-    return Case(request.param)
+    return request.param
 
 
 def test_computed_properties_of_valid_cases(init_valid_case):
     case = init_valid_case
-    attrs = ["shape", "dtype", "device", "style"]
-    case.assert_ds_is_not_None()
-    if not case.should_be_multi():
-        for attr in attrs:
-            case.assert_attr_is_not_None(attr)
-    else:
-        for attr in attrs:
-            case.assert_attr_is_multi(attr)
-    print(case.ds[0])
+    to_check = case.expected.keys()
+    for attr in to_check:
+        computed = getattr(case.ds, attr)
+        expected = case.expected[attr]
+        assert computed == expected, (computed, expected)
 
 
 def test_methods_on_valid_cases(init_valid_case):
@@ -78,13 +81,19 @@ def test_methods_on_valid_cases(init_valid_case):
 
 
 invalid_data_objects = [
-    (np.random.randn(10, 10), range(10)),
+    Case((np.random.randn(10, 10), range(10)),
+         dict(shape=((10, 10),),
+              style=("map",),
+              dtype=(torch.float32,),
+              device=("cpu",),
+              )
+         )
 ]
 
 
 @pytest.fixture(params=invalid_data_objects)
 def init_invalid_case(request):
-    return Case(request.param)
+    return request.param
 
 
 def test_invalid_case_raises_correct_exception(init_invalid_case):

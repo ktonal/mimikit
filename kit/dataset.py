@@ -175,12 +175,12 @@ class Dataset(TorchDataset):
             while dtype is None and elem is not None:
                 elem = Dataset._get_elem(elem)
                 dtype = getattr(elem, "dtype", None) or (type(elem) if type(elem) in (int, float, complex) else None)
-            if dtype is None:
-                raise ValueError("Couldn't figure out the dtype of data_object...")
-            elif dtype in (float, int, complex):
-                dtype = getattr(torch, np.dtype(dtype).name, None)
-            elif getattr(dtype, "name", False):  # it's a numpy array!
-                dtype = getattr(torch, dtype.name, dtype)
+        if dtype is None:
+            raise ValueError("Couldn't figure out the dtype of data_object...")
+        elif dtype in (float, int, complex):
+            dtype = getattr(torch, np.dtype(dtype).name, None)
+        elif getattr(dtype, "name", False):  # it's a numpy array!
+            dtype = getattr(torch, dtype.name, dtype)
         return dtype
 
     @map_if_multi("_object")
@@ -193,6 +193,8 @@ class Dataset(TorchDataset):
         device = getattr(data_object, "device", None)
         if device is None:
             device = getattr(elem, "device", "cpu")
+        if isinstance(device, torch.device):
+            device = device.type
         return device
 
     @map_if_multi("_object")
@@ -282,7 +284,7 @@ class Dataset(TorchDataset):
                 warnings.warn("You requested to move data to the gpu with `to_gpu=True` "
                               "but, currently, no gpu is available.")
             else:
-                self.to("gpu")
+                self.to("cuda")
 
         if to_tensor and not to_gpu:
             self.to_tensor()

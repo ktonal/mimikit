@@ -1,7 +1,7 @@
 from .dataset import Dataset
 
 
-class DSWrapper:
+class DSWrapper(Dataset):
     def upgrade(self, dataset):
         """
         dynamically extends an object with own methods and attributes.
@@ -35,7 +35,7 @@ class ShiftedSeqsPair(InputEqualTarget):
 
     def __call__(self, dataset: Dataset):
         # grab the number of time-steps BEFORE we upgrade
-        self.N = len(self.data)
+        self.N = len(dataset.data)
         return super(ShiftedSeqsPair, self).__call__(dataset)
 
     def __len__(self):

@@ -183,9 +183,11 @@ class FreqNet(MMKHooks,
         super(FreqNet, self).__init__()
         # validate and inject params als attributes
         self._init_hparams(model_args, optim_args, data_args)
+        print(self.hparams)
         # build the datamodule
         ds = Dataset(inputs)
-        self.input_dim = ds.shape
+        self.input_dim = ds.shape[0][-1]
+        print(self.input_dim)
         ds = ShiftedSeqsPair(self.sequence_length, self.shift)(ds)
         self.datamodule = ds.to_datamodule(self.to_gpu,
                                            self.to_tensor,
@@ -244,7 +246,7 @@ class FreqNet(MMKHooks,
                 output = output[:, :n_target]
 
         recon = self.loss_fn(output, target)
-        self.ep_losses += [recon.item()]
+        self.log("recon", recon, on_step=False, on_epoch=True)
         return {"loss": recon}
 
     def configure_optimizers(self):
@@ -254,7 +256,7 @@ class FreqNet(MMKHooks,
             return self.trainer.optimizers
         self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
         self.sched = torch.optim.lr_scheduler.OneCycleLR(self.opt,
-                                                         steps_per_epoch=len(self.dl),
+                                                         steps_per_epoch=len(self.datamodule.train_dataloader()),
                                                          epochs=self.max_epochs,
                                                          max_lr=self.max_lr, div_factor=self.div_factor,
                                                          final_div_factor=self.final_div_factor,
@@ -302,7 +304,7 @@ class FreqNet(MMKHooks,
             hparams.update({key: getattr(self, key)})
 
         self._validate_hparams(hparams)
-        self.save_hyperparameters(hparams)
+        self._set_hparams(hparams)
 
     def _validate_hparams(self, hparams):
         if hparams["sequence_length"] < self.receptive_field:
