@@ -61,32 +61,41 @@ def test_computed_properties_of_valid_cases(init_valid_case):
     for attr in to_check:
         computed = getattr(case.ds, attr)
         expected = case.expected[attr]
-        assert computed == expected, (computed, expected)
+        assert computed == expected, (attr, computed, expected)
 
 
-def test_methods_on_valid_cases(init_valid_case):
-    # test `to_tensor`
+def test_to_tensor(init_valid_case):
+    pass
 
-    # test `to(device)`
 
-    # test `select`
+def test_to_device():
+    pass
 
-    # test `split`
 
-    # test `random_example`
+def test_select():
+    pass
 
-    # test `load`
 
+def test_split():
+    pass
+
+
+def test_to_datamodule():
     pass
 
 
 invalid_data_objects = [
-    Case((np.random.randn(10, 10), range(10)),
-         dict(shape=((10, 10),),
-              style=("map",),
-              dtype=(torch.float32,),
-              device=("cpu",),
-              )
+    Case((np.random.randn(10, 10), (x for x in range(10))),
+         dict(style=TypeError, msg="same style")
+         ),
+    Case(np.random.randn,
+         dict(style=ValueError, msg="implement")
+         ),
+    Case((np.random.randn(12, 10), np.random.randn(10, 10)),
+         dict(style=ValueError, msg="same lengths")
+         ),
+    Case(["this string's dtype isn't recognized"],
+         dict(dtype=TypeError, msg="numerical")
          )
 ]
 
@@ -96,5 +105,9 @@ def init_invalid_case(request):
     return request.param
 
 
-def test_invalid_case_raises_correct_exception(init_invalid_case):
-    pass
+def test_constructor_exceptions(init_invalid_case):
+    case = init_invalid_case
+    exception = [e for key, e in case.expected.items() if isinstance(e, type)][0]
+    msg = case.expected["msg"]
+    with pytest.raises(exception, match=r".* " + msg + r".*"):
+        assert case.ds is not None

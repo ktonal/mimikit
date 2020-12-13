@@ -84,19 +84,22 @@ class Dataset(TorchDataset):
             self._object = tuple(x if isinstance(x, Dataset) else Dataset(x) for x in self._object)
 
         self._style = self.get_style()
-        if self._style is None:
+        if any(style is None for style in self._style):
             raise ValueError("Expected data_object to either implement __getitem__ and __len__, or __iter__."
                              " object of class %s implements none of those." % str(type(data_object)))
         if self._is_multi:
             if not all(self._style[0] == style for style in self._style[1:]):
                 raise TypeError("Expected all data_objects to be of the same style. Got %s" % str(self._style))
-            lengths = tuple(len(obj) for obj in self._object[1:])
+            lengths = tuple(len(obj) for obj in self._object)
             if self._style[0] is "map" and not all(lengths[0] == n for n in lengths[1:]):
                 raise ValueError("Expected all 'map-style' data_objects to be of same lengths. Got %s" % \
                                  str(lengths))
+        self._dtype = self.get_dtype()
+        if any(dtype is None for dtype in self._dtype):
+            raise TypeError("Expected elements of `data_object` to be of torch, numpy or built-in numerical dtype."
+                            " Got following dtypes %s" % str(self._dtype))
         self._shape = self.get_shape()
         self._device = self.get_device()
-        self._dtype = self.get_dtype()
 
     def __call__(self, *args, **kwargs):
         """
@@ -155,7 +158,7 @@ class Dataset(TorchDataset):
             N = len(data_object) if Dataset.has_len(data_object) else None
             shape = (N, )
             elem = Dataset._get_elem(data_object)
-            while elem is not None:
+            while elem is not None and Dataset._get_elem(elem) != elem:
                 shape = (*shape, len(elem) if Dataset.has_len(elem) else None)
                 elem = Dataset._get_elem(elem)
             # last None in the shape is bottom-level element
@@ -172,11 +175,11 @@ class Dataset(TorchDataset):
         dtype = getattr(data_object, "dtype", None)
         if dtype is None:
             dtype = getattr(elem, "dtype", None) or (type(elem) if type(elem) in (int, float, complex) else None)
-            while dtype is None and elem is not None:
+            while dtype is None and elem is not None and Dataset._get_elem(elem) != elem:
                 elem = Dataset._get_elem(elem)
                 dtype = getattr(elem, "dtype", None) or (type(elem) if type(elem) in (int, float, complex) else None)
-        if dtype is None:
-            raise ValueError("Couldn't figure out the dtype of data_object...")
+        if isinstance(dtype, torch.dtype):
+            pass
         elif dtype in (float, int, complex):
             dtype = getattr(torch, np.dtype(dtype).name, None)
         elif getattr(dtype, "name", False):  # it's a numpy array!
