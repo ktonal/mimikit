@@ -1,18 +1,24 @@
 from .dataset import Dataset
+from copy import copy
 
 
 class DSWrapper(Dataset):
+
+    def __init__(self):
+        pass
+
     def upgrade(self, dataset):
         """
         dynamically extends an object with own methods and attributes.
         @param dataset: object to be extended
         @return: extended object will be an instance of object.__class__ and of self.__class__
         """
-        bases = (self.__class__, dataset.__class__)
+        new = copy(dataset)
+        bases = (self.__class__, new.__class__)
         name = self.__class__.__name__ + "Dataset"
-        dataset.__dict__.update(self.__dict__)
-        dataset.__class__ = type(name, bases, dataset.__dict__)
-        return dataset
+        new.__dict__.update(self.__dict__)
+        new.__class__ = type(name, bases, new.__dict__)
+        return new
 
     def __call__(self, dataset: Dataset):
         return self.upgrade(dataset)
@@ -26,7 +32,7 @@ class InputEqualTarget(DSWrapper):
         return len(self.data)
 
 
-class ShiftedSeqsPair(InputEqualTarget):
+class ShiftedSeqsPair(DSWrapper):
     def __init__(self, sequence_length, shift, stride=1):
         self.shift = shift
         self.sequence_length = sequence_length
