@@ -1,7 +1,6 @@
 from ..kit import ShiftedSeqsPair, MMKHooks, EpochEndPrintHook, Dataset
 from ..modules import GatedLinearInput, AbsLinearOutput, GatedConv, mean_L1_prop
 from pytorch_lightning import LightningModule
-import warnings
 from functools import partial
 import torch
 import torch.nn as nn
@@ -44,17 +43,21 @@ class FreqLayer(nn.Module):
 
 
 class FreqBlock(nn.Module):
-    def __init__(self, model_dim, n_layers, layer_func, **kwargs):
+    def __init__(self, model_dim, n_layers, layer_func, collect_skips, **kwargs):
         super(FreqBlock, self).__init__()
         self.block = nn.ModuleList(
             [FreqLayer(model_dim,
                        dilation=2 ** i, **kwargs) for i in range(n_layers)])
         self.layer_func = layer_func
+        self.collect_skips = collect_skips
 
     def forward(self, x, skip):
+        skips = [x]
         for i, layer in enumerate(self.block):
             x, skip = self.layer_func(layer, x, skip)
-        return x, skip
+            if self.collect_skips:
+                skips += [skip]
+        return x, skips if self.collect_skips else skip
 
 
 def accum(x, y, shift=1):
@@ -150,7 +153,7 @@ class FreqNet(MMKHooks,
         conv_kwargs=dict(groups=1),
         lf=layer_funcs["residuals_left"],
         layers=(int(np.log2(8)),),
-        layer_wise_loss=False,  # TODO!
+        layer_wise_loss=False,
         learn_padding=False,
     )
     optim_defaults = dict(
@@ -166,7 +169,6 @@ class FreqNet(MMKHooks,
     # N.B.: this would mean that each model would have to implement the steps
     # that transform raw data to a, for him, consumable loader or DataModule.
     data_defaults = dict(
-        db_subset=None,
         batch_size=64,
         sequence_length=64,
         splits=[.85, .15],
@@ -183,11 +185,9 @@ class FreqNet(MMKHooks,
         super(FreqNet, self).__init__()
         # validate and inject params als attributes
         self._init_hparams(model_args, optim_args, data_args)
-        print(self.hparams)
         # build the datamodule
         ds = Dataset(inputs)
         self.input_dim = ds.shape[0][-1]
-        print(self.input_dim)
         ds = ShiftedSeqsPair(self.sequence_length, self.shift)(ds)
         self.datamodule = ds.to_datamodule(self.to_gpu,
                                            self.to_tensor,
@@ -198,14 +198,15 @@ class FreqNet(MMKHooks,
         # Now we can build the model
         model_dim = self.model_dim
         layer_f, learn_padding = self.lf[0], self.learn_padding
-        conv_kwargs = getattr(self, "conv_kwargs", {})
+        conv_kwargs = self.conv_kwargs
+        layer_wise_loss = self.layer_wise_loss
 
         # Input Encoder
         self.inpt = GatedLinearInput(self.input_dim, model_dim)
 
         # Auto-regressive Blocks
         self.blocks = nn.ModuleList([
-            FreqBlock(model_dim, n_layers, layer_f,
+            FreqBlock(model_dim, n_layers, layer_f, layer_wise_loss,
                       strict=self.is_strict(), learn_padding=learn_padding, **conv_kwargs)
             for n_layers in self.layers
         ])
@@ -222,6 +223,9 @@ class FreqNet(MMKHooks,
         skips = None
         for block in self.blocks:
             x, skips = block(x, skips)
+        if self.layer_wise_loss:
+            x = [self.outpt(skp) for skp in skips]
+            return x if self.training else x[-1]
         x = self.outpt(skips)
         return x
 
@@ -232,8 +236,16 @@ class FreqNet(MMKHooks,
             # discard the last time steps of the input to get an output of same length as target
             batch = batch[:, :-sum(i for i in self.layers)]
 
-        output = self.forward(batch)
+        if self.layer_wise_loss:
+            targets_ = torch.cat((batch[:, :self.shift], target), dim=1)
+            targets_ = [targets_[:, shift:shift+self.sequence_length] for layer in self.layers_shifts for shift in layer]
+            output = self.forward(batch)
+            recon = sum(self.loss_fn(out, trgt[:, :out.size(1)]) for out, trgt in zip(output, targets_))
+            recon = recon / len(targets_)
+            self.log("recon", recon, on_step=False, on_epoch=True)
+            return {"loss": recon}
 
+        output = self.forward(batch)
         # since the output can be shorter, longer or equal to target, we have to make the shapes right...
         n_out, n_target = output.size(1), target.size(1)
 
@@ -277,6 +289,16 @@ class FreqNet(MMKHooks,
         return sum(2 ** i for i in self.layers)
 
     @property
+    def layers_shifts(self):
+        shifts = []
+        for layer in self.layers:
+            # 2 following lines are the shifts to compute the layer_wise_loss
+            # (including the first encoding layer) of a strict block
+            tpl = tuple((2 ** (i+1)) + (i * int(self.is_strict())) for i in range(layer))
+            shifts += [(0, *tpl[:-1], tpl[-1] + int(self.is_strict()))]
+        return tuple(shifts)
+
+    @property
     def concat_side(self):
         return self.lf[0].keywords.get("concat_outputs", 0)
 
@@ -287,9 +309,8 @@ class FreqNet(MMKHooks,
         return slice(-rf, None), slice(rf, rf + step_length)
 
     def _init_hparams(self, model_args, optim_args, data_args):
-        # (TODO: Validate hparams)
-        # initialize and store hparams
         hparams = dict()
+        # inject hparams as attributes
         # model part
         for key in self.model_defaults.keys():
             setattr(self, key, model_args.get(key, self.model_defaults[key]))
@@ -302,8 +323,9 @@ class FreqNet(MMKHooks,
         for key in self.data_defaults.keys():
             setattr(self, key, data_args.get(key, self.data_defaults[key]))
             hparams.update({key: getattr(self, key)})
-
+        # validate
         self._validate_hparams(hparams)
+        # save
         self._set_hparams(hparams)
 
     def _validate_hparams(self, hparams):
