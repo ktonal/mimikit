@@ -43,7 +43,7 @@ kwargs = {
         "Intended Audience :: Science/Research",
         "Intended Audience :: Other Audience",
         "Topic :: Multimedia :: Sound/Audio :: Analysis",
-        "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis"
+        "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.6",
