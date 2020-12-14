@@ -1,5 +1,5 @@
 import pytest
-from ...kit.dataset import Dataset
+from mmk.kit.dataset import Dataset
 import numpy as np
 import torch
 

@@ -1,6 +1,6 @@
 import numpy as np
 
-from ...kit import Dataset, DSWrapper, InputEqualTarget, ShiftedSeqsPair
+from mmk.kit import Dataset, DSWrapper, InputEqualTarget, ShiftedSeqsPair
 
 
 class TestBaseWrapper:
