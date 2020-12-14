@@ -22,11 +22,11 @@ jobs:
         pip install --quiet -r requirements.txt
         pip install hatch
     - name: Test
-      run: hatch test
+      run: hatch test -nd
     - name: Build and publish on TestPypi
       env:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
         hatch build
-        hatch release -t -u ${TWINE_USERNAME}
+        hatch release -t -u ${{ env.TWINE_USERNAME }}
