@@ -18,9 +18,9 @@ jobs:
         python-version: '3.6'
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
+        python -m pip install --quiet --upgrade pip
         pip install --quiet -r requirements.txt
-        pip install hatch
+        pip install --quiet hatch
     - name: Test
       run: hatch test -nd
     - name: Build and publish on TestPypi
