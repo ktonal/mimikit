@@ -4,6 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches: [test-actions]
+  pull_request:
+    branches: [merge-test]
 
 jobs:
   test:
