@@ -31,5 +31,6 @@ jobs:
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
         hatch grow pre
+        hatch clean
         hatch build
         hatch release -t -u ${{ env.TWINE_USERNAME }}
