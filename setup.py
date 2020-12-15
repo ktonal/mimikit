@@ -30,6 +30,7 @@ kwargs = {
     'version': version,
     'description': 'Python module for generating audio with neural networks',
     'long_description': readme,
+    "long_description_content_type": "text/markdown",
     'author': 'k-tonal',
     'author_email': 'ktonalberlin@gmail.com',
     'maintainer': 'Antoine Daurat',
