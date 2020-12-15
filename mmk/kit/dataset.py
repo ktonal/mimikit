@@ -35,7 +35,7 @@ class Dataset(TorchDataset):
 
     @property
     def n_features(self):
-        return self.n_features
+        return self._n_features
 
     @property
     def dims(self):
@@ -208,15 +208,17 @@ class Dataset(TorchDataset):
     def to_tensor(self):
         if issubclass(type(self._object), torch.Tensor):
             return
-        elif self._style == "iter":
+        elif "iter" in self.style:
             raise TypeError("Cannot convert 'iter' style objects to tensor.")
         maybe_tensor = default_convert(self._object[:])
         if issubclass(type(maybe_tensor), torch.Tensor):
             self._object = maybe_tensor
             return
-        else:
-            raise RuntimeWarning("torch couldn't convert data_object to tensor. data_object is still of "
-                                 "class %s" % str(type(self._object)))
+        try:
+            self._object = torch.tensor(self._object)
+        except Exception as e:
+            raise e
+        return
 
     @map_if_multi("_object")
     def select(self, indices, inplace=False):

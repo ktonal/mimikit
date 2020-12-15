@@ -45,8 +45,13 @@ valid_data_objects = [
               style=("map",),
               dtype=(torch.int64,),
               device=("cpu",),
-              )
-         )
+              )),
+    Case((list(range(10)) for _ in range(10)),
+         dict(shape=((None, 10),),
+              style=("iter",),
+              dtype=(torch.int64,),
+              device=("cpu",),
+              ))
 ]
 
 
@@ -63,9 +68,31 @@ def test_computed_properties_of_valid_cases(init_valid_case):
         expected = case.expected[attr]
         assert computed == expected, (attr, computed, expected)
 
+    assert case.ds.n_features == len(case.expected["shape"]), (case.ds.n_features, len(case.expected["shape"]))
+
+
+def test_core_methods(init_valid_case):
+    case = init_valid_case
+    func = torch.all if isinstance(case.ds.get_elem()[0], torch.Tensor) else np.all
+    if "map" in case.expected["style"]:
+        assert func(case.ds.get_elem()[0] == case.ds[0][0])
+        assert len(case.ds) == 10
+        assert len(case.ds[(0, 1, 2)]) == case.ds.n_features
+    else:
+        assert func(case.ds.get_elem()[0] == next(iter(case.ds)))
+
 
 def test_to_tensor(init_valid_case):
-    pass
+    case = init_valid_case
+    if "iter" in case.ds.style:
+        with pytest.raises(TypeError):
+            case.ds.to_tensor()
+        return
+    case.ds.to_tensor()
+    if isinstance(case.ds.data, tuple):
+        assert all(isinstance(dataset.data, torch.Tensor) for dataset in case.ds.data)
+    else:
+        assert isinstance(case.ds.data, torch.Tensor), type(case.ds.data)
 
 
 def test_to_device():
