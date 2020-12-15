@@ -4,6 +4,9 @@ from time import time, gmtime
 from typing import Optional, Union, Callable, Dict, IO
 import torch
 import os
+import warnings
+
+from .. import __version__ as version
 
 
 class EpochEndPrintHook:
@@ -40,6 +43,13 @@ class EpochEndPrintHook:
                                                                     total_time[4], total_time[5]))
 
 
+def _check_version(other_v):
+    if other_v.split(".")[0] < version.split(".")[0]:
+        v = str(other_v)
+        warnings.warn(("You are loading a checkpoint made by an earlier version of mmk (%s) as the one" % v) +
+                      (" imported in this runtime (%s). If you encounter errors " % version) +
+                      (", try to downgrade mmk with `pip install mmk==%s" % v))
+
 class MMKHooks:
 
     @classmethod
@@ -60,6 +70,8 @@ class MMKHooks:
         hparams = torch.load(os.path.join(os.path.dirname(checkpoint_path), "hparams.pt"))
         checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY] = hparams
         checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY].update(kwargs)
+        if checkpoint.get("version", None) is not None:
+            _check_version(checkpoint["version"])
         model = cls._load_model_state(checkpoint, strict=strict, **kwargs)
         return model
 
@@ -91,10 +103,12 @@ class MMKHooks:
                 trainer_props.update({prop: getattr(self.trainer, prop, None)})
 
             torch.save(trainer_props, os.path.join(path, "trainer_props.pt"))
-
+        checkpoint["mmk_version"] = version
         return checkpoint
 
     def on_load_checkpoint(self, checkpoint):
+        if checkpoint.get("version", None) is not None:
+            _check_version(checkpoint["version"])
         # we restore the training state only if the model has a trainer...
         if getattr(self, "trainer", None) is not None:
             # ... and the trainer got a ckpt_path to resume from
