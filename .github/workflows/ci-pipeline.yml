@@ -1,0 +1,43 @@
+name: Upload Python Package
+
+on:
+  workflow_dispatch:
+  push:
+#    branches-ignore: [master, develop]
+  pull_request:
+    branches: [master, develop]
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.6'
+    - name: Install dependencies
+      run: |
+        python -m pip install --quiet --upgrade pip
+        pip install --quiet -r requirements.txt
+        pip install --quiet hatch
+  test:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test
+      - uses: actions/checkout@v2
+        run: hatch test -nd
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Build dist and Publish on TestPypi
+      - uses: actions/checkout@v2
+      env:
+        TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+        TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      run: |
+        hatch build
+        hatch release -t -u ${{ env.TWINE_USERNAME }}
