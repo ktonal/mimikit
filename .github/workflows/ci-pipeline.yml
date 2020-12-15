@@ -21,23 +21,16 @@ jobs:
         python -m pip install --quiet --upgrade pip
         pip install --quiet -r requirements.txt
         pip install --quiet hatch
-  test:
-    needs: setup
-    runs-on: ubuntu-latest
-    steps:
-      - name: Test
-      - uses: actions/checkout@v2
-        run: hatch test -nd
 
-  publish:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build dist and Publish on TestPypi
-      - uses: actions/checkout@v2
+    - name: Test
+      run: hatch test -nd
+
+    - name: Build dist and Publish on TestPypi
       env:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
+        hatch grow pre
+        hatch clean
         hatch build
         hatch release -t -u ${{ env.TWINE_USERNAME }}
