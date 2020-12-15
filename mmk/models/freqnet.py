@@ -147,6 +147,7 @@ for k, v in layer_funcs.items():
 class FreqNet(MMKHooks,
               EpochEndPrintHook,
               LightningModule):
+
     model_defaults = dict(
         loss_fn=mean_L1_prop,
         model_dim=512,
