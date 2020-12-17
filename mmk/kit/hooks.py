@@ -142,8 +142,5 @@ class MMKHooks:
                          ]:
                 setattr(self.trainer, prop, trainer_props[prop])
 
-            print("! ! ! ! ! ! ! !", self.trainer.current_epoch, checkpoint["epoch"])
-            # checkpoint["epoch"] += 1
             self.trainer.max_epochs = self.trainer.max_epochs + checkpoint["epoch"]
-            print(self.trainer.current_epoch)
         return checkpoint
