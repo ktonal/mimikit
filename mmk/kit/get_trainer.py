@@ -22,7 +22,8 @@ def get_trainer(root_dir=None,
         if resume_from_checkpoint is not None:
             # keep the same root_dir as the checkpoint
             ckpt_dir = os.path.abspath(os.path.dirname(resume_from_checkpoint))
-            root_dir = os.path.pardir(ckpt_dir)
+            root_dir = os.path.dirname(ckpt_dir)
+            kwargs["resume_from_checkpoint"] = resume_from_checkpoint
         else:
             root_dir = "./"
     else:
@@ -80,4 +81,5 @@ def get_trainer(root_dir=None,
     kwargs.setdefault("num_sanity_val_steps", 0)  # this is 2 by default and messes up the steps count...
     kwargs.setdefault("gpus", torch.cuda.device_count())
     print("Checkpoints and logs will be saved in", os.path.abspath(default_root_dir))
+    print(kwargs)
     return Trainer(default_root_dir=default_root_dir, **kwargs)

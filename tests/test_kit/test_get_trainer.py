@@ -1,7 +1,7 @@
 import pytest
-from mmk.kit.get_trainer import get_trainer
-from mmk.kit.loggers import MMKDefaultLogger
-from mmk.kit.checkpoint import MMKCheckpoint
+from ...mmk.kit.get_trainer import get_trainer
+from ...mmk.kit.loggers import MMKDefaultLogger
+from ...mmk.kit.checkpoint import MMKCheckpoint
 from sklearn.model_selection import ParameterGrid
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers.neptune import NeptuneLogger
@@ -226,3 +226,5 @@ def test_get_trainer(init_case):
     # test checkpoints
     if case.should_have_checkpoint_callback():
         case.assert_has_checkpoint_callback()
+
+    # shutil.rmtree(case.root_dir)

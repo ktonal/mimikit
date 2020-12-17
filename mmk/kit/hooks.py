@@ -118,6 +118,7 @@ class MMKHooks:
         if checkpoint.get("version", None) is not None:
             _check_version(checkpoint["version"])
         # we restore the training state only if the model has a trainer...
+        print("TRAINER      ", self.trainer)
         if getattr(self, "trainer", None) is not None:
             # ... and the trainer got a ckpt_path to resume from
             if self.trainer.resume_from_checkpoint is not None:
@@ -140,9 +141,9 @@ class MMKHooks:
                          "reload_dataloaders_every_epoch",
                          ]:
                 setattr(self.trainer, prop, trainer_props[prop])
-            if checkpoint["epoch"] < trainer_props["max_epochs"]:
-                self.trainer.max_epochs = self.trainer.max_epochs - checkpoint["epoch"]
-            else:
-                self.trainer.max_epochs = self.trainer.max_epochs + checkpoint["epoch"]
 
+            print("! ! ! ! ! ! ! !", self.trainer.current_epoch, checkpoint["epoch"])
+            # checkpoint["epoch"] += 1
+            self.trainer.max_epochs = self.trainer.max_epochs + checkpoint["epoch"]
+            print(self.trainer.current_epoch)
         return checkpoint

@@ -4,13 +4,14 @@ import pandas as pd
 import soundfile
 import h5py
 
-from mmk.data.factory import AudioFileWalker, file_to_db, make_root_db
-from mmk.data.transforms import default_extract_func
-from mmk.data.api import Database
+from ..mmk.data.factory import AudioFileWalker, file_to_db, make_root_db
+from ..mmk.data.transforms import default_extract_func
+from ..mmk.data.api import Database
 
 
 @pytest.fixture
 def audio_tree(tmp_path):
+    print(tmp_path)
     root = (tmp_path / "audios")
     root.mkdir()
     dir1 = (root / "dir1")
