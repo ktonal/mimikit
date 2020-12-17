@@ -112,6 +112,9 @@ def test_to_datamodule():
 
 
 invalid_data_objects = [
+    Case(None,
+         dict(style=ValueError, msg="None")
+         ),
     Case((np.random.randn(10, 10), (x for x in range(10))),
          dict(style=TypeError, msg="same style")
          ),

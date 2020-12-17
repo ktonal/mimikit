@@ -120,6 +120,8 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
     logger.info("making db for %s" % abs_path)
     tmp_db = ".".join(abs_path.split(".")[:-1] + ["h5"])
     rv = extract_func(abs_path)
+    if "metadata" not in rv:
+        raise ValueError("Expected `extract_func` to return a ('metadata', Metadata) item. Found none")
     info = _empty_info(rv.keys())
     info.loc[0, [("directory", ""), ("name", "")]] = split_path(abs_path)
     f = h5py.File(tmp_db, mode)
@@ -165,11 +167,11 @@ def collect_metadatas(tmp_dbs):
     metadatas = []
     offset = 0
     for db in tmp_dbs:
-        scr = Database(db).metadata
-        scr.loc[:, ("start", "stop")] = scr.loc[:, ("start", "stop")].values + offset
-        scr.loc[:, "name"] = ".".join(db.split(".")[:-1])
-        metadatas += [scr]
-        offset = scr.last_stop
+        meta = Database(db).metadata
+        meta.loc[:, ("start", "stop")] = meta.loc[:, ("start", "stop")].values + offset
+        meta.loc[:, "name"] = ".".join(db.split(".")[:-1])
+        metadatas += [meta]
+        offset = meta.last_stop
     return pd.DataFrame(pd.concat(metadatas, ignore_index=True))
 
 
