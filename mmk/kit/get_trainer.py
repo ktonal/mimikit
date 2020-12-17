@@ -77,8 +77,7 @@ def get_trainer(root_dir=None,
     kwargs.setdefault("callbacks", []).append(EpochProgressBarCallback())
     kwargs.setdefault("progress_bar_refresh_rate", 5)
     kwargs.setdefault("process_position", 1)
-
-    # Figure out gpus (with tpus one would probably have to set gpus=None)
+    kwargs.setdefault("num_sanity_val_steps", 0)  # this is 2 by default and messes up the steps count...
     kwargs.setdefault("gpus", torch.cuda.device_count())
     print("Checkpoints and logs will be saved in", os.path.abspath(default_root_dir))
     return Trainer(default_root_dir=default_root_dir, **kwargs)

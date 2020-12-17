@@ -72,6 +72,8 @@ class Dataset(TorchDataset):
         """
         Here we initialize the instance.
         """
+        if data_object is None:
+            raise ValueError("`data_object` can not be None.")
         self._object = data_object
         self._wrapper = wrappers
         self._augmentation = augmentations

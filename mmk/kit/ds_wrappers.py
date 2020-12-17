@@ -45,12 +45,13 @@ class ShiftedSeqsPair(DSWrapper):
         return super(ShiftedSeqsPair, self).__call__(dataset)
 
     def __len__(self):
-        return (self.N - self.sequence_length - self.shift + 1) // self.stride
+        return (self.N - self.sequence_length[0] - self.shift + 1) // self.stride
 
     def __getitem__(self, item):
         i = item * self.stride
-        input_slice = slice(i, i + self.sequence_length)
-        target_slice = slice(i + self.shift, i + self.shift + self.sequence_length)
+        input_length, target_length = self.sequence_length
+        input_slice = slice(i, i + input_length)
+        target_slice = slice(i + self.shift, i + self.shift + target_length)
         return tuple(self.data[idx] for idx in [input_slice, target_slice])
 
 

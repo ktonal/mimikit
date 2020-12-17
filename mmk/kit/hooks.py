@@ -16,21 +16,28 @@ class EpochEndPrintHook:
     def on_epoch_start(self):
         # convenience to have printing of the loss at the end of the epoch
         self._ep_metrics = {}
-        self._batch_count = 0
+        self._batch_count = {}
 
-    def training_step_end(self, out):
+    def log_output(self, out):
         for metric, val in out.items():
             if metric not in self._ep_metrics:
                 self._ep_metrics.setdefault(metric, val.detach())
+                self._batch_count[metric] = 1
             else:
                 self._ep_metrics[metric] += val.detach()
-        self._batch_count += 1
+            self._batch_count[metric] += 1
         return out
 
-    def on_epoch_end(self):
+    def training_step_end(self, out):
+        return self.log_output(out)
+
+    def validation_step_end(self, out):
+        return self.log_output(out)
+
+    def on_train_epoch_end(self, *args):
         to_print = "Epoch %i " % self.current_epoch
         for k, v in self._ep_metrics.items():
-            to_print += "- %s : %.4f " % (k, v / self._batch_count)
+            to_print += "- %s : %.4f " % (k, v / self._batch_count[k])
         self.print(to_print)
 
     def on_fit_start(self):
@@ -50,6 +57,7 @@ def _check_version(other_v):
                       (" imported in this runtime (%s). If you encounter errors " % version) +
                       (", try to downgrade mmk with `pip install mmk==%s" % v))
 
+
 class MMKHooks:
 
     @classmethod
@@ -67,9 +75,9 @@ class MMKHooks:
         else:
             checkpoint = pl_load(checkpoint_path, map_location=lambda storage, loc: storage)
 
-        hparams = torch.load(os.path.join(os.path.dirname(checkpoint_path), "hparams.pt"))
-        checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY] = hparams
-        checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY].update(kwargs)
+        # hparams = torch.load(os.path.join(os.path.dirname(checkpoint_path), "hparams.pt"))
+        # checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY] = hparams
+        # checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY].update(kwargs)
         if checkpoint.get("version", None) is not None:
             _check_version(checkpoint["version"])
         model = cls._load_model_state(checkpoint, strict=strict, **kwargs)
