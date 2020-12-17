@@ -36,7 +36,7 @@ class TestInputEqualTarget:
 class TestShiftedSeqsPair:
     data = np.random.randn(10, 4)
     ds = Dataset(data)
-    wrapper = ShiftedSeqsPair(sequence_length=2, shift=1)
+    wrapper = ShiftedSeqsPair(sequence_length=(2, 3), shift=1)
 
     def test_wraps_without_error(self):
         ds = self.wrapper(self.ds)
@@ -48,7 +48,7 @@ class TestShiftedSeqsPair:
         # returns input and target
         assert len(returned) == 2, returned
         # returns sequences
-        assert returned[0].shape == (self.wrapper.sequence_length, self.data.shape[-1]), returned[0].shape
+        assert returned[0].shape == (self.wrapper.sequence_length[0], self.data.shape[-1]), returned[0].shape
         # shifts sequences correctly
         assert np.all(returned[0][self.wrapper.shift] == returned[1][0]), (returned[0][self.wrapper.shift],
                                                                            returned[1][0])
