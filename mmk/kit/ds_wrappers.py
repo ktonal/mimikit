@@ -33,9 +33,15 @@ class InputEqualTarget(DSWrapper):
 
 
 class ShiftedSeqsPair(DSWrapper):
-    def __init__(self, sequence_length, shift, stride=1):
-        self.shift = shift
-        self.sequence_length = sequence_length
+    def __init__(self, input_length, targets, stride=1):
+        """
+        @param input_length:
+        @param targets: [(shift, length)... ]
+        @param stride:
+        """
+        self.input_length = input_length
+        self.shifts = list(zip(*targets))[0]
+        self.lengths = list(zip(*targets))[1]
         self.stride = stride
         self.N = None
 
@@ -45,13 +51,17 @@ class ShiftedSeqsPair(DSWrapper):
         return super(ShiftedSeqsPair, self).__call__(dataset)
 
     def __len__(self):
-        return (self.N - self.sequence_length[0] - self.shift + 1) // self.stride
+        ln = (self.N - max(self.lengths) - max(self.shifts) + 1) // self.stride
+        print("!!!!!!!!!!!!!!!!!", ln, self.lengths, self.shifts)
+        return ln
 
     def __getitem__(self, item):
         i = item * self.stride
-        input_length, target_length = self.sequence_length
-        input_slice = slice(i, i + input_length)
-        target_slice = slice(i + self.shift, i + self.shift + target_length)
-        return tuple(self.data[idx] for idx in [input_slice, target_slice])
+        input_slice = slice(i, i + self.input_length)
+        target_slices = [slice(i + shift, i + shift + length)
+                         for shift, length in zip(self.shifts, self.lengths)]
+        inputs = self.data[input_slice]
+        targets = tuple(self.data[idx] for idx in target_slices)
+        return inputs, targets[0] if len(targets) == 1 else targets
 
 

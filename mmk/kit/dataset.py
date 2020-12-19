@@ -235,7 +235,7 @@ class Dataset(TorchDataset):
     def to(self, device):
         """move any underlying tensor to some device"""
         if isinstance(self._object, torch.Tensor):
-            self._object.to(device)
+            self._object = self._object.to(device)
 
     def split(self, splits):
         """

@@ -2,7 +2,7 @@ import torch
 from pytorch_lightning import LightningModule, LightningDataModule
 from torch.utils.data import DataLoader
 
-from ..kit import Dataset, ShiftedSeqsPair, MMKHooks, EpochEndPrintHook
+from ...mmk.kit import Dataset, ShiftedSeqsPair, MMKHooks, EpochEndPrintHook
 
 
 class FreqOptim:
@@ -50,7 +50,7 @@ class FreqData(LightningDataModule):
                  **loader_kwargs,
                  ):
         super(FreqData, self).__init__()
-        self.model = model  # ! model must implement output_length(input_length) and model.shift !
+        self.model = model  # ! model must implement `targets_shifts_and_lengths` !
         self.ds = Dataset(inputs)
         self.input_seq_length = input_seq_length
         self.batch_size = batch_size
@@ -62,23 +62,23 @@ class FreqData(LightningDataModule):
         self.train_ds, self.val_ds, self.test_ds = None, None, None
 
     def prepare_data(self, *args, **kwargs):
-        if not (getattr(self.model, "shift", False) and getattr(self.model, "output_length", False)):
-            raise TypeError("Expected `model` to implement `model.shift` and `model.output_length(input_length)`"
+        if not (getattr(self.model, "targets_shifts_and_lengths", False)):
+            raise TypeError("Expected `model` to implement `targets_shifts_and_lengths(input_length)`"
                             " in order to compute the right slices for the batches")
-        lengths = (self.input_seq_length, self.model.output_length(self.input_seq_length))
-        wrapper = ShiftedSeqsPair(lengths, self.model.shift)
+        targets_def = self.model.targets_shifts_and_lengths(self.input_seq_length)
+        wrapper = ShiftedSeqsPair(self.input_seq_length, targets_def)
         self.ds = wrapper(self.ds)
 
     def setup(self, stage=None):
         if stage == "fit":
-            if self.to_gpu:
+            if self.to_gpu and torch.cuda.is_available():
+                self.ds.to_tensor()
                 self.ds.to("cuda")
             if self.splits is None:
                 self.splits = (1.,)
             sets = self.ds.split(self.splits)
             for ds, attr in zip(sets, ["train_ds", "val_ds", "test_ds"]):
                 setattr(self, attr, ds)
-            # set the steps_per_epoch
 
     def train_dataloader(self):
         if self.train_ds is not None:

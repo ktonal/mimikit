@@ -79,7 +79,6 @@ def get_trainer(root_dir=None,
     kwargs.setdefault("progress_bar_refresh_rate", 5)
     kwargs.setdefault("process_position", 1)
     kwargs.setdefault("num_sanity_val_steps", 0)  # this is 2 by default and messes up the steps count...
-    kwargs.setdefault("gpus", torch.cuda.device_count())
+    kwargs.setdefault("gpus", torch.cuda.device_count() if torch.cuda.is_available() else 0)
     print("Checkpoints and logs will be saved in", os.path.abspath(default_root_dir))
-    print(kwargs)
     return Trainer(default_root_dir=default_root_dir, **kwargs)

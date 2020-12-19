@@ -14,14 +14,11 @@ class GatedLinear(nn.Module):
 
 
 class GatedConv(nn.Module):
-    def __init__(self, c_in, c_out, transpose=False, **kwargs):
+    def __init__(self, c_in, c_out, kernel_size=2, transpose=False, **kwargs):
         super(GatedConv, self).__init__()
         mod = nn.Conv1d if not transpose else nn.ConvTranspose1d
-        kwargs.setdefault("kernel_size", 2)
-        self.kernel = kwargs.get("kernel_size", 2)
-        self.dilation = kwargs.get("dilation", 1)
-        self.conv_f = mod(c_in, c_out, **kwargs)
-        self.conv_g = mod(c_in, c_out, **kwargs)
+        self.conv_f = mod(c_in, c_out, kernel_size, **kwargs)
+        self.conv_g = mod(c_in, c_out, kernel_size, **kwargs)
         self.tanh = nn.Tanh()
         self.sig = nn.Sigmoid()
 

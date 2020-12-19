@@ -1,5 +1,5 @@
 import torch
-from ..utils import to_torch, numcpu
+from ...utils import to_torch, numcpu
 
 
 def generate(model, input, n_steps, input_slice, output_slice):

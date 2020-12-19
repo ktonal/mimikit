@@ -45,7 +45,6 @@ def test_model(tmp_path):
     mdl = TestModel(model_dim=10)
     trainer = get_trainer(str(root), None, epochs=1, max_epochs=2)
     trainer.fit(mdl)
-
     assert trainer.current_epoch == 1
 
     created = os.listdir(str(root))
