@@ -1,8 +1,9 @@
-from .dataset import Dataset
 from copy import copy
 
+from ..data.data_object import DataObject
 
-class DSWrapper(Dataset):
+
+class DSWrapper(DataObject):
 
     def __init__(self):
         pass
@@ -20,7 +21,7 @@ class DSWrapper(Dataset):
         new.__class__ = type(name, bases, new.__dict__)
         return new
 
-    def __call__(self, dataset: Dataset):
+    def __call__(self, dataset: DataObject):
         return self.upgrade(dataset)
 
 
@@ -45,7 +46,7 @@ class ShiftedSeqsPair(DSWrapper):
         self.stride = stride
         self.N = None
 
-    def __call__(self, dataset: Dataset):
+    def __call__(self, dataset: DataObject):
         # grab the number of time-steps BEFORE we upgrade
         self.N = len(dataset.data)
         return super(ShiftedSeqsPair, self).__call__(dataset)

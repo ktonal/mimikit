@@ -1,7 +1,8 @@
 import pytest
-from ...mmk.kit.dataset import Dataset
 import numpy as np
 import torch
+
+from ..mmk.data import DataObject
 
 
 class Case:
@@ -9,7 +10,7 @@ class Case:
     @property
     def ds(self):
         if self._ds is None:
-            self._ds = Dataset(self.data_object)
+            self._ds = DataObject(self.data_object)
         return self._ds
 
     def __init__(self, data_object, expected):

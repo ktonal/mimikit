@@ -15,15 +15,16 @@ class FrexpertMixture(FreqNetModel):
         super(FrexpertMixture, self).__init__(**data_optim_kwargs)
         self.loss_fn = loss_fn
         self.save_hyperparameters()
+        data_obj = data_optim_kwargs.get("data_object", None)
         # we use nets instead of layers, but we still store them in the layers attributes!
         self.nets = nn.ModuleList([
-            FreqNet(input_dim=1025,
+            FreqNet(data_object=data_obj,
                     model_dim=512,
                     groups=1,
                     n_layers=(3,),
                     strict=False,
                     accum_outputs=1),
-            FreqNet(input_dim=1025,
+            FreqNet(data_object=data_obj,
                     model_dim=1024,
                     groups=2,
                     n_layers=(3,),

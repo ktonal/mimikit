@@ -1,4 +1,3 @@
-import pytest
 import numpy as np
 import torch
 
@@ -24,7 +23,7 @@ def test_base(tmp_path):
             # shift and length of each target
             return [(4, input_length), ]
 
-    base = TestModel(inputs=np.random.randn(32, 1025),
+    base = TestModel(data_object=np.random.randn(32, 1025),
                      input_seq_length=16,
                      batch_size=10,
                      to_gpu=False,
@@ -98,10 +97,10 @@ def test_single_layer_output_length():
 
 def test_freqnet_computed_properties():
     input_length = 16
-    inputs = torch.randn(1, input_length, 1025)
+    data_object = torch.randn(1, input_length, 1025)
 
     cases = [
-        (FreqNet(inputs=inputs, input_seq_length=input_length,
+        (FreqNet(data_object=data_object, input_seq_length=input_length,
                  n_layers=(1, 1, 1),
                  ),
          dict(shift=4,
@@ -111,7 +110,7 @@ def test_freqnet_computed_properties():
               targets=[(4, input_length-3)],
               out_length=input_length-3,
               )),
-        (FreqNet(inputs=inputs, input_seq_length=input_length,
+        (FreqNet(data_object=data_object, input_seq_length=input_length,
                  n_layers=(1, 1, 1),
                  strict=True),
          dict(shift=6,
@@ -120,7 +119,7 @@ def test_freqnet_computed_properties():
               all_shifts=(2, 4, 6),
               targets=[(6, input_length-3)],
               out_length=input_length-3)),
-        (FreqNet(inputs=inputs, input_seq_length=input_length,
+        (FreqNet(data_object=data_object, input_seq_length=input_length,
                  n_layers=(3,),
                  ),
          dict(shift=8,
@@ -129,7 +128,7 @@ def test_freqnet_computed_properties():
               all_shifts=(2, 4, 8),
               targets=[(8, input_length-7)],
               out_length=input_length-7)),
-        (FreqNet(inputs=inputs, input_seq_length=input_length,
+        (FreqNet(data_object=data_object, input_seq_length=input_length,
                  n_layers=(3,),
                  strict=True),
          dict(shift=8+2,  # strict shifts (n_layers -1) MORE than not strict
@@ -138,7 +137,7 @@ def test_freqnet_computed_properties():
               all_shifts=(2, 5, 10),
               targets=[(8+2, input_length-7)],
               out_length=input_length-7)),
-        (FreqNet(inputs=inputs, input_seq_length=input_length,
+        (FreqNet(data_object=data_object, input_seq_length=input_length,
                  n_layers=(3, 3),
                  ),
          dict(shift=15,
@@ -147,7 +146,7 @@ def test_freqnet_computed_properties():
               all_shifts=(2, 4, 8, 9, 11, 15),
               targets=[(15, input_length-14)],
               out_length=input_length-14)),
-        (FreqNet(inputs=inputs, input_seq_length=input_length,
+        (FreqNet(data_object=data_object, input_seq_length=input_length,
                  n_layers=(3, 3),
                  strict=True),
          dict(shift=20,
@@ -170,7 +169,7 @@ def test_freqnet_computed_properties():
                 assert net.output_length(input_length) == expected[attr], \
                     ("computed case_" + str(i), net.output_length(input_length), expected[attr])
                 # returned
-                outpt = net(inputs)
+                outpt = net(data_object)
                 assert outpt.size(1) == expected[attr], \
                     ("forward case_" + str(i), outpt.size(1), expected[attr])
 
@@ -182,15 +181,15 @@ def test_freqnet_computed_properties():
 
 def test_models_train(tmp_path):
 
-    inputs = torch.randn(32, 1025)
+    data_object = torch.randn(32, 1025)
     kwargs = dict(splits=None, input_seq_length=8)
     models = [
 
-        FreqNet(inputs=inputs, **kwargs),
-        FreaksNet(inputs=inputs, **kwargs),
-        HKFreqNet(inputs=inputs, **kwargs),
-        FrexpertMixture(inputs=inputs, **kwargs),
-        LayerWiseLossFreqNet(inputs=inputs, **kwargs)
+        FreqNet(data_object=data_object, **kwargs),
+        FreaksNet(data_object=data_object, **kwargs),
+        HKFreqNet(data_object=data_object, **kwargs),
+        FrexpertMixture(data_object=data_object, **kwargs),
+        LayerWiseLossFreqNet(data_object=data_object, **kwargs)
     ]
 
     for mdl in models:

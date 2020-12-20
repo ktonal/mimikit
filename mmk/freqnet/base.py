@@ -3,8 +3,8 @@ from pytorch_lightning import LightningModule, LightningDataModule
 from torch.utils.data import DataLoader
 import librosa
 
-from ..data.transforms import HOP_LENGTH
-from ..kit import Dataset, ShiftedSeqsPair, MMKHooks, LoggingHooks
+from ..data import DataObject, HOP_LENGTH
+from ..kit import ShiftedSeqsPair, MMKHooks, LoggingHooks
 
 
 class FreqOptim:
@@ -44,7 +44,7 @@ class FreqOptim:
 class FreqData(LightningDataModule):
     def __init__(self,
                  model,
-                 inputs=None,
+                 data_object=None,
                  input_seq_length=64,
                  batch_size=64,
                  to_gpu=True,
@@ -52,8 +52,8 @@ class FreqData(LightningDataModule):
                  **loader_kwargs,
                  ):
         super(FreqData, self).__init__()
-        self.model = model  # ! model must implement `targets_shifts_and_lengths` !
-        self.ds = Dataset(inputs)
+        self.model = model
+        self.ds = DataObject(data_object)
         self.input_seq_length = input_seq_length
         self.batch_size = batch_size
         self.to_gpu = to_gpu
@@ -104,7 +104,7 @@ class FreqNetModel(MMKHooks,
                    LightningModule):
 
     def __init__(self,
-                 inputs=None,
+                 data_object=None,
                  input_seq_length=64,
                  batch_size=64,
                  to_gpu=True,
@@ -117,9 +117,10 @@ class FreqNetModel(MMKHooks,
                  cycle_momentum=False,
                  **loaders_kwargs):
         super(FreqNetModel, self).__init__()
-        self.datamodule = FreqData(self, inputs, input_seq_length, batch_size,
-                                   to_gpu, splits, **loaders_kwargs) if inputs is not None else None
-
+        # dimensionality of inputs is automatically available
+        self.input_dim = data_object.shape[-1]
+        self.datamodule = FreqData(self, data_object, input_seq_length, batch_size,
+                                   to_gpu, splits, **loaders_kwargs) if data_object is not None else None
         self.optim = FreqOptim(self, max_lr, betas, div_factor, final_div_factor, pct_start,
                                cycle_momentum)
         # calling this updates self.hparams from any subclass : call it when subclassing!

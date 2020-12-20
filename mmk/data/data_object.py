@@ -2,9 +2,7 @@ import torch
 import numpy as np
 from torch.utils.data import Dataset as TorchDataset, Subset, random_split, DataLoader
 from torch.utils.data._utils.collate import default_convert
-import pytorch_lightning as pl
 from functools import update_wrapper
-import warnings
 
 
 def map_if_multi(attr):
@@ -24,7 +22,7 @@ def map_if_multi(attr):
     return decorator
 
 
-class Dataset(TorchDataset):
+class DataObject(TorchDataset):
 
     @property
     def data(self):
@@ -83,7 +81,7 @@ class Dataset(TorchDataset):
 
         if self._is_multi:
             # we cast to Dataset recursively
-            self._object = tuple(x if isinstance(x, Dataset) else Dataset(x) for x in self._object)
+            self._object = tuple(x if isinstance(x, DataObject) else DataObject(x) for x in self._object)
 
         self._style = self.get_style()
         if any(style is None for style in self._style):
@@ -137,19 +135,19 @@ class Dataset(TorchDataset):
 
     @map_if_multi("_object")
     def get_style(self):
-        return Dataset._get_style(self._object)
+        return DataObject._get_style(self._object)
 
     @staticmethod
     def _get_elem(data_object):
-        if Dataset._get_style(data_object) == "map":
+        if DataObject._get_style(data_object) == "map":
             return data_object[0]
-        elif Dataset._get_style(data_object) == "iter":
+        elif DataObject._get_style(data_object) == "iter":
             return next(iter(data_object))
         return None
 
     @map_if_multi("_object")
     def get_elem(self):
-        return Dataset._get_elem(self._object)
+        return DataObject._get_elem(self._object)
 
     @staticmethod
     def _get_shape(data_object):
@@ -157,28 +155,30 @@ class Dataset(TorchDataset):
         if shape is None:
             # we try to fet lengths recursively and add `None` when we get elements with no length
             # thus, in the case of a hierarchy of generators, returning at least the number of 'axes'
-            N = len(data_object) if Dataset.has_len(data_object) else None
+            N = len(data_object) if DataObject.has_len(data_object) else None
             shape = (N, )
-            elem = Dataset._get_elem(data_object)
-            while elem is not None and Dataset._get_elem(elem) != elem:
-                shape = (*shape, len(elem) if Dataset.has_len(elem) else None)
-                elem = Dataset._get_elem(elem)
+            elem = DataObject._get_elem(data_object)
+            while elem is not None and DataObject._get_elem(elem) != elem:
+                shape = (*shape, len(elem) if DataObject.has_len(elem) else None)
+                elem = DataObject._get_elem(elem)
             # last None in the shape is bottom-level element
             shape = shape[:-1]
+        if isinstance(shape, torch.Size):
+            shape = tuple(shape)
         return shape
 
     @map_if_multi("_object")
     def get_shape(self):
-        return Dataset._get_shape(self._object)
+        return DataObject._get_shape(self._object)
 
     @staticmethod
     def _get_dtype(data_object):
-        elem = Dataset._get_elem(data_object)
+        elem = DataObject._get_elem(data_object)
         dtype = getattr(data_object, "dtype", None)
         if dtype is None:
             dtype = getattr(elem, "dtype", None) or (type(elem) if type(elem) in (int, float, complex) else None)
-            while dtype is None and elem is not None and Dataset._get_elem(elem) != elem:
-                elem = Dataset._get_elem(elem)
+            while dtype is None and elem is not None and DataObject._get_elem(elem) != elem:
+                elem = DataObject._get_elem(elem)
                 dtype = getattr(elem, "dtype", None) or (type(elem) if type(elem) in (int, float, complex) else None)
         if isinstance(dtype, torch.dtype):
             pass
@@ -190,11 +190,11 @@ class Dataset(TorchDataset):
 
     @map_if_multi("_object")
     def get_dtype(self):
-        return Dataset._get_dtype(self._object)
+        return DataObject._get_dtype(self._object)
 
     @staticmethod
     def _get_device(data_object):
-        elem = Dataset._get_elem(data_object)
+        elem = DataObject._get_elem(data_object)
         device = getattr(data_object, "device", None)
         if device is None:
             device = getattr(elem, "device", "cpu")
@@ -204,7 +204,7 @@ class Dataset(TorchDataset):
 
     @map_if_multi("_object")
     def get_device(self):
-        return Dataset._get_device(self._object)
+        return DataObject._get_device(self._object)
 
     @map_if_multi("_object")
     def to_tensor(self):
@@ -269,57 +269,3 @@ class Dataset(TorchDataset):
     def load(self, **kwargs):
         """pack self into a batch producer (Dataloader)"""
         return DataLoader(self, **kwargs)
-
-    def random_examples(self, n):
-        """get n random examples"""
-        if "map" not in self.style:
-            raise NotImplemented("Cannot sample random examples from generator objects")
-        idx = np.random.randint(0, len(self), n)
-        features = zip(*[self[i] for i in idx])
-        features = [torch.stack(feat) if isinstance(feat[0], torch.Tensor) else np.stack(feat)
-                    for feat in features]
-        return features
-
-    def to_datamodule(self,
-                      to_tensor=False,
-                      to_gpu=False,
-                      splits=None,
-                      **loader_kwargs):
-        if to_gpu:
-            self.to_tensor()
-            if not torch.cuda.is_available():
-                warnings.warn("You requested to move data to the gpu with `to_gpu=True` "
-                              "but, currently, no gpu is available.")
-            else:
-                self.to("cuda")
-
-        if to_tensor and not to_gpu:
-            self.to_tensor()
-
-        if splits is None:
-            splits = (1.,)
-        sets = self.split(splits)
-
-        class DataModule(pl.LightningDataModule):
-            train_ds = None
-            val_ds = None
-            test_ds = None
-            loader_kwargs = {}
-
-            def train_dataloader(self):
-                if self.train_ds is not None:
-                    return DataLoader(self.train_ds, **self.loader_kwargs)
-
-            def val_dataloader(self):
-                if self.val_ds is not None:
-                    return DataLoader(self.val_ds, **self.loader_kwargs)
-
-            def test_dataloader(self):
-                if self.test_ds is not None:
-                    return DataLoader(self.test_ds, **self.loader_kwargs)
-
-        dm = DataModule()
-        for ds, attr in zip(sets, ["train_ds", "val_ds", "test_ds"]):
-            setattr(dm, attr, ds)
-        setattr(dm, "loader_kwargs", loader_kwargs)
-        return dm

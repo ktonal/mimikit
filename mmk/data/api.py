@@ -2,8 +2,10 @@ import h5py
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from torch.utils.data.dataset import Subset
 
 from .metadata import Metadata
+from ..data.data_object import DataObject
 
 
 class FeatureProxy(object):
@@ -33,6 +35,11 @@ class FeatureProxy(object):
     def add(self, array, filename=None):
         new = add_data(self.h5_file, self.name, array, filename)
         return new
+
+    def subset(self, indices):
+        if isinstance(indices, Metadata):
+            indices = indices.all_indices
+        return Subset(DataObject(self), indices)
 
 
 class Database(object):

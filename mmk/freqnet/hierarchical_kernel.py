@@ -15,7 +15,6 @@ class HKFreqNet(FreqNet):
 
     def __init__(self,
                  loss_fn=mean_L1_prop,
-                 input_dim=1025,
                  model_dim=512,
                  groups=1,
                  n_layers=2,
@@ -25,7 +24,7 @@ class HKFreqNet(FreqNet):
                  pad_input=None,
                  learn_padding=False,
                  **data_optim_kwargs):
-        super(HKFreqNet, self).__init__(loss_fn, input_dim, model_dim, groups, (n_layers,), strict,
+        super(HKFreqNet, self).__init__(loss_fn, model_dim, groups, (n_layers,), strict,
                                         accum_outputs, concat_outputs, pad_input, learn_padding,
                                         **data_optim_kwargs)
         # the 4th dimension in the final conv2d is 2 encoder outputs + n_conv_layers

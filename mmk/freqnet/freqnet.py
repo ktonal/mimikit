@@ -12,7 +12,6 @@ class FreqNet(FreqNetModel):
 
     def __init__(self,
                  loss_fn=mean_L1_prop,
-                 input_dim=1025,
                  model_dim=512,
                  groups=1,
                  n_layers=(int(np.log2(8)),),
@@ -24,7 +23,6 @@ class FreqNet(FreqNetModel):
                  **data_optim_kwargs):
         super(FreqNet, self).__init__(**data_optim_kwargs)
         self._loss_fn = loss_fn
-        self.input_dim = input_dim
         self.model_dim = model_dim
         self.groups = groups
         self.n_layers = n_layers

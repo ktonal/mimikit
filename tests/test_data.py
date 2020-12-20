@@ -5,13 +5,11 @@ import soundfile
 import h5py
 
 from ..mmk.data.factory import AudioFileWalker, file_to_db, make_root_db
-from ..mmk.data.transforms import default_extract_func
-from ..mmk.data.api import Database
+from ..mmk.data import default_extract_func, DataObject, Database
 
 
 @pytest.fixture
 def audio_tree(tmp_path):
-    print(tmp_path)
     root = (tmp_path / "audios")
     root.mkdir()
     dir1 = (root / "dir1")
@@ -74,3 +72,9 @@ def test_make_root_db_and_Database(audio_tree):
     assert len(db.metadata) == 4, len(db.metadata)
     assert np.any(db.fft[:4] != 0), db.fft[:4]
     assert isinstance(db.fft.get(db.metadata.iloc[:1]), np.ndarray), db.fft.get(db.metadata.iloc[:1])
+
+    # test Dataset Integration
+    ds = DataObject(db.fft)
+    assert ds is not None, ds
+    assert len(ds) == len(db.fft), (len(ds), len(db.fft))
+    assert np.all(ds[:10] == db.fft[:10])

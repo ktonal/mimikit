@@ -1,11 +1,11 @@
 import numpy as np
 
-from ...mmk.kit import Dataset, DSWrapper, InputEqualTarget, ShiftedSeqsPair
+from ...mmk.kit import DataObject, DSWrapper, InputEqualTarget, ShiftedSeqsPair
 
 
 class TestBaseWrapper:
     data = np.random.randn(10, 10)
-    ds = Dataset(data)
+    ds = DataObject(data)
     wrapper = DSWrapper()
 
     def test_wraps_without_error(self):
@@ -19,7 +19,7 @@ class TestBaseWrapper:
 
 class TestInputEqualTarget:
     data = np.random.randn(10, 10)
-    ds = Dataset(data)
+    ds = DataObject(data)
     wrapper = InputEqualTarget()
 
     def test_wraps_without_error(self):
@@ -35,7 +35,7 @@ class TestInputEqualTarget:
 
 class TestShiftedSeqsPair:
     data = np.random.randn(10, 4)
-    ds = Dataset(data)
+    ds = DataObject(data)
     wrapper = ShiftedSeqsPair(input_length=2, targets=[(1, 3)])  # ta
 
     def test_wraps_without_error(self):
