@@ -120,19 +120,19 @@ class FreqNetModel(MMKHooks,
 
         self.optim = FreqOptim(self, max_lr, betas, div_factor, final_div_factor, pct_start,
                                cycle_momentum)
+        # calling this updates self.hparams from any subclass : call it when subclassing!
+        self.save_hyperparameters()
 
     def training_step(self, batch, batch_idx):
         batch, target = batch
         output = self.forward(batch)
         recon = self.loss_fn(output, target)
-        self.log("train_recon", recon, on_step=False, on_epoch=True)
         return {"loss": recon}
 
     def validation_step(self, batch, batch_idx):
         batch, target = batch
         output = self.forward(batch)
         recon = self.loss_fn(output, target)
-        self.log("val_recon", recon, on_step=False, on_epoch=True)
         return {"val_loss": recon}
 
     def setup(self, stage: str):
@@ -142,3 +142,9 @@ class FreqNetModel(MMKHooks,
 
     def configure_optimizers(self):
         return self.optim.configure_optimizers()
+
+    def _set_hparams(self, hp):
+        # remove any inputs passed to the hparams...
+        if "inputs" in hp:
+            hp.pop("inputs")
+        super(FreqNetModel, self)._set_hparams(hp)

@@ -22,7 +22,7 @@ class EpochEndPrintHook:
         for metric, val in out.items():
             if metric not in self._ep_metrics:
                 self._ep_metrics.setdefault(metric, val.detach())
-                self._batch_count[metric] = 1
+                self._batch_count[metric] = 0
             else:
                 self._ep_metrics[metric] += val.detach()
             self._batch_count[metric] += 1
@@ -36,18 +36,28 @@ class EpochEndPrintHook:
 
     def on_train_epoch_end(self, *args):
         to_print = "Epoch %i " % self.current_epoch
+        to_log = {}
         for k, v in self._ep_metrics.items():
             to_print += "- %s : %.4f " % (k, v / self._batch_count[k])
+            to_log[k] = (v / self._batch_count[k]).item()
         self.print(to_print)
+        if getattr(self, "logger", None) is not None:
+            self.logger.log_metrics(to_log)
 
     def on_fit_start(self):
         self._ep_time = time()
 
     def on_fit_end(self):
-        total_time = gmtime(time() - self._ep_time)
+        duration = time() - self._ep_time
+        total_time = gmtime(duration)
         self.print("Training finished after "
                    "{0} days {1} hours {2} mins {3} seconds".format(total_time[2] - 1, total_time[3],
                                                                     total_time[4], total_time[5]))
+        if getattr(self, "logger", None) is not None:
+            # accumulate if we resumed
+            duration = self.hparams.get("training_time_sec", 0) + duration
+            self.hparams.update({"training_time_sec": duration})
+            self.logger.log_hyperparams(self.hparams)
 
 
 def _check_version(other_v):
@@ -75,9 +85,6 @@ class MMKHooks:
         else:
             checkpoint = pl_load(checkpoint_path, map_location=lambda storage, loc: storage)
 
-        # hparams = torch.load(os.path.join(os.path.dirname(checkpoint_path), "hparams.pt"))
-        # checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY] = hparams
-        # checkpoint[cls.CHECKPOINT_HYPER_PARAMS_KEY].update(kwargs)
         if checkpoint.get("version", None) is not None:
             _check_version(checkpoint["version"])
         model = cls._load_model_state(checkpoint, strict=strict, **kwargs)
