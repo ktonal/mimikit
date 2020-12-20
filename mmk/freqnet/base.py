@@ -2,6 +2,7 @@ import torch
 from pytorch_lightning import LightningModule, LightningDataModule
 from torch.utils.data import DataLoader
 import librosa
+from abc import ABC
 
 from ..data import DataObject, HOP_LENGTH
 from ..kit import ShiftedSeqsPair, MMKHooks, LoggingHooks
@@ -101,7 +102,8 @@ class FreqData(LightningDataModule):
 
 class FreqNetModel(MMKHooks,
                    LoggingHooks,
-                   LightningModule):
+                   LightningModule,
+                   ABC):
 
     def __init__(self,
                  data_object=None,
@@ -163,6 +165,9 @@ class FreqNetModel(MMKHooks,
 
     def generation_slices(self):
         raise NotImplementedError("subclasses of `FreqNetModel` have to implement `generation_slices`")
+
+    def targets_shifts_and_lengths(self, input_length):
+        raise NotImplementedError("subclasses of `FreqNetModel` have to implement `targets_shifts_and_lengths`")
 
     def generate(self, input, n_steps, hop_length=HOP_LENGTH):
         if not isinstance(input, torch.Tensor):
