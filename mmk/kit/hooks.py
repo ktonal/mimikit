@@ -5,11 +5,23 @@ from typing import Optional, Union, Callable, Dict, IO
 import torch
 import os
 import warnings
+import torchaudio
+
+try:
+    from neptune.experiments import Experiment as NeptuneExperiment
+    from neptunecontrib.api.audio import log_audio
+except ImportError:
+    NeptuneExperiment = type(None)
+    warnings.warn("It seems neptune and/or neptunecontrib are not installed. "
+                  "You won't be able to log checkpoints and data to neptune.")
 
 from .. import __version__ as version
+from ..data.transforms import SR
+
+torchaudio.set_audio_backend("sox_io")
 
 
-class EpochEndPrintHook:
+class LoggingHooks:
 
     # unfortunately this can not be a callback since we need the training_step's output...
 
@@ -59,13 +71,37 @@ class EpochEndPrintHook:
             self.hparams.update({"training_time_sec": duration})
             self.logger.log_hyperparams(self.hparams)
 
+    def log_audio(self, filename, audio_tensor, sample_rate=SR):
+        # TensorBoards write their own "Event" file which is quite cumbersome to extract afterwards...
+        # NeptuneLoggers need an audio file written on disk and store it afterwards as html on the server...
+        # Just to be sure and even if it is then in 3 places : we add the audio in root_dir/audios of the model!
+        path = filename
+        if self.trainer is not None:
+            if self.trainer.default_root_dir not in path:
+                root = os.path.join(self.trainer.default_root_dir, "audios")
+                if not os.path.exists(root):
+                    os.mkdir(root)
+                if ".wav" != os.path.splitext(path)[-1]:
+                    path = os.path.join(root, path + ".wav")
+        torchaudio.save(path, audio_tensor, sample_rate)
+        for exp in self.logger.experiment:
+            # Neptune and TestTube experiments have different APIs...
+            if getattr(exp, "add_audio", False):
+                exp.add_audio(filename + ".wav", audio_tensor, sample_rate=sample_rate)
+                exp.save()
+                print("Updated TensorBoard with", filename)
+            elif isinstance(exp, NeptuneExperiment):
+                log_audio(path, filename, exp)
+                print("Updated neptune experiment", exp.id, "with", filename)
+        return 1
+
 
 def _check_version(other_v):
-    if other_v.split(".")[0] < version.split(".")[0]:
+    if other_v.split(".")[0] != version.split(".")[0]:
         v = str(other_v)
-        warnings.warn(("You are loading a checkpoint made by an earlier version of mmk (%s) as the one" % v) +
+        warnings.warn(("You are loading a checkpoint made by a different version of mmk (%s) as the one" % v) +
                       (" imported in this runtime (%s). If you encounter errors " % version) +
-                      (", try to downgrade mmk with `pip install mmk==%s" % v))
+                      (", try to install the right version with `pip install mmk==%s" % v))
 
 
 class MMKHooks:
@@ -125,7 +161,6 @@ class MMKHooks:
         if checkpoint.get("version", None) is not None:
             _check_version(checkpoint["version"])
         # we restore the training state only if the model has a trainer...
-        print("TRAINER      ", self.trainer)
         if getattr(self, "trainer", None) is not None:
             # ... and the trainer got a ckpt_path to resume from
             if self.trainer.resume_from_checkpoint is not None:
@@ -151,3 +186,15 @@ class MMKHooks:
 
             self.trainer.max_epochs = self.trainer.max_epochs + checkpoint["epoch"]
         return checkpoint
+
+    def upload_to_neptune(self, experiment=None):
+        if experiment is None:
+            if not any(isinstance(exp, NeptuneExperiment) for exp in self.logger.experiment):
+                raise ValueError("`experiment` is None and this model isn't bound to any NeptuneExperiment...")
+            experiment = [exp for exp in self.logger.experiment if isinstance(exp, NeptuneExperiment)][0]
+        # log everything!
+        experiment.log_artifact(self.trainer.default_root_dir)
+        print("uploaded", self.trainer.default_root_dir, "to", experiment.id)
+        return 1
+
+

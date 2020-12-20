@@ -1,4 +1,4 @@
-from pytorch_lightning.loggers import TestTubeLogger
+from pytorch_lightning.loggers import TestTubeLogger, NeptuneLogger
 from pytorch_lightning.loggers.test_tube import Experiment
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers.base import rank_zero_experiment
@@ -40,7 +40,6 @@ class MMKDefaultLogger(TestTubeLogger):
     @property
     @rank_zero_experiment
     def experiment(self):
-
         if self._experiment is not None:
             return self._experiment
 
@@ -58,3 +57,4 @@ class MMKDefaultLogger(TestTubeLogger):
     @rank_zero_only
     def log_hyperparams(self, params):
         super(MMKDefaultLogger, self).log_hyperparams({k: str(v) for k, v in params.items()})
+

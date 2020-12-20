@@ -10,11 +10,10 @@ from .api import Database
 from .metadata import Metadata
 from .transforms import default_extract_func
 
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-
-# Helper class and Functions
 
 class AudioFileWalker:
 
@@ -39,20 +38,24 @@ class AudioFileWalker:
 
         if roots is not None and isinstance(roots, Iterable):
             if isinstance(roots, str):
-                assert os.path.exists(roots), "%s does not exist." % roots
+                if not os.path.exists(roots):
+                    raise FileNotFoundError("%s does not exist." % roots)
                 generators += [AudioFileWalker.walk_root(roots)]
             else:
                 for r in roots:
-                    assert os.path.exists(r), "%s does not exist." % r
+                    if not os.path.exists(r):
+                        raise FileNotFoundError("%s does not exist." % r)
                 generators += [AudioFileWalker.walk_root(root) for root in roots]
 
         if files is not None and isinstance(files, Iterable):
             if isinstance(files, str):
-                assert os.path.exists(files), "%s does not exist." % files
+                if not os.path.exists(files):
+                    raise FileNotFoundError("%s does not exist." % files)
                 generators += [(f for f in [files] if AudioFileWalker.is_audio_file(files))]
             else:
                 for f in files:
-                    assert os.path.exists(f), "%s does not exist." % f
+                    if not os.path.exists(f):
+                        raise FileNotFoundError("%s does not exist." % f)
                 generators += [(f for f in files if AudioFileWalker.is_audio_file(f))]
 
         self.generators = generators
@@ -202,7 +205,8 @@ def ds_definitions_from_infos(infos):
 def create_datasets_from_defs(target, defs, mode="w"):
     f = h5py.File(target, mode)
     for name, params in defs.items():
-        f.create_dataset(name, shape=params["shape"], dtype=params["dtype"])
+        f.create_dataset(name, shape=params["shape"], dtype=params["dtype"],
+                         chunks=True, maxshape=(None, *params["shape"][1:]))
         layout = params["layout"]
         layout.reset_index(drop=False, inplace=True)
         layout = layout.rename(columns={"index": "name"})
@@ -228,8 +232,10 @@ def make_integration_args(target):
 def integrate(target, source, key, indices):
     with h5py.File(source, "r") as src:
         data = src[key][()]
+        attrs = {k: v for k, v in src[key].attrs.items()}
     with h5py.File(target, "r+") as trgt:
         trgt[key][indices] = data
+        trgt[key].attrs.update(attrs)
     return
 
 
@@ -253,3 +259,4 @@ def make_root_db(db_name, file_walker, extract_func=default_extract_func,
                  n_cores=cpu_count(), remove_sources=True):
     dbs = make_db_for_each_file(file_walker, extract_func, n_cores)
     aggregate_dbs(db_name, dbs, "w", remove_sources)
+

@@ -33,7 +33,7 @@ def test_base(tmp_path):
     assert isinstance(base.datamodule, FreqData)
     assert isinstance(base.optim, FreqOptim)
 
-    trainer = get_trainer(tmp_path, max_epochs=1)
+    trainer = get_trainer(root_dir=tmp_path, max_epochs=1)
     trainer.fit(base)
 
     assert base.datamodule.train_dataloader() is not None
@@ -195,7 +195,7 @@ def test_models_train(tmp_path):
 
     for mdl in models:
 
-        trainer = get_trainer(tmp_path, max_epochs=1)
+        trainer = get_trainer(root_dir=tmp_path, max_epochs=1)
 
         trainer.fit(mdl)
 

@@ -1,14 +1,19 @@
 import pytest
-from ...mmk.kit.get_trainer import get_trainer
-from ...mmk.kit.loggers import MMKDefaultLogger
-from ...mmk.kit.checkpoint import MMKCheckpoint
 from sklearn.model_selection import ParameterGrid
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 from pytorch_lightning.loggers.neptune import NeptuneLogger
 from pytorch_lightning.loggers.base import LoggerCollection
-
 import os
 import shutil
+
+from ...mmk.kit.get_trainer import get_trainer
+from ...mmk.kit.loggers import MMKDefaultLogger
+from ...mmk.kit.checkpoint import MMKCheckpoint
+
+
+class DummyModel:
+    # to simulate the only attribute we need in get_trainer
+    hparams = {}
 
 
 class Case:
@@ -27,7 +32,8 @@ class Case:
     @property
     def trainer(self):
         if self._trainer is None:
-            self._trainer = get_trainer(root_dir=self.root_dir,
+            self._trainer = get_trainer(model=DummyModel(),
+                                        root_dir=self.root_dir,
                                         version=self.version,
                                         resume_from_checkpoint=self.resume_from_checkpoint,
                                         epochs=self.epochs,

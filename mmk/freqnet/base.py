@@ -1,8 +1,10 @@
 import torch
 from pytorch_lightning import LightningModule, LightningDataModule
 from torch.utils.data import DataLoader
+import librosa
 
-from ..kit import Dataset, ShiftedSeqsPair, MMKHooks, EpochEndPrintHook
+from ..data.transforms import HOP_LENGTH
+from ..kit import Dataset, ShiftedSeqsPair, MMKHooks, LoggingHooks
 
 
 class FreqOptim:
@@ -98,7 +100,7 @@ class FreqData(LightningDataModule):
 
 
 class FreqNetModel(MMKHooks,
-                   EpochEndPrintHook,
+                   LoggingHooks,
                    LightningModule):
 
     def __init__(self,
@@ -137,6 +139,7 @@ class FreqNetModel(MMKHooks,
 
     def setup(self, stage: str):
         if stage == "fit":
+            self.logger.log_hyperparams(self.hparams)
             self.optim.max_epochs = self.trainer.max_epochs
             self.optim.steps_per_epoch = len(self.datamodule.train_dataloader())
 
@@ -148,3 +151,29 @@ class FreqNetModel(MMKHooks,
         if "inputs" in hp:
             hp.pop("inputs")
         super(FreqNetModel, self)._set_hparams(hp)
+
+    # Convenience Methods for generative audio models (see also, `LoggingHooks.log_audio`):
+
+    def random_train_example(self):
+        return next(iter(self.datamodule.train_dataloader()))[0][0:1]
+
+    def first_val_example(self):
+        return next(iter(self.datamodule.val_dataloader()))[0][0:1]
+
+    def generation_slices(self):
+        raise NotImplementedError("subclasses of `FreqNetModel` have to implement `generation_slices`")
+
+    def generate(self, input, n_steps, hop_length=HOP_LENGTH):
+        if not isinstance(input, torch.Tensor):
+            input = torch.from_numpy(input)
+        if len(input.shape) < 3:
+            input = input.unsqueeze(0)
+        input_slice, output_slice = self.generation_slices()
+        generated = input.to(self.device)
+        for _ in range(n_steps):
+            with torch.no_grad():
+                out = self(generated[:, input_slice])
+                generated = torch.cat((generated, out[:, output_slice]), dim=1)
+        generated = generated.transpose(1, 2).squeeze()
+        generated = librosa.griffinlim(generated.numpy(), hop_length=hop_length, n_iter=64)
+        return torch.from_numpy(generated).unsqueeze(0)

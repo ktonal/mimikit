@@ -98,18 +98,4 @@ class FreqNet(FreqNetModel):
         return [(self.shift(), self.output_length(input_length))]
 
     def generation_slices(self):
-        pass
-
-#
-# fnet = FreqNet(loss_fn=mean_L1_prop,
-#                input_dim=1025,
-#                model_dim=512,
-#                groups=1,
-#                n_layers=(int(np.log2(4)), 2, 2, 2),
-#                strict=True,
-#                accum_outputs=None,
-#                concat_outputs=None,
-#                pad_input=None,
-#                learn_padding=False, )
-#
-# fnet.all_rel_shifts(), fnet.all_shifts(), fnet.shift(), fnet.receptive_field()
+        return slice(-self.receptive_field(), None), slice(-1, None)

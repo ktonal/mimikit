@@ -1,6 +1,8 @@
 import h5py
 import numpy as np
 import pandas as pd
+from datetime import datetime
+
 from .metadata import Metadata
 
 
@@ -27,6 +29,10 @@ class FeatureProxy(object):
         t_axis = self.attrs.get("time_axis", 0)
         slices = metadata.slices(t_axis)
         return np.concatenate(tuple(self[slice_i] for slice_i in slices), axis=t_axis)
+
+    def add(self, array, filename=None):
+        new = add_data(self.h5_file, self.name, array, filename)
+        return new
 
 
 class Database(object):
@@ -90,3 +96,42 @@ class Database(object):
         return None
 
 
+def add_feature(h5_file, feature_name, array):
+    # TODO !
+    pass
+
+
+def add_metadata(h5_file, start, stop, duration, ds_name, filename=None):
+    meta = pd.read_hdf(h5_file, "metadata")
+    layout = pd.read_hdf(h5_file, "layouts/" + ds_name)
+    info = pd.read_hdf(h5_file, "info")
+    new = Metadata.from_start_stop([start], [stop], [duration])
+    filename = datetime.now() if filename is None else filename
+    new["name"] = filename
+    new_meta = pd.concat((meta, new), axis=0, ignore_index=True)
+    new_layout = pd.concat((layout, new), axis=0, ignore_index=True)
+    new_info = info.iloc[info.index.max()]
+    new_info.loc[:] = ("added", filename,
+                       new_info[(ds_name, "dtype")],
+                       (new.duration.item(), *new_info[(ds_name, "shape")][1:]),
+                       "xMb")
+    new_info = info.append(new_info, ignore_index=True)
+    new_meta.to_hdf(h5_file, "metadata")
+    new_layout.to_hdf(h5_file, "layouts/" + ds_name)
+    new_info.to_hdf(h5_file, "info")
+    return new_info
+
+
+def add_data(h5_file, ds_name, array, filename):
+    N = array.shape[0]
+    with h5py.File(h5_file, "r+") as f:
+        if f[ds_name].shape[1:] != array.shape[1:]:
+            raise ValueError(
+                ("expected all but the first dimension of `array` to match %s. " % str(f[ds_name].shape[1:])) +
+                ("Got %s" % str(array.shape[1:])))
+        M = f[ds_name].shape[0]
+        f[ds_name].resize(M + N, axis=0)
+        f[ds_name][-N:] = array
+        rv = f[ds_name][-N:]
+    add_metadata(h5_file, M, N + M, N, ds_name, filename)
+    return rv

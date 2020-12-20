@@ -4,11 +4,11 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 
-from ...mmk.kit import MMKHooks, EpochEndPrintHook, get_trainer
+from ...mmk.kit import MMKHooks, LoggingHooks, get_trainer
 
 
 class TestModel(MMKHooks,
-                EpochEndPrintHook,
+                LoggingHooks,
                 pl.LightningModule):
 
     def __init__(self, model_dim=10):
@@ -43,7 +43,7 @@ def test_model(tmp_path):
     root.mkdir()
     print("FIRST RUN")
     mdl = TestModel(model_dim=10)
-    trainer = get_trainer(str(root), None, epochs=1, max_epochs=2)
+    trainer = get_trainer(root_dir=str(root), version=None, epochs=1, max_epochs=2)
     trainer.fit(mdl)
     assert trainer.current_epoch == 1
 

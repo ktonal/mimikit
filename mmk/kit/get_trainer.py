@@ -9,7 +9,8 @@ from pytorch_lightning.trainer import Trainer
 import warnings
 
 
-def get_trainer(root_dir=None,
+def get_trainer(model=None,
+                root_dir=None,
                 version=None,
                 resume_from_checkpoint=None,
                 epochs=None,  # add MMKCheckpoint if not None
@@ -44,6 +45,10 @@ def get_trainer(root_dir=None,
         next_version = 0
         default_root_dir = root_dir
 
+    if model is not None:
+        # update the hparams of the model
+        model.hparams.update({"root_dir": default_root_dir, "max_epochs": kwargs.get("max_epochs", 1000)})
+
     # Figure out loggers
     if (neptune_api_token is None) != (neptune_project is None):
         raise ValueError("Expected `neptune_project` and `neptune_api_token` to both be either None or not None")
@@ -52,7 +57,11 @@ def get_trainer(root_dir=None,
     loggers = []
 
     if neptune_api_token is not None:
-        loggers.append(NeptuneLogger(neptune_api_token, neptune_project))
+        if model is None:
+            raise ValueError("Expected `model` to be not None."
+                             "Please pass a `model=some_model`"
+                             " to get_trainer in order to bind it to a neptune.Experiment")
+        loggers.append(NeptuneLogger(neptune_api_token, neptune_project, params=model.hparams))
     if user_logger is None:
         loggers.append(MMKDefaultLogger(default_root_dir, next_version))
     elif user_logger:
