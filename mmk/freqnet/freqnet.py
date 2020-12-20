@@ -96,4 +96,5 @@ class FreqNet(FreqNetModel):
         return [(self.shift(), self.output_length(input_length))]
 
     def generation_slices(self):
+        # TODO! Add logic for concat/strict parameters
         return slice(-self.receptive_field(), None), slice(-1, None)

@@ -24,7 +24,7 @@ def from_recurrence_matrix(X,
         k=k, sym=sym, bandwidth=bandwidth, self=True)
     # intensify checker-board-like entries
     R_hat = convolve(R, checker(L),
-                     mode="constant")  # Todo : check if mode="reflect" would avoid peaking at the end
+                     mode="constant")
     # extract them along the main diagonal
     dg = np.diag(R_hat, 0)
     mx = localmax(dg * (dg > thresh)).nonzero()[0]

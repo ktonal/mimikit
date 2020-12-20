@@ -194,7 +194,7 @@ class MMKHooks:
             experiment = [exp for exp in self.logger.experiment if isinstance(exp, NeptuneExperiment)][0]
         # log everything!
         experiment.log_artifact(self.trainer.default_root_dir)
-        print("uploaded", self.trainer.default_root_dir, "to", experiment.id)
+        print("successfully uploaded", self.trainer.default_root_dir, "to", experiment.id)
         return 1
 
 

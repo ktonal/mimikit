@@ -228,7 +228,7 @@ class DataObject(TorchDataset):
             raise TypeError("Cannot select indices of objects that don't implement `__len__`")
         if inplace:
             self._object = self._object[np.sort(indices)]
-        else:  # TODO : Should be a proper wrapper:
+        else:
             self._object = Subset(self._object, indices)
 
     @map_if_multi("_object")
