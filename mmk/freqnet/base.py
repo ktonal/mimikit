@@ -2,7 +2,7 @@ import torch
 from pytorch_lightning import LightningModule, LightningDataModule
 from torch.utils.data import DataLoader
 
-from ...mmk.kit import Dataset, ShiftedSeqsPair, MMKHooks, EpochEndPrintHook
+from ..kit import Dataset, ShiftedSeqsPair, MMKHooks, EpochEndPrintHook
 
 
 class FreqOptim:
@@ -86,11 +86,15 @@ class FreqData(LightningDataModule):
 
     def val_dataloader(self):
         if self.val_ds is not None:
-            return DataLoader(self.val_ds, batch_size=self.batch_size, **self.loader_kwargs)
+            kwargs = self.loader_kwargs.copy()
+            kwargs["shuffle"] = False
+            return DataLoader(self.val_ds, batch_size=self.batch_size, **kwargs)
 
     def test_dataloader(self):
         if self.test_ds is not None:
-            return DataLoader(self.test_ds, batch_size=self.batch_size, **self.loader_kwargs)
+            kwargs = self.loader_kwargs.copy()
+            kwargs["shuffle"] = False
+            return DataLoader(self.test_ds, batch_size=self.batch_size, **kwargs)
 
 
 class FreqNetModel(MMKHooks,

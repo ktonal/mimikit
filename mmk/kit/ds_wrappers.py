@@ -52,7 +52,6 @@ class ShiftedSeqsPair(DSWrapper):
 
     def __len__(self):
         ln = (self.N - max(self.lengths) - max(self.shifts) + 1) // self.stride
-        print("!!!!!!!!!!!!!!!!!", ln, self.lengths, self.shifts)
         return ln
 
     def __getitem__(self, item):
