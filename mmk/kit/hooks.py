@@ -193,8 +193,10 @@ class MMKHooks:
                 raise ValueError("`experiment` is None and this model isn't bound to any NeptuneExperiment...")
             experiment = [exp for exp in self.logger.experiment if isinstance(exp, NeptuneExperiment)][0]
         # log everything!
-        experiment.log_artifact(self.trainer.default_root_dir)
-        print("successfully uploaded", self.trainer.default_root_dir, "to", experiment.id)
+        for directory in os.listdir(self.trainer.default_root_dir):
+            artifact = os.path.join(self.trainer.default_root_dir, directory)
+            experiment.log_artifact(artifact, directory)
+            print("successfully uploaded", artifact, "to", experiment.id)
         return 1
 
 
