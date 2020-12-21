@@ -41,6 +41,9 @@ class FeatureProxy(object):
             indices = indices.all_indices
         return Subset(DataObject(self), indices)
 
+    def __repr__(self):
+        return "<FeatureProxy(%s/%s)>" % (self.h5_file, self.name)
+
 
 class Database(object):
     def __init__(self, h5_file):
@@ -101,6 +104,9 @@ class Database(object):
         for name in names:
             setattr(self, name, self._get_dataframe(name))
         return None
+
+    def __repr__(self):
+        return "<Database(%s)>" % self.h5_file
 
 
 def add_feature(h5_file, feature_name, array):

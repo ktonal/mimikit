@@ -61,7 +61,8 @@ def get_trainer(model=None,
             raise ValueError("Expected `model` to be not None."
                              "Please pass a `model=some_model`"
                              " to get_trainer in order to bind it to a neptune.Experiment")
-        loggers.append(NeptuneLogger(neptune_api_token, neptune_project, params=model.hparams))
+        loggers.append(NeptuneLogger(neptune_api_token, neptune_project, params=model.hparams,
+                                     experiment_name=default_root_dir))
     if user_logger is None:
         loggers.append(MMKDefaultLogger(default_root_dir, next_version))
     elif user_logger:

@@ -269,3 +269,6 @@ class DataObject(TorchDataset):
     def load(self, **kwargs):
         """pack self into a batch producer (Dataloader)"""
         return DataLoader(self, **kwargs)
+
+    def __repr__(self):
+        return "<DataObject shape:%s, dtype:%s>" % (self.shape, self.dtype)
