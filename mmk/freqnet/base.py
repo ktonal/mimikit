@@ -150,9 +150,15 @@ class FreqNetModel(MMKHooks,
         return self.optim.configure_optimizers()
 
     def _set_hparams(self, hp):
-        # remove any inputs passed to the hparams...
+        """
+        Small handy hook to hack the hparams
+        """
+        # replace inputs passed to the hparams with their string
         if "data_object" in hp:
-            hp.pop("data_object")
+            string = repr(hp["data_object"])
+            hp["data_object"] = string[:88] + ("..." if len(string) > 88 else "")
+        # add the model class
+        hp["model_class"] = self.__class__.__name__
         super(FreqNetModel, self)._set_hparams(hp)
 
     # Convenience Methods for generative audio models (see also, `LoggingHooks.log_audio`):

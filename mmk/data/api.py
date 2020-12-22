@@ -1,7 +1,10 @@
 import h5py
 import numpy as np
 import pandas as pd
+import os
 from datetime import datetime
+
+from neptune import Session
 from torch.utils.data.dataset import Subset
 
 from .metadata import Metadata
@@ -42,7 +45,7 @@ class FeatureProxy(object):
         return Subset(DataObject(self), indices)
 
     def __repr__(self):
-        return "<FeatureProxy(%s/%s)>" % (self.h5_file, self.name)
+        return "<FeatureProxy: '%s/%s'>" % (self.h5_file, self.name)
 
 
 class Database(object):
@@ -106,7 +109,7 @@ class Database(object):
         return None
 
     def __repr__(self):
-        return "<Database(%s)>" % self.h5_file
+        return "<Database: '%s'>" % os.path.split(self.h5_file)[-1]
 
 
 def add_feature(h5_file, feature_name, array):
@@ -148,3 +151,27 @@ def add_data(h5_file, ds_name, array, filename):
         rv = f[ds_name][-N:]
     add_metadata(h5_file, M, N + M, N, ds_name, filename)
     return rv
+
+
+def upload_database(db, api_token, project_name, experiment_name):
+    session = Session.with_default_backend(api_token=api_token)
+    data_project = session.get_project(project_name)
+    feature = [name for name in db.features if "label" not in name][0]
+    feat_prox = getattr(db, feature)
+    params = {"name": experiment_name,
+              "feature_name": feature,
+              "shape": feat_prox.shape,
+              "files": len(db.metadata)}
+    params.update(feat_prox.attrs)
+    exp = data_project.create_experiment(name=experiment_name,
+                                         params=params)
+    exp.log_artifact(db.h5_file)
+    return exp.stop()
+
+
+def download_database(api_token, project_name, experiment_id, database_name, destination="./"):
+    session = Session.with_default_backend(api_token=api_token)
+    data_project = session.get_project(project_name)
+    exp = data_project.get_experiments(id=experiment_id)[0]
+    exp.download_artifact(database_name, destination)
+    return Database(os.path.join(destination, database_name))
