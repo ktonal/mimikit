@@ -26,10 +26,10 @@ class LoggingHooks:
     @property
     def neptune_experiment(self):
         """ short hand to access own NeptuneExperiment"""
-        exp = [exp for exp in self.logger.experiment
+        exps = [exp for exp in self.logger.experiment
                if isinstance(exp, NeptuneExperiment)]
-        if any(exp):
-            return exp[0]
+        if any(exps):
+            return exps[0]
         return None
 
     def on_epoch_start(self):

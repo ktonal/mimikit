@@ -49,7 +49,7 @@ class MMKCheckpoint(ModelCheckpoint):
             # what can be monitored
             monitor_candidates = self._monitor_candidates(trainer)
 
-            filepath = self.format_checkpoint_name(epoch, monitor_candidates)
+            filepath = self.format_checkpoint_name(epoch, global_step, {})
 
             self._save_model(filepath, trainer, pl_module)
 

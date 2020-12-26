@@ -36,7 +36,7 @@ class FreqLayer(nn.Module):
     kernel_size = 2
     stride = 1
     bias = True
-    sides = dict(left=1, right=-1)
+    sides = {1: 1, -1: -1, 0: 0, "left": 1, "right": -1, None: 0}
 
     def __init__(self,
                  layer_index,

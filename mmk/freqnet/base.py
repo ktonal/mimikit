@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 import librosa
 from abc import ABC
 
-from ..data import DataObject, HOP_LENGTH
+from ..data import DataObject, FeatureProxy, HOP_LENGTH
 from ..kit import ShiftedSeqsPair, MMKHooks, LoggingHooks
 
 
@@ -151,10 +151,17 @@ class FreqNetModel(MMKHooks,
 
     def _set_hparams(self, hp):
         """
-        Small handy hook to hack the hparams
+        Small handy hook to
+            - copy params of a db in hparams
+            - make sure we don't store arrays or tensors in hparams by replacing them
+            by their string
         """
         # replace inputs passed to the hparams with their string
         if "data_object" in hp:
+            if isinstance(hp["data_object"], FeatureProxy):
+                # copy the attrs of the db to hparams
+                for k, v in hp["data_object"].attrs.items():
+                    hp[k] = v
             string = repr(hp["data_object"])
             hp["data_object"] = string[:88] + ("..." if len(string) > 88 else "")
         # add the model class
