@@ -147,7 +147,7 @@ paths_grid = ParameterGrid([
         "epochs": [None, 2, [2, 4]],
         # neptune args are fake, we monkeypatch the class later
         # so that in runs offline and ignores them
-        "neptune_api_token": [None, "FAKE_TOKEN"],
+        "neptune_api_token": [None, "ANONYMOUS"],
         "neptune_project": [None, "account/project"],
         "kwargs": [dict(logger=False, callbacks=[MMKCheckpoint("./", 1)]),
                    dict(logger=MMKDefaultLogger("./", 0))]
@@ -158,7 +158,7 @@ paths_grid = ParameterGrid([
 @pytest.fixture(params=list(paths_grid), autouse=True)
 def init_case(request, tmp_path, monkeypatch):
     # maybe we should make all args available to the user?...
-    monkeypatch.setattr(NeptuneLogger.__init__, "__defaults__", (None, None, True, True, None))
+    monkeypatch.setattr(NeptuneLogger.__init__, "__defaults__", (None, None, True, True, None, "", ""))
 
     root = "" if request.param["root_dir"] is None else request.param["root_dir"]
     if root:
