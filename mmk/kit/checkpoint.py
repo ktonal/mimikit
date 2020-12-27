@@ -46,9 +46,6 @@ class MMKCheckpoint(ModelCheckpoint):
             # track epoch when ckpt was last checked
             self.last_global_step_saved = global_step
 
-            # what can be monitored
-            monitor_candidates = self._monitor_candidates(trainer)
-
             filepath = self.format_checkpoint_name(epoch, global_step, {})
 
             self._save_model(filepath, trainer, pl_module)

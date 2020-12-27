@@ -16,6 +16,7 @@ def get_trainer(model=None,
                 epochs=None,  # add MMKCheckpoint if not None
                 neptune_api_token=None,  # add NeptuneLogger if not None
                 neptune_project=None,
+                neptune_exp_id=None,
                 **kwargs):
 
     # Figure out the root_dir
@@ -62,7 +63,7 @@ def get_trainer(model=None,
                              "Please pass a `model=some_model`"
                              " to get_trainer in order to bind it to a neptune.Experiment")
         loggers.append(NeptuneLogger(neptune_api_token, neptune_project, params=model.hparams,
-                                     experiment_name=default_root_dir))
+                                     experiment_name=default_root_dir, experiment_id=neptune_exp_id))
     if user_logger is None:
         loggers.append(MMKDefaultLogger(default_root_dir, next_version))
     elif user_logger:
