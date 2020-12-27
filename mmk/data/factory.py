@@ -2,7 +2,6 @@ import h5py
 import numpy as np
 import pandas as pd
 from multiprocessing import cpu_count, Pool
-import logging
 from typing import Iterable
 import os
 import warnings
@@ -10,10 +9,6 @@ import warnings
 from .api import Database
 from .metadata import Metadata
 from .transforms import default_extract_func
-
-logging.basicConfig(level=logging.NOTSET)
-logger = logging.getLogger("db-factory")
-logger.setLevel(logging.INFO)
 
 warnings.filterwarnings("ignore", message="PySoundFile failed.")
 warnings.filterwarnings("ignore", message="PerformanceWarning")
