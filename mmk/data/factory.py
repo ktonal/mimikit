@@ -5,14 +5,19 @@ from multiprocessing import cpu_count, Pool
 import logging
 from typing import Iterable
 import os
+import warnings
 
 from .api import Database
 from .metadata import Metadata
 from .transforms import default_extract_func
 
-
-logger = logging.getLogger()
+logging.basicConfig(level=logging.NOTSET)
+logger = logging.getLogger("db-factory")
 logger.setLevel(logging.INFO)
+
+warnings.filterwarnings("ignore", message="PySoundFile failed.")
+warnings.filterwarnings("ignore", message="PerformanceWarning")
+warnings.filterwarnings("ignore", message="Creating an ndarray from ragged nested sequences")
 
 
 class AudioFileWalker:
@@ -67,10 +72,9 @@ class AudioFileWalker:
 
     @staticmethod
     def walk_root(root):
-        audio_files = (os.path.join(directory, audio_file)
-                       for directory, _, files in os.walk(root)
-                       for audio_file in filter(AudioFileWalker.is_audio_file, files))
-        return audio_files
+        for directory, _, files in os.walk(root):
+            for audio_file in filter(AudioFileWalker.is_audio_file, files):
+                yield os.path.join(directory, audio_file)
 
     @staticmethod
     def is_audio_file(filename):
@@ -101,8 +105,7 @@ def _empty_info(features_names):
 
 
 def split_path(path):
-    parts = path.split("/")
-    prefix, file_name = "/".join(parts[:-1]), parts[-1]
+    prefix, file_name = os.path.split(path)
     return prefix, file_name
 
 
@@ -120,8 +123,8 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
     @param mode:
     @return:
     """
-    logger.info("making db for %s" % abs_path)
-    tmp_db = ".".join(abs_path.split(".")[:-1] + ["h5"])
+    print("making db for %s" % abs_path)
+    tmp_db = os.path.splitext(abs_path)[0] + ".h5"
     rv = extract_func(abs_path)
     if "metadata" not in rv:
         raise ValueError("Expected `extract_func` to return a ('metadata', Metadata) item. Found none")
@@ -172,7 +175,7 @@ def collect_metadatas(tmp_dbs):
     for db in tmp_dbs:
         meta = Database(db).metadata
         meta.loc[:, ("start", "stop")] = meta.loc[:, ("start", "stop")].values + offset
-        meta.loc[:, "name"] = ".".join(db.split(".")[:-1])
+        meta.loc[:, "name"] = os.path.splitext(db)[0]
         metadatas += [meta]
         offset = meta.last_stop
     return pd.DataFrame(pd.concat(metadatas, ignore_index=True))
@@ -184,9 +187,9 @@ def zip_prev_next(iterable):
 
 def ds_definitions_from_infos(infos):
     tb = infos.iloc[:, 2:].T
-    paths = ["/".join(parts) for parts in infos.iloc[:, :2].values]
+    paths = [os.path.join(*parts) for parts in infos.iloc[:, :2].values]
     # change the paths' extensions
-    paths = [".".join(path.split(".")[:-1]) + ".h5" for path in paths]
+    paths = [os.path.splitext(path)[0] + ".h5" for path in paths]
     features = set(tb.index.get_level_values(0))
     ds_definitions = {}
     for f in features:

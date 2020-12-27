@@ -5,7 +5,7 @@ from typing import Optional, Union, Callable, Dict, IO
 import torch
 import os
 import warnings
-import torchaudio
+import soundfile as sf
 
 try:
     from neptune.experiments import Experiment as NeptuneExperiment
@@ -17,8 +17,6 @@ except ImportError:
 
 from .. import __version__ as version
 from ..data.transforms import SR
-
-torchaudio.set_audio_backend("sox_io")
 
 
 class LoggingHooks:
@@ -90,7 +88,7 @@ class LoggingHooks:
                     os.mkdir(root)
                 if ".wav" != os.path.splitext(path)[-1]:
                     path = os.path.join(root, path + ".wav")
-        torchaudio.save(path, audio_tensor, sample_rate)
+        sf.write(path, audio_tensor.cpu().numpy(), sample_rate, 'PCM_24')
         for exp in self.logger.experiment:
             # Neptune and TestTube experiments have different APIs...
             if getattr(exp, "add_audio", False):

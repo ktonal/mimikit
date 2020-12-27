@@ -18,12 +18,13 @@ with open('mmk/__init__.py', 'r') as f:
 with open('README.md', 'r', encoding='utf-8') as f:
     readme = f.read()
 
-from pkg_resources import parse_requirements
 import os
 
 with open(os.path.join(os.path.dirname(__file__), 'requirements.txt'), "r", encoding="utf-8") as f:
     REQUIRES = [ln.strip() for ln in f.readlines() if ln.strip()]
 
+PACKAGES = find_packages(exclude=('tests', 'tests.*'))
+print(PACKAGES)
 
 kwargs = {
     'name': 'mmk',
@@ -55,7 +56,11 @@ kwargs = {
     'python_requires': '>=3.6',
     'install_requires': REQUIRES,
     'tests_require': ['coverage', 'pytest'],
-    'packages': find_packages(exclude=('tests', 'tests.*')),
+    'packages': PACKAGES,
+    "entry_points": {
+        'console_scripts': [
+            'freqnet-db=mmk.data.freqnet_db:main'
+        ]}
 
 }
 
