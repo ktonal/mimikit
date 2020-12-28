@@ -86,9 +86,10 @@ class LoggingHooks:
                 root = os.path.join(self.trainer.default_root_dir, "audios")
                 if not os.path.exists(root):
                     os.mkdir(root)
-                if ".wav" != os.path.splitext(path)[-1]:
-                    path = os.path.join(root, path + ".wav")
-        sf.write(path, audio_tensor.cpu().numpy(), sample_rate, 'PCM_24')
+                path = os.path.join(root, path)
+        if ".wav" != os.path.splitext(path)[-1]:
+            path = path + ".wav"
+        sf.write(path, audio_tensor.squeeze().cpu().numpy(), sample_rate, 'PCM_24')
         for exp in self.logger.experiment:
             # Neptune and TestTube experiments have different APIs...
             if getattr(exp, "add_audio", False):
@@ -107,6 +108,13 @@ def _check_version(other_v):
         warnings.warn(("You are loading a checkpoint made by a different version of mmk (%s) as the one" % v) +
                       (" imported in this runtime (%s). If you encounter errors " % version) +
                       (", try to install the right version with `pip install mmk==%s" % v))
+
+
+# Solution 1:
+# - don't override anything -> lot of memory & unintuitive loading...
+# Solution 2:
+# - override the save_function of ModelCheckpoint & implement `load_for_inference` & `load_for_training`
+# => no compat with lightning
 
 
 class MMKHooks:
@@ -148,7 +156,7 @@ class MMKHooks:
         checkpoint.pop("optimizer_states")
         checkpoint.pop("lr_schedulers")
 
-        # save some trainer props
+        # save trainer
         if not os.path.exists(os.path.join(path, "trainer_props.pt")):
             trainer_props = {}
             for prop in [

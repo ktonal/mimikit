@@ -186,13 +186,13 @@ class FreqNetModel(MMKHooks,
     def targets_shifts_and_lengths(self, input_length):
         raise NotImplementedError("subclasses of `FreqNetModel` have to implement `targets_shifts_and_lengths`")
 
-    def generate(self, input, n_steps, hop_length=HOP_LENGTH):
-        if not isinstance(input, torch.Tensor):
-            input = torch.from_numpy(input)
-        if len(input.shape) < 3:
-            input = input.unsqueeze(0)
+    def generate(self, prompt, n_steps, hop_length=HOP_LENGTH):
+        if not isinstance(prompt, torch.Tensor):
+            prompt = torch.from_numpy(prompt)
+        if len(prompt.shape) < 3:
+            prompt = prompt.unsqueeze(0)
         input_slice, output_slice = self.generation_slices()
-        generated = input.to(self.device)
+        generated = prompt.to(self.device)
         for _ in range(n_steps):
             with torch.no_grad():
                 out = self(generated[:, input_slice])
