@@ -120,9 +120,13 @@ class FreqNetModel(MMKHooks,
                  **loaders_kwargs):
         super(FreqNetModel, self).__init__()
         # dimensionality of inputs is automatically available
-        self.input_dim = data_object.shape[-1]
-        self.datamodule = FreqData(self, data_object, input_seq_length, batch_size,
-                                   to_gpu, splits, **loaders_kwargs) if data_object is not None else None
+        if data_object is not None and not isinstance(data_object, str):
+            self.input_dim = data_object.shape[-1]
+            self.datamodule = FreqData(self, data_object, input_seq_length, batch_size,
+                                       to_gpu, splits, **loaders_kwargs)
+        else:
+            self.input_dim = 1
+            self.datamodule = None
         self.optim = FreqOptim(self, max_lr, betas, div_factor, final_div_factor, pct_start,
                                cycle_momentum)
         # calling this updates self.hparams from any subclass : call it when subclassing!
