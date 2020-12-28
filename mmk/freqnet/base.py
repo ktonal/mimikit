@@ -168,8 +168,6 @@ class FreqNetModel(MMKHooks,
                     hp[k] = v
             string = repr(hp["data_object"])
             hp["data_object"] = string[:88] + ("..." if len(string) > 88 else "")
-        # add the model class
-        hp["model_class"] = self.__class__.__name__
         super(FreqNetModel, self)._set_hparams(hp)
 
     # Convenience Methods for generative audio models (see also, `LoggingHooks.log_audio`):

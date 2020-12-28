@@ -155,18 +155,8 @@ class MMKHooks:
         # pop optim items from checkpoint
         checkpoint.pop("optimizer_states")
         checkpoint.pop("lr_schedulers")
-
-        # save trainer
-        if not os.path.exists(os.path.join(path, "trainer_props.pt")):
-            trainer_props = {}
-            for prop in [
-                "max_epochs",
-                "check_val_every_n_epoch",
-                "reload_dataloaders_every_epoch"
-            ]:
-                trainer_props.update({prop: getattr(self.trainer, prop, None)})
-
-            torch.save(trainer_props, os.path.join(path, "trainer_props.pt"))
+        # this seem to fix ValueError caused by lr_scheduler when resuming:
+        checkpoint["global_step"] -= 2
         checkpoint["mmk_version"] = version
         return checkpoint
 
@@ -177,7 +167,6 @@ class MMKHooks:
         if getattr(self, "trainer", None) is not None:
             # ... and the trainer got a ckpt_path to resume from
             if self.trainer.resume_from_checkpoint is not None:
-
                 ckpt_path = self.trainer.resume_from_checkpoint
                 version_dir = os.path.abspath(os.path.dirname(ckpt_path))
 
@@ -190,14 +179,6 @@ class MMKHooks:
                 checkpoint["optimizer_states"] = optim_state["optimizer_states"]
                 checkpoint["lr_schedulers"] = optim_state["lr_schedulers"]
 
-            # update the trainer
-            trainer_props = torch.load(os.path.join(version_dir, "trainer_props.pt"))
-            for prop in ["check_val_every_n_epoch",
-                         "reload_dataloaders_every_epoch",
-                         ]:
-                setattr(self.trainer, prop, trainer_props[prop])
-
-            self.trainer.max_epochs = self.trainer.max_epochs + checkpoint["epoch"]
         return checkpoint
 
     def upload_to_neptune(self, experiment=None):
