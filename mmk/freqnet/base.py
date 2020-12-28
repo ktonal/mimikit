@@ -125,8 +125,9 @@ class FreqNetModel(MMKHooks,
             self.datamodule = FreqData(self, data_object, input_seq_length, batch_size,
                                        to_gpu, splits, **loaders_kwargs)
         else:
-            self.input_dim = 1
-            self.datamodule = None
+            raise ValueError("Please pass a valid data_object to instantiate a FreqNetModel."
+                             " If you are loading from a checkpoint, you can do so by modifying your method call to :\n"
+                             "FreqNetModel.load_from_checkpoint(path_to_ckpt, data_object=my_data_object)")
         self.optim = FreqOptim(self, max_lr, betas, div_factor, final_div_factor, pct_start,
                                cycle_momentum)
         # calling this updates self.hparams from any subclass : call it when subclassing!
