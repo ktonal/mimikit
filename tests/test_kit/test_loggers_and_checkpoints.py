@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 
-from ...mmk.kit import MMKHooks, LoggingHooks, get_trainer
+from mmk.kit import MMKHooks, LoggingHooks, get_trainer
 
 
 class TestModel(MMKHooks,
@@ -53,7 +53,6 @@ def test_model(tmp_path):
 
     states = os.listdir(os.path.join(root, "states"))
     assert 'last_optim_state.ckpt' in states, states
-    assert 'trainer_props.pt' in states, states
     assert 'epoch=0.ckpt' in states, states
 
     ckpt_path = str(root / "states" / 'epoch=1.ckpt')
@@ -63,15 +62,19 @@ def test_model(tmp_path):
     assert "mmk_version" in ckpt, list(ckpt.keys())
     assert "epoch" in ckpt, list(ckpt.keys())
     assert "global_step" in ckpt, list(ckpt.keys())
+    assert "optimizer_states" not in ckpt
+    assert "lr_schedulers" not in ckpt
 
     from_ckpt = TestModel.load_from_checkpoint(ckpt_path)
     assert isinstance(from_ckpt, TestModel)
-    new_trainer = pl.Trainer(resume_from_checkpoint=ckpt_path, max_epochs=2)
+    new_trainer = pl.Trainer(resume_from_checkpoint=ckpt_path, max_epochs=4)
+    print("SECOND RUN")
     new_trainer.fit(from_ckpt)
     assert new_trainer.current_epoch == 3
 
     from_ckpt = TestModel.load_from_checkpoint(ckpt_path)
-    new_trainer = get_trainer(resume_from_checkpoint=ckpt_path, epochs=None, max_epochs=2)
+    new_trainer = get_trainer(resume_from_checkpoint=ckpt_path, epochs=None, max_epochs=4)
+    print("THIRD RUN")
     new_trainer.fit(from_ckpt)
     assert new_trainer.current_epoch == 3
 

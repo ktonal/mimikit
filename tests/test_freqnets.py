@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 
-from ..mmk.kit import get_trainer
-from ..mmk.freqnet import *
+from mmk.kit import get_trainer
+from mmk.freqnet import *
 
 
 def test_base(tmp_path):

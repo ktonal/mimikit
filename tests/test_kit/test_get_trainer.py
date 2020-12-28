@@ -6,9 +6,9 @@ from pytorch_lightning.loggers.base import LoggerCollection
 import os
 import shutil
 
-from ...mmk.kit.get_trainer import get_trainer
-from ...mmk.kit.loggers import MMKDefaultLogger
-from ...mmk.kit.checkpoint import MMKCheckpoint
+from mmk.kit.get_trainer import get_trainer
+from mmk.kit.loggers import MMKDefaultLogger
+from mmk.kit.checkpoint import MMKCheckpoint
 
 
 class DummyModel:
