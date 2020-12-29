@@ -169,9 +169,11 @@ def upload_database(db, api_token, project_name, experiment_name):
     return exp.stop()
 
 
-def download_database(api_token, project_name, experiment_id, database_name, destination="./"):
+def download_database(api_token, full_exp_path, database_name, destination="./"):
     session = Session.with_default_backend(api_token=api_token)
+    namespace, project, exp_id = full_exp_path.split("/")
+    project_name = namespace + "/" + project
     data_project = session.get_project(project_name)
-    exp = data_project.get_experiments(id=experiment_id)[0]
+    exp = data_project.get_experiments(id=exp_id)[0]
     exp.download_artifact(database_name, destination)
     return Database(os.path.join(destination, database_name))

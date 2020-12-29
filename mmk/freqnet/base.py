@@ -87,16 +87,16 @@ class FreqData(LightningDataModule):
         if self.train_ds is not None:
             return DataLoader(self.train_ds, batch_size=self.batch_size, **self.loader_kwargs)
 
-    def val_dataloader(self):
+    def val_dataloader(self, shuffle=False):
         if self.val_ds is not None:
             kwargs = self.loader_kwargs.copy()
-            kwargs["shuffle"] = False
+            kwargs["shuffle"] = shuffle
             return DataLoader(self.val_ds, batch_size=self.batch_size, **kwargs)
 
-    def test_dataloader(self):
+    def test_dataloader(self, shuffle=False):
         if self.test_ds is not None:
             kwargs = self.loader_kwargs.copy()
-            kwargs["shuffle"] = False
+            kwargs["shuffle"] = shuffle
             return DataLoader(self.test_ds, batch_size=self.batch_size, **kwargs)
 
 
@@ -176,8 +176,8 @@ class FreqNetModel(MMKHooks,
     def random_train_example(self):
         return next(iter(self.datamodule.train_dataloader()))[0][0:1]
 
-    def first_val_example(self):
-        return next(iter(self.datamodule.val_dataloader()))[0][0:1]
+    def random_val_example(self):
+        return next(iter(self.datamodule.val_dataloader(shuffle=True)))[0][0:1]
 
     def generation_slices(self):
         raise NotImplementedError("subclasses of `FreqNetModel` have to implement `generation_slices`")

@@ -59,7 +59,7 @@ kwargs = {
     'packages': PACKAGES,
     "entry_points": {
         'console_scripts': [
-            'freqnet-db=mmk.data.freqnet_db:main'
+            'freqnet-db=mmk.freqnet.freqnet_db:main'
         ]}
 
 }

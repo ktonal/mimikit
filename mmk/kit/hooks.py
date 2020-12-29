@@ -76,7 +76,7 @@ class LoggingHooks:
             self.hparams.update({"training_time_sec": duration})
             self.logger.log_hyperparams(self.hparams)
 
-    def log_audio(self, filename, audio_tensor, sample_rate=SR):
+    def log_audio(self, filename, audio_tensor, sample_rate=SR, experiments=None):
         # TensorBoards write their own "Event" file which is quite cumbersome to extract afterwards...
         # NeptuneLoggers need an audio file written on disk and store it afterwards as html on the server...
         # Just to be sure and even if it is then in 3 places : we add the audio in root_dir/audios of the model!
@@ -89,8 +89,9 @@ class LoggingHooks:
                 path = os.path.join(root, path)
         if ".wav" != os.path.splitext(path)[-1]:
             path = path + ".wav"
-        sf.write(path, audio_tensor.squeeze().cpu().numpy(), sample_rate, 'PCM_24')
-        for exp in self.logger.experiment:
+        audio_tensor = audio_tensor.squeeze().detach().cpu().numpy()
+        sf.write(path, audio_tensor, sample_rate, 'PCM_24')
+        for exp in self.logger.experiment + ([] if experiments is None else experiments):
             # Neptune and TestTube experiments have different APIs...
             if getattr(exp, "add_audio", False):
                 exp.add_audio(filename + ".wav", audio_tensor, sample_rate=sample_rate)
@@ -108,13 +109,6 @@ def _check_version(other_v):
         warnings.warn(("You are loading a checkpoint made by a different version of mmk (%s) as the one" % v) +
                       (" imported in this runtime (%s). If you encounter errors " % version) +
                       (", try to install the right version with `pip install mmk==%s" % v))
-
-
-# Solution 1:
-# - don't override anything -> lot of memory & unintuitive loading...
-# Solution 2:
-# - override the save_function of ModelCheckpoint & implement `load_for_inference` & `load_for_training`
-# => no compat with lightning
 
 
 class MMKHooks:
@@ -181,14 +175,20 @@ class MMKHooks:
 
         return checkpoint
 
-    def upload_to_neptune(self, experiment=None):
+    def upload_to_neptune(self, root_dir=None, experiment=None):
+        if root_dir is None:
+            if getattr(self, "trainer", None) is None:
+                raise ValueError("expected to either have a 'trainer' attribute or `root_dir` to be a"
+                                 " valid path to a model's root directory. Both were None.")
+            else:
+                root_dir = self.trainer.default_root_dir
         if experiment is None:
             if not any(isinstance(exp, NeptuneExperiment) for exp in self.logger.experiment):
                 raise ValueError("`experiment` is None and this model isn't bound to any NeptuneExperiment...")
             experiment = [exp for exp in self.logger.experiment if isinstance(exp, NeptuneExperiment)][0]
         # log everything!
-        for directory in os.listdir(self.trainer.default_root_dir):
-            artifact = os.path.join(self.trainer.default_root_dir, directory)
+        for directory in os.listdir(root_dir):
+            artifact = os.path.join(root_dir, directory)
             experiment.log_artifact(artifact, directory)
             print("successfully uploaded", artifact, "to", experiment.id)
         return 1

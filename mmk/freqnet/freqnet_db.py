@@ -1,9 +1,8 @@
+import argparse
+import os
 from functools import partial
 from itertools import tee
 from multiprocessing import cpu_count
-import argparse
-import os
-import warnings
 
 from mmk.data import Database, make_root_db, file_to_fft, AudioFileWalker, upload_database
 
@@ -36,8 +35,21 @@ parser.add_argument("--neptune-project", '-p',
                          " neptune api token in the environment of this script)")
 
 
-def main():
-    args = parser.parse_args()
+def freqnet_db(target,
+               roots=None,
+               files=None,
+               n_fft=2048,
+               hop_length=512,
+               sample_rate=22050,
+               neptune_project=None):
+    namespace = argparse.Namespace(target=target, roots=roots, files=files, n_fft=n_fft,
+                                   hop_length=hop_length, sample_rate=sample_rate,
+                                   neptune_project=neptune_project)
+    main(namespace)
+
+
+def main(namespace=None):
+    args = parser.parse_args(namespace=namespace)
     transform = partial(file_to_fft,
                         n_fft=args.n_fft,
                         hop_length=args.hop_length,
