@@ -6,6 +6,7 @@
 from io import open
 
 from setuptools import setup, find_packages
+import os
 
 with open('mmk/__init__.py', 'r') as f:
     for line in f:
@@ -18,13 +19,10 @@ with open('mmk/__init__.py', 'r') as f:
 with open('README.md', 'r', encoding='utf-8') as f:
     readme = f.read()
 
-import os
-
 with open(os.path.join(os.path.dirname(__file__), 'requirements.txt'), "r", encoding="utf-8") as f:
     REQUIRES = [ln.strip() for ln in f.readlines() if ln.strip()]
 
 PACKAGES = find_packages(exclude=('tests', 'tests.*'))
-print(PACKAGES)
 
 kwargs = {
     'name': 'mmk',
@@ -32,10 +30,8 @@ kwargs = {
     'description': 'Python module for generating audio with neural networks',
     'long_description': readme,
     "long_description_content_type": "text/markdown",
-    'author': 'k-tonal',
+    'author': 'Antoine Daurat',
     'author_email': 'ktonalberlin@gmail.com',
-    'maintainer': 'Antoine Daurat',
-    'maintainer_email': 'antoinedaurat@gmail.com',
     'url': 'https://github.com/k-tonal/mmk',
     'download_url': 'https://github.com/k-tonal/mmk',
     # 'license': 'GNU General Public License v3 (GPLv3)',
@@ -63,17 +59,5 @@ kwargs = {
         ]}
 
 }
-
-#################### BEGIN USER OVERRIDES ####################
-# Add your customizations in this section.
-# kwargs["long_description_content_type"] = "text/markdown"
-# kwargs['author'] = 'k-tonal'
-# kwargs['author_email'] = 'ktonalberlin@gmail.com'
-# kwargs['maintainer'] = 'Antoine Daurat'
-# kwargs['maintainer_email'] = 'antoinedaurat@gmail.com'
-# kwargs['url'] = 'https://github.com/k-tonal/mmk'
-# kwargs['license'] = 'GNU General Public License v3 (GPLv3)'
-
-###################### END USER OVERRIDES ####################
 
 setup(**kwargs)
