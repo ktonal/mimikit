@@ -8,7 +8,7 @@ from .base import FreqNetModel
 
 class FreqNet(FreqNetModel):
     LAYER_KWARGS = ["groups", "strict", "accum_outputs", "concat_outputs",
-                    "pad_input", "learn_padding"]
+                    "pad_input", "learn_padding", "with_skip_conv", "with_residual_conv"]
 
     def __init__(self,
                  loss_fn=mean_L1_prop,
@@ -20,6 +20,8 @@ class FreqNet(FreqNetModel):
                  concat_outputs=None,
                  pad_input=None,
                  learn_padding=False,
+                 with_skip_conv=True,
+                 with_residual_conv=True,
                  **data_optim_kwargs):
         super(FreqNet, self).__init__(**data_optim_kwargs)
         self._loss_fn = loss_fn
@@ -31,6 +33,8 @@ class FreqNet(FreqNetModel):
         self.concat_outputs = concat_outputs
         self.pad_input = pad_input
         self.learn_padding = learn_padding
+        self.with_skip_conv = with_skip_conv
+        self.with_residual_conv = with_residual_conv
 
         # Input Encoder
         self.inpt = GatedLinearInput(self.input_dim, self.model_dim)

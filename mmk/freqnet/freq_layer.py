@@ -48,6 +48,8 @@ class FreqLayer(nn.Module):
                  concat_outputs=None,
                  pad_input=None,
                  learn_padding=False,
+                 with_skip_conv=False,
+                 with_residual_conv=False,
                  ):
         super(FreqLayer, self).__init__()
         self.layer_index = layer_index
@@ -59,37 +61,47 @@ class FreqLayer(nn.Module):
         self.concat_outputs = self.sides.get(concat_outputs, 0)
         self.pad_input = self.sides.get(pad_input, 0)
         self.learn_padding = learn_padding
+        self.with_skip_conv = with_skip_conv
+        self.with_residual_conv = with_residual_conv
 
         self.pad = LearnablePad1d(self.input_dim, self.padding, self.learn_padding)
 
         convs_kwargs = dict(dilation=self.dilation, stride=self.stride,
                             groups=self.groups, bias=self.bias)
         self.gate = GatedConv(self.input_dim, self.layer_dim, self.kernel_size, **convs_kwargs)
-        self.residuals = nn.Conv1d(self.layer_dim, self.input_dim, kernel_size=1, **convs_kwargs)
-        self.skips = nn.Conv1d(self.layer_dim, self.layer_dim, kernel_size=1, **convs_kwargs)
+
+        self.skips = nn.Conv1d(self.layer_dim, self.layer_dim, kernel_size=1, **convs_kwargs) \
+            if self.with_skip_conv else None
+        self.residuals = nn.Conv1d(self.layer_dim, self.input_dim, kernel_size=1, **convs_kwargs) \
+            if self.with_residual_conv else None
 
     def forward(self, x, skip=None):
         x = self.pad(x)
 
         y = self.gate(x)
-        h = self.skips(y)
-        y = self.residuals(y)
+        h = self.skips(y) if self.with_skip_conv else None
+        y = self.residuals(y) if self.with_residual_conv else y
 
         accum_outputs, concat_outputs = self.accum_outputs, self.concat_outputs
         shift = self.rel_shift()
 
         if accum_outputs:
-            if skip is None:
+            y = accum(x, y, shift * accum_outputs)
+            if skip is None and h is not None:
                 skip = torch.zeros_like(h).to(h)
-            y, skip = accum(x, y, shift * accum_outputs), accum(skip, h, shift * accum_outputs)
+                skip = accum(skip, h, shift * accum_outputs)
 
         if concat_outputs:
-            if skip is None:
+            y = concat(x, y, shift * concat_outputs)
+            if skip is None and h is not None:
                 skip = torch.zeros_like(h).to(h)
-            y, skip = concat(x, y, shift * concat_outputs), concat(skip, h, shift * concat_outputs)
+                skip = concat(skip, h, shift * concat_outputs)
 
-        if skip is None or (not concat_outputs and not accum_outputs):
-            skip = h
+        if self.with_skip_conv:
+            if skip is None or (not concat_outputs and not accum_outputs):
+                skip = h
+        else:
+            skip = y
 
         return y, skip
 

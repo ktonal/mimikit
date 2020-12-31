@@ -23,9 +23,12 @@ class HKFreqNet(FreqNet):
                  concat_outputs=None,
                  pad_input=None,
                  learn_padding=False,
+                 with_skip_conv=True,
+                 with_residual_conv=True,
                  **data_optim_kwargs):
         super(HKFreqNet, self).__init__(loss_fn, model_dim, groups, (n_layers,), strict,
                                         accum_outputs, concat_outputs, pad_input, learn_padding,
+                                        with_skip_conv, with_residual_conv,
                                         **data_optim_kwargs)
         # the 4th dimension in the final conv2d is 2 encoder outputs + n_conv_layers
         self.conv_f = nn.Conv2d(model_dim, model_dim, (1, n_layers + 2), groups=groups)

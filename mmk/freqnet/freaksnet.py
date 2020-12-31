@@ -22,6 +22,8 @@ class FreaksNet(FreqNet):
                  concat_outputs=((1, -1, 1),),
                  pad_input=((None, None, None),),
                  learn_padding=((False, False, False),),
+                 with_skip_conv=((False, True, False,), ),
+                 with_residual_conv=((True, True, False), ),
                  **data_optim_kwargs):
         super(FreaksNet, self).__init__(**data_optim_kwargs)
         self._loss_fn = loss_fn
@@ -34,6 +36,8 @@ class FreaksNet(FreqNet):
         self.concat_outputs = concat_outputs
         self.pad_input = pad_input
         self.learn_padding = learn_padding
+        self.with_skip_conv = with_skip_conv
+        self.with_residual_conv = with_residual_conv
 
         # Input Encoder
         self.inpt = GatedLinearInput(self.input_dim, self.model_dim)

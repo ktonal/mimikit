@@ -26,8 +26,3 @@ class AbsLinearOutput(nn.Module):
 
     def forward(self, x):
         return self.fc(x).abs()
-
-
-## Conv In/Out
-
-## Hierarchical conv Out
