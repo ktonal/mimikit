@@ -186,6 +186,10 @@ class FreqNetModel(MMKHooks,
         raise NotImplementedError("subclasses of `FreqNetModel` have to implement `targets_shifts_and_lengths`")
 
     def generate(self, prompt, n_steps, hop_length=HOP_LENGTH):
+        was_training = self.training
+        self.eval()
+        initial_device = self.device
+        self.to("cuda" if torch.cuda.is_available() else "cpu")
         if not isinstance(prompt, torch.Tensor):
             prompt = torch.from_numpy(prompt)
         if len(prompt.shape) < 3:
@@ -197,5 +201,7 @@ class FreqNetModel(MMKHooks,
                 out = self(generated[:, input_slice])
                 generated = torch.cat((generated, out[:, output_slice]), dim=1)
         generated = generated.transpose(1, 2).squeeze()
-        generated = librosa.griffinlim(generated.numpy(), hop_length=hop_length, n_iter=64)
+        generated = librosa.griffinlim(generated.cpu().numpy(), hop_length=hop_length, n_iter=64)
+        self.to(initial_device)
+        self.train() if was_training else None
         return torch.from_numpy(generated).unsqueeze(0)
