@@ -89,12 +89,14 @@ class FreqLayer(nn.Module):
             y = accum(x, y, shift * accum_outputs)
             if skip is None and h is not None:
                 skip = torch.zeros_like(h).to(h)
+            if self.with_skip_conv:
                 skip = accum(skip, h, shift * accum_outputs)
 
         if concat_outputs:
             y = concat(x, y, shift * concat_outputs)
             if skip is None and h is not None:
                 skip = torch.zeros_like(h).to(h)
+            if self.with_skip_conv:
                 skip = concat(skip, h, shift * concat_outputs)
 
         if self.with_skip_conv:

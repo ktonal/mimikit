@@ -175,7 +175,7 @@ class MMKHooks:
 
         return checkpoint
 
-    def upload_to_neptune(self, root_dir=None, experiment=None):
+    def upload_to_neptune(self, root_dir=None, experiment=None, artifacts=("states", "logs", "audios")):
         if root_dir is None:
             if getattr(self, "trainer", None) is None:
                 raise ValueError("expected to either have a 'trainer' attribute or `root_dir` to be a"
@@ -188,9 +188,10 @@ class MMKHooks:
             experiment = [exp for exp in self.logger.experiment if isinstance(exp, NeptuneExperiment)][0]
         # log everything!
         for directory in os.listdir(root_dir):
-            artifact = os.path.join(root_dir, directory)
-            experiment.log_artifact(artifact, directory)
-            print("successfully uploaded", artifact, "to", experiment.id)
+            if directory in artifacts:
+                artifact = os.path.join(root_dir, directory)
+                experiment.log_artifact(artifact, directory)
+                print("successfully uploaded", artifact, "to", experiment.id)
         return 1
 
 
