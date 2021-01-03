@@ -24,6 +24,13 @@ def get_neptune_experiment(api_token, full_exp_path: str):
     return None if not any(exps) else exps[0]
 
 
+def get_neptune_project(api_token, project_name: str):
+    namespace, project = project_name.split("/")
+    session = Session.with_default_backend(api_token=api_token)
+    project = session.get_project(namespace + "/" + project)
+    return project
+
+
 def download_model(api_token, full_exp_path, destination="./"):
     session = Session.with_default_backend(api_token=api_token)
     namespace, project, exp_id = full_exp_path.split("/")
