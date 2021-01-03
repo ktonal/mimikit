@@ -253,8 +253,9 @@ def aggregate_dbs(target, dbs, mode="w", remove_sources=False):
     metadata.to_hdf(target, "metadata", "r+")
 
 
-def make_root_db(db_name, file_walker, extract_func=default_extract_func,
+def make_root_db(db_name, roots='./', files=None, extract_func=default_extract_func,
                  n_cores=cpu_count(), remove_sources=True):
-    dbs = make_db_for_each_file(file_walker, extract_func, n_cores)
+    walker = AudioFileWalker(roots, files)
+    dbs = make_db_for_each_file(walker, extract_func, n_cores)
     aggregate_dbs(db_name, dbs, "w", remove_sources)
-
+    return Database(db_name)

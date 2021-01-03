@@ -46,6 +46,7 @@ def freqnet_db(target,
                                    hop_length=hop_length, sample_rate=sample_rate,
                                    neptune_project=neptune_project)
     main(namespace)
+    return Database(target)
 
 
 def main(namespace=None):
@@ -56,11 +57,11 @@ def main(namespace=None):
                         sr=args.sample_rate)
     if args.roots is None and args.files is None:
         args.roots = "./"
-    walker = AudioFileWalker(roots=args.roots, files=args.files)
+    walker = AudioFileWalker()
     walker, backup = tee(walker)
     print("Found following audio files :", "\n", *["\t" + file + "\n" for file in list(backup)])
     print("Making the database...")
-    make_root_db(args.target, walker, transform, n_cores=cpu_count()//2)
+    make_root_db(args.target, roots=args.roots, files=args.files, extract_func=transform, n_cores=cpu_count()//2)
 
     if args.neptune_project is not None:
         token = os.environ["NEPTUNE_API_TOKEN"]

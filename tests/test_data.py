@@ -63,8 +63,7 @@ def test_file_to_db(audio_tree):
 
 
 def test_make_root_db_and_Database(audio_tree):
-    walker = AudioFileWalker(roots=audio_tree)
-    make_root_db(audio_tree + "/test_db.h5", list(walker), default_extract_func, n_cores=1)
+    make_root_db(audio_tree + "/test_db.h5", roots=audio_tree, extract_func=default_extract_func, n_cores=1)
 
     db = Database(audio_tree + "/test_db.h5")
     assert db.metadata is not pd.DataFrame()
