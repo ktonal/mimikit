@@ -187,15 +187,15 @@ def test_models_train(tmp_path):
 
         FreqNet(data_object=data_object, **kwargs),
         FreaksNet(data_object=data_object, **kwargs),
-        HKFreqNet(data_object=data_object, **kwargs),
+        HKFreqNet(data_object=data_object, n_layers=2, **kwargs),
         FrexpertMixture(data_object=data_object, **kwargs),
         LayerWiseLossFreqNet(data_object=data_object, **kwargs)
     ]
 
     for mdl in models:
-
+        print("CLASS : ", mdl.__class__.__name__, mdl.targets_shifts_and_lengths(8))
         trainer = get_trainer(root_dir=tmp_path, max_epochs=1)
 
         trainer.fit(mdl)
-
+        # print("FREQSHAPES:", mdl.targets_shifts_and_lengths(8), mdl(data_object[:8].unsqueeze(0)).shape)
         assert trainer.global_step > 0, type(mdl)

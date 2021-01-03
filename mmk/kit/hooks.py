@@ -80,25 +80,35 @@ class LoggingHooks:
         # TensorBoards write their own "Event" file which is quite cumbersome to extract afterwards...
         # NeptuneLoggers need an audio file written on disk and store it afterwards as html on the server...
         # Just to be sure and even if it is then in 3 places : we add the audio in root_dir/audios of the model!
-        path = filename
+
+        # figure out where we'll save the file :
         if self.trainer is not None:
-            if self.trainer.default_root_dir not in path:
-                root = os.path.join(self.trainer.default_root_dir, "audios")
-                if not os.path.exists(root):
-                    os.mkdir(root)
-                path = os.path.join(root, path)
+            root = os.path.join(self.trainer.default_root_dir, "audios")
+        elif self._loaded_checkpoint is not None:
+            root_dir = os.path.split(os.path.dirname(self._loaded_checkpoint))[0]
+            root = os.path.join(root_dir, "audios")
+        else:
+            if os.path.dirname(filename):
+                root = os.path.dirname(filename)
+            else:
+                root = "./"
+        if not os.path.exists(root):
+            os.makedirs(root, exist_ok=True)
+        path = os.path.join(root, filename)
         if ".wav" != os.path.splitext(path)[-1]:
             path = path + ".wav"
         audio_tensor = audio_tensor.squeeze().detach().cpu().numpy()
         sf.write(path, audio_tensor, sample_rate, 'PCM_24')
-        for exp in self.logger.experiment + ([] if experiments is None else experiments):
+        exps = [] if experiments is None else experiments
+        exps += self.logger.experiment if getattr(self, "logger", False) else []
+        for exp in exps:
             # Neptune and TestTube experiments have different APIs...
             if getattr(exp, "add_audio", False):
                 exp.add_audio(filename + ".wav", audio_tensor, sample_rate=sample_rate)
                 exp.save()
                 print("Updated TensorBoard with", filename)
             elif isinstance(exp, NeptuneExperiment):
-                log_audio(path, filename, exp)
+                log_audio(path, os.path.split(path)[-1], exp)
                 print("Updated neptune experiment", exp.id, "with", filename)
         return 1
 
@@ -112,6 +122,8 @@ def _check_version(other_v):
 
 
 class MMKHooks:
+
+    _loaded_checkpoint = None
 
     @classmethod
     def load_from_checkpoint(
@@ -131,6 +143,7 @@ class MMKHooks:
         if checkpoint.get("version", None) is not None:
             _check_version(checkpoint["version"])
         model = cls._load_model_state(checkpoint, strict=strict, **kwargs)
+        model._loaded_checkpoint = checkpoint_path
         return model
 
     def on_save_checkpoint(self, checkpoint):

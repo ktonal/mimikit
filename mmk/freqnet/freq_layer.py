@@ -36,7 +36,7 @@ class FreqLayer(nn.Module):
     kernel_size = 2
     stride = 1
     bias = True
-    sides = {1: 1, -1: -1, 0: 0, "left": 1, "right": -1, None: 0}
+    sides = {1: 1, -1: -1, 0: 0, "left": 1, "right": -1}
 
     def __init__(self,
                  layer_index,
@@ -44,9 +44,9 @@ class FreqLayer(nn.Module):
                  layer_dim=512,
                  groups=1,
                  strict=False,
-                 accum_outputs=None,
-                 concat_outputs=None,
-                 pad_input=None,
+                 accum_outputs=0,
+                 concat_outputs=0,
+                 pad_input=0,
                  learn_padding=False,
                  with_skip_conv=False,
                  with_residual_conv=False,
@@ -57,7 +57,11 @@ class FreqLayer(nn.Module):
         self.layer_dim = layer_dim
         self.groups = groups
         self.strict = strict
-        self.accum_outputs = self.sides.get(accum_outputs, 0)
+        if pad_input != 0 and concat_outputs != 0:
+            raise ValueError("pad_input and concat_outputs can not be both non zero")
+        # accum and concat have opposite signs :
+        # accum left is a shift from the end (negative), whereas concat left is a shift from the beginning (positive)
+        self.accum_outputs = - self.sides.get(accum_outputs, 0)
         self.concat_outputs = self.sides.get(concat_outputs, 0)
         self.pad_input = self.sides.get(pad_input, 0)
         self.learn_padding = learn_padding
@@ -87,22 +91,24 @@ class FreqLayer(nn.Module):
 
         if accum_outputs:
             y = accum(x, y, shift * accum_outputs)
-            if skip is None and h is not None:
-                skip = torch.zeros_like(h).to(h)
-            if self.with_skip_conv:
-                skip = accum(skip, h, shift * accum_outputs)
 
         if concat_outputs:
             y = concat(x, y, shift * concat_outputs)
-            if skip is None and h is not None:
-                skip = torch.zeros_like(h).to(h)
-            if self.with_skip_conv:
-                skip = concat(skip, h, shift * concat_outputs)
 
         if self.with_skip_conv:
-            if skip is None or (not concat_outputs and not accum_outputs):
-                skip = h
+            if skip is None:
+                skip = torch.zeros_like(h).to(h)
+            if accum_outputs:
+                # we do it on the same side as the outputs
+                skip = accum(skip, h, shift * accum_outputs)
+            else:
+                # we accum on the right anyway, otherwise skips don't make any sense,
+                # since they aren't inputs to anything...
+                skip = accum(skip, h, shift * 1)
+            if concat_outputs:
+                skip = concat(skip, h, shift * concat_outputs)
         else:
+            # still need to output a tensor
             skip = y
 
         return y, skip
@@ -126,7 +132,7 @@ class FreqLayer(nn.Module):
         return 2 ** (self.layer_index + 1)
 
     def shift(self):
-        """total shift at this layer wrt. to the begining of its block"""
+        """total shift at this layer wrt. to the beginning of its block"""
         return self.receptive_field() + self.layer_index * int(self.strict)
 
     def rel_shift(self):
@@ -141,6 +147,6 @@ class FreqLayer(nn.Module):
             # no matter what, padding input gives the same output shape
             return input_length
         # output is gonna be less than input
-        numerator = input_length + 2 * abs(self.padding) - self.dilation * (self.kernel_size - 1) - 1
+        numerator = input_length - self.dilation * (self.kernel_size - 1) - 1
         denominator = self.stride
         return math.floor(1 + numerator / denominator)

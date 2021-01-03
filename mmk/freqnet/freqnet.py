@@ -14,11 +14,11 @@ class FreqNet(FreqNetModel):
                  loss_fn=mean_L1_prop,
                  model_dim=512,
                  groups=1,
-                 n_layers=(int(np.log2(8)),),
+                 n_layers=(2,),
                  strict=False,
-                 accum_outputs=None,
-                 concat_outputs=None,
-                 pad_input=None,
+                 accum_outputs=0,
+                 concat_outputs=0,
+                 pad_input=0,
                  learn_padding=False,
                  with_skip_conv=True,
                  with_residual_conv=True,
@@ -71,6 +71,8 @@ class FreqNet(FreqNetModel):
 
     def shift(self):
         """total shift of the network"""
+        if self.pad_input == 1 or self.concat_outputs == 1:
+            return 1
         return sum(self.all_rel_shifts()) + int(not self.strict)
 
     def all_shifts(self):
@@ -101,4 +103,4 @@ class FreqNet(FreqNetModel):
 
     def generation_slices(self):
         # TODO! Add logic for concat/strict parameters
-        return slice(-self.receptive_field(), None), slice(-1, None)
+        return slice(-self.receptive_field(), None), slice(None, 1)

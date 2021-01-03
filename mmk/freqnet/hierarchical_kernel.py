@@ -19,9 +19,9 @@ class HKFreqNet(FreqNet):
                  groups=1,
                  n_layers=2,
                  strict=False,
-                 accum_outputs=None,
-                 concat_outputs=None,
-                 pad_input=None,
+                 accum_outputs=0,
+                 concat_outputs=0,
+                 pad_input=0,
                  learn_padding=False,
                  with_skip_conv=True,
                  with_residual_conv=True,
@@ -60,3 +60,20 @@ class HKFreqNet(FreqNet):
 
         y = self.outpt((f * g).squeeze(-1))
         return y
+
+# TODO WIP : shifts and output_lengths !!!
+
+    def all_rel_shifts(self):
+        """sequence of shifts from one layer to the next"""
+        stack = super(HKFreqNet, self).all_rel_shifts()
+        return (*stack, 2 * stack[-1])
+
+    def all_output_lengths(self, input_length):
+        out_length = input_length
+        lengths = []
+        for layer in self.layers:
+            out_length = layer.output_length(out_length)
+            lengths += [out_length]
+        # add the last layer
+        lengths += [out_length - (len(self.layers) + 2)]
+        return tuple(lengths)

@@ -20,7 +20,7 @@ class FreaksNet(FreqNet):
                  strict=((False, True, False),),
                  accum_outputs=((-1, 1, -1),),
                  concat_outputs=((1, -1, 1),),
-                 pad_input=((None, None, None),),
+                 pad_input=((0, 0, 0),),
                  learn_padding=((False, False, False),),
                  with_skip_conv=((False, True, False,), ),
                  with_residual_conv=((True, True, False), ),

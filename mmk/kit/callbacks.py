@@ -5,7 +5,7 @@ from IPython import get_ipython
 def is_notebook():
     shell = get_ipython().__class__.__name__
     if shell in ('ZMQInteractiveShell', "Shell"):
-        # loacl and colab notebooks
+        # local and colab notebooks
         return True
     elif shell == 'TerminalInteractiveShell':
         return False
