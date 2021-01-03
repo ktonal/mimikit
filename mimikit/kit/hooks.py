@@ -116,9 +116,9 @@ class LoggingHooks:
 def _check_version(other_v):
     if other_v.split(".")[0] != version.split(".")[0]:
         v = str(other_v)
-        warnings.warn(("You are loading a checkpoint made by a different version of mmk (%s) as the one" % v) +
+        warnings.warn(("You are loading a checkpoint made by a different version of mimikit (%s) as the one" % v) +
                       (" imported in this runtime (%s). If you encounter errors " % version) +
-                      (", try to install the right version with `pip install mmk==%s" % v))
+                      (", try to install the right version with `pip install mimikit==%s" % v))
 
 
 class MMKHooks:

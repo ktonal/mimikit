@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import torch
 
-from mmk.data import DataObject
+from mimikit.data import DataObject
 
 
 class Case:

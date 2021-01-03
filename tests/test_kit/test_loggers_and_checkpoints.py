@@ -4,7 +4,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 
-from mmk.kit import MMKHooks, LoggingHooks, get_trainer
+from mimikit.kit import MMKHooks, LoggingHooks, get_trainer
 
 
 class TestModel(MMKHooks,

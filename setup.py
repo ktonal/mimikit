@@ -8,7 +8,7 @@ from io import open
 from setuptools import setup, find_packages
 import os
 
-with open('mmk/__init__.py', 'r') as f:
+with open('mimikit/__init__.py', 'r') as f:
     for line in f:
         if line.startswith('__version__'):
             version = line.strip().split('=')[1].strip(' \'"')
@@ -25,7 +25,7 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt'), "r", enco
 PACKAGES = find_packages(exclude=('tests', 'tests.*'))
 
 kwargs = {
-    'name': 'mmk',
+    'name': 'mimikit',
     'version': version,
     'description': 'Python module for generating audio with neural networks',
     'long_description': readme,
@@ -55,7 +55,7 @@ kwargs = {
     'packages': PACKAGES,
     "entry_points": {
         'console_scripts': [
-            'freqnet-db=mmk.freqnet.freqnet_db:main'
+            'freqnet-db=mimikit.freqnet.freqnet_db:main'
         ]}
 
 }

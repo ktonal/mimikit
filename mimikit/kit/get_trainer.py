@@ -78,7 +78,7 @@ def get_trainer(model=None,
         else:
             warnings.warn("You neither specified `epochs` to enable default checkpoint_callback "
                           "nor passed a `checkpoint_callback` argument as kwarg. Saving of your model won't be managed"
-                          " by mmk nor by pytorch_lightning's Trainer.")
+                          " by mimikit nor by pytorch_lightning's Trainer.")
     # add epoch progress bar
     kwargs.setdefault("callbacks", []).append(EpochProgressBarCallback())
     kwargs.setdefault("progress_bar_refresh_rate", 5)

@@ -4,7 +4,7 @@ from functools import partial
 from itertools import tee
 from multiprocessing import cpu_count
 
-from mmk.data import Database, make_root_db, file_to_fft, AudioFileWalker, upload_database
+from mimikit.data import Database, make_root_db, file_to_fft, AudioFileWalker, upload_database
 
 parser = argparse.ArgumentParser(prog="freqnet-db",
                                  description="transform audio file to FFTs with specified parameters and put "

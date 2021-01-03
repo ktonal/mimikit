@@ -4,8 +4,8 @@ import pandas as pd
 import soundfile
 import h5py
 
-from mmk.data.factory import AudioFileWalker, file_to_db, make_root_db
-from mmk.data import default_extract_func, DataObject, Database
+from mimikit.data.factory import AudioFileWalker, file_to_db, make_root_db
+from mimikit.data import default_extract_func, DataObject, Database
 
 
 @pytest.fixture

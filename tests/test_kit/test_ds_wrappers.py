@@ -1,6 +1,6 @@
 import numpy as np
 
-from mmk.kit import DataObject, DSWrapper, InputEqualTarget, ShiftedSeqsPair
+from mimikit.kit import DataObject, DSWrapper, InputEqualTarget, ShiftedSeqsPair
 
 
 class TestBaseWrapper:
