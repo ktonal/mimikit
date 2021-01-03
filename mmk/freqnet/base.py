@@ -8,6 +8,15 @@ from ..data import DataObject, FeatureProxy, HOP_LENGTH
 from ..kit import ShiftedSeqsPair, MMKHooks, LoggingHooks
 
 
+class ManyOneCycleLR(torch.optim.lr_scheduler.OneCycleLR):
+    def step(self, epoch=None):
+        try:
+            super(ManyOneCycleLR, self).step(epoch=epoch)
+        except ValueError:
+            self.last_epoch = 0
+            super(ManyOneCycleLR, self).step(epoch=epoch)
+
+
 class FreqOptim:
 
     def __init__(self,
@@ -31,14 +40,14 @@ class FreqOptim:
 
     def configure_optimizers(self):
         self.opt = torch.optim.Adam(self.model.parameters(), lr=self.max_lr, betas=self.betas)
-        self.sched = torch.optim.lr_scheduler.OneCycleLR(self.opt,
-                                                         steps_per_epoch=self.steps_per_epoch,
-                                                         epochs=self.max_epochs,
-                                                         max_lr=self.max_lr, div_factor=self.div_factor,
-                                                         final_div_factor=self.final_div_factor,
-                                                         pct_start=self.pct_start,
-                                                         cycle_momentum=self.cycle_momentum
-                                                         )
+        self.sched = ManyOneCycleLR(self.opt,
+                                    steps_per_epoch=self.steps_per_epoch,
+                                    epochs=self.max_epochs,
+                                    max_lr=self.max_lr, div_factor=self.div_factor,
+                                    final_div_factor=self.final_div_factor,
+                                    pct_start=self.pct_start,
+                                    cycle_momentum=self.cycle_momentum
+                                    )
         return [self.opt], [{"scheduler": self.sched, "interval": "step", "frequency": 1}]
 
 
