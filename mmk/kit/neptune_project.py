@@ -2,6 +2,7 @@ from neptune import Session
 from zipfile import ZipFile
 import os
 from getpass import getpass
+import shutil
 
 
 NEPTUNE_TOKEN_KEY = "NEPTUNE_API_TOKEN"
@@ -37,8 +38,12 @@ def download_model(api_token, full_exp_path, destination="./"):
     project_name = namespace + "/" + project
     model_project = session.get_project(project_name)
     exp = model_project.get_experiments(id=exp_id)[0]
-    exp.download_artifacts(exp_id, destination)
-    with ZipFile(os.path.join(destination, exp_id + ".zip")) as f:
-        f.extractall()
-    os.remove(os.path.join(destination, exp_id + ".zip"))
+    exp.download_artifacts('/', destination)
+    with ZipFile(os.path.join(destination, "output.zip")) as f:
+        f.extractall(destination)
+    for subdir in os.listdir(os.path.join(destination, "output")):
+        shutil.move(src=os.path.join(destination, "output", subdir),
+                    dst=os.path.join(destination, subdir))
+    os.remove(os.path.join(destination, "output.zip"))
+    shutil.rmtree(os.path.join(destination, "output"))
     return 1
