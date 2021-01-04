@@ -32,15 +32,15 @@ $ pip install mimikit
 
 If you never did deep-learning before, we recommend you start with the [quickest intro to practical deep-learning ever]()
 
-- Have a [google account]() and register with it to [neptune.ai]()
+- Have a [google account](https://accounts.google.com/signup/v2/webcreateaccount?flowName=GlifWebSignIn&flowEntry=SignUp) and register with it to [neptune.ai](https://neptune.ai/)
 - Put some audio files in your google drive or [make a database]() on your computer
-- Open the [FreqNet starter notebook]() in colab and follow the instructions
+- Open the [FreqNet starter notebook](https://colab.research.google.com/github/k-tonal/mmk-notebooks/blob/main/FreqNet.ipynb) in colab and follow the instructions
 
-For more, check out the [mimikit-notebooks](), the [mmikit docs]() or the documentation for the [freqnet package]() 
+For more, check out the [mimikit-notebooks](https://github.com/k-tonal/mimikit-notebooks), the [mmikit docs]() or the documentation for the [freqnet package]() 
 
 ## Usage 
 
-Check out the [mimikit-notebooks]() for client code examples 
+Check out the [mimikit-notebooks](https://github.com/k-tonal/mimikit-notebooks) for client code examples 
 
 ## Documentation
 
