@@ -80,9 +80,9 @@ class FreqLayer(nn.Module):
             if self.with_residual_conv else None
 
     def forward(self, x, skip=None):
-        x = self.pad(x)
+        input = self.pad(x)
 
-        y = self.gate(x)
+        y = self.gate(input)
         h = self.skips(y) if self.with_skip_conv else None
         y = self.residuals(y) if self.with_residual_conv else y
 
@@ -110,7 +110,6 @@ class FreqLayer(nn.Module):
         else:
             # still need to output a tensor
             skip = y
-
         return y, skip
 
     @property
