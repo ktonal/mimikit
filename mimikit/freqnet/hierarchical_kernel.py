@@ -41,7 +41,7 @@ class HKFreqNet(FreqNet):
         x = self.inpt(x)
 
         # the conv2d layer adds a power of 2 to the n standard layers before it
-        n_outs = 1 + x.size(-1) - self.receptive_field() * 2
+        n_outs = self.output_length(x.size(-1))
 
         # stack the 2 encoder outputs
         hk_input = torch.stack((x[:, :, -n_outs - 1:-1], x[:, :, -n_outs:]), dim=-1)
@@ -49,7 +49,6 @@ class HKFreqNet(FreqNet):
 
         for layer in self.layers:
             x, skip = layer(x, skip)
-
             # we only keep n_outs outputs finishing at the -`layer.shift()` step
             to_stack = slice(-n_outs - layer.shift(), -layer.shift())
             hk_input = torch.cat((hk_input, skip[:, :, to_stack].unsqueeze(-1)), dim=-1)
@@ -61,11 +60,16 @@ class HKFreqNet(FreqNet):
         y = self.outpt((f * g).squeeze(-1))
         return y
 
-# TODO WIP : shifts and output_lengths !!!
+    def receptive_field(self):
+        # rf of the standard layers
+        rf = super(HKFreqNet, self).receptive_field()
+        # rf WITH HK layer :
+        return rf * 2
 
     def all_rel_shifts(self):
         """sequence of shifts from one layer to the next"""
         stack = super(HKFreqNet, self).all_rel_shifts()
+        # add the last HK layer
         return (*stack, 2 * stack[-1])
 
     def all_output_lengths(self, input_length):
@@ -74,6 +78,6 @@ class HKFreqNet(FreqNet):
         for layer in self.layers:
             out_length = layer.output_length(out_length)
             lengths += [out_length]
-        # add the last layer
-        lengths += [out_length - (len(self.layers) + 2)]
+        # add the last HK layer
+        lengths += [out_length - (2 ** (len(self.layers)))]
         return tuple(lengths)

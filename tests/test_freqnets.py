@@ -193,7 +193,8 @@ def test_models_train(tmp_path):
     ]
 
     for mdl in models:
-        print("CLASS : ", mdl.__class__.__name__, mdl.targets_shifts_and_lengths(8))
+        print("CLASS : ", mdl.__class__.__name__,
+              mdl.targets_shifts_and_lengths(kwargs["input_seq_length"]))
         trainer = get_trainer(root_dir=tmp_path, max_epochs=1)
 
         trainer.fit(mdl)

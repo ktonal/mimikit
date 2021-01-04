@@ -71,9 +71,14 @@ class FreqNet(FreqNetModel):
 
     def shift(self):
         """total shift of the network"""
-        if self.pad_input == 1 or self.concat_outputs == 1:
+        if not self.strict and (self.pad_input == 1 or self.concat_outputs == 1):
             return 1
-        return sum(self.all_rel_shifts()) + int(not self.strict)
+        elif self.strict and self.concat_outputs == 1:
+            return 0
+        elif self.strict and self.pad_input == 1:
+            return len(self.layers)
+        else:
+            return sum(self.all_rel_shifts()) + int(not self.strict)
 
     def all_shifts(self):
         """the accumulated shift at each layer"""
@@ -102,5 +107,16 @@ class FreqNet(FreqNetModel):
         return [(self.shift(), self.output_length(input_length))]
 
     def generation_slices(self):
-        # TODO! Add logic for concat/strict parameters
-        return slice(-self.receptive_field(), None), slice(None, 1)
+        # input is always the last receptive field
+        input_slice = slice(-self.receptive_field(), None)
+        if not self.strict and (self.pad_input == 1 or self.concat_outputs == 1):
+            # then there's only one future time-step : the last output
+            output_slice = slice(-1, None)
+        elif self.strict and (self.pad_input == 1 or self.concat_outputs == 1):
+            # then there are as many future-steps as they are layers and they all are
+            # at the end of the outputs
+            output_slice = slice(-len(self.layers), None)
+        else:
+            # for all other cases, the first output has the shift of the whole network
+            output_slice = slice(None, 1)
+        return input_slice, output_slice
