@@ -1,0 +1,37 @@
+name: Upload Python Package
+
+on:
+  workflow_dispatch:
+  push:
+#    branches-ignore: [master, develop]
+  pull_request:
+    branches: [master, develop]
+
+jobs:
+  ci-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.6'
+    - name: Install dependencies
+      run: |
+        sudo apt-get install -y libsndfile-dev
+        python -m pip install --quiet --upgrade pip
+        pip install --quiet -r requirements.txt
+        pip install --quiet hatch
+
+    - name: Test
+      run: hatch test -nd
+
+    - name: Build dist and Publish on TestPypi
+      env:
+        TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+        TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      run: |
+        hatch grow pre
+        hatch clean
+        hatch build
+        hatch release -t -u ${{ env.TWINE_USERNAME }}
