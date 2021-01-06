@@ -2,6 +2,7 @@ import torch
 from pytorch_lightning import LightningModule, LightningDataModule
 from torch.utils.data import DataLoader
 import librosa
+import numpy as np
 from abc import ABC
 
 from ..data import DataObject, FeatureProxy, HOP_LENGTH
@@ -128,6 +129,11 @@ class FreqNetModel(MMKHooks,
                    LoggingHooks,
                    LightningModule,
                    ABC):
+
+    @property
+    def data(self):
+        """short-hand to quickly access the data object passed to the constructor"""
+        return self.datamodule.ds.data
 
     def __init__(self,
                  data_object=None,

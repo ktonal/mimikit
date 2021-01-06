@@ -50,7 +50,10 @@ def freqnet_db(target,
 
 
 def main(namespace=None):
-    args = parser.parse_args(namespace=namespace)
+    if namespace is None:
+        args = parser.parse_args()
+    else:
+        args = namespace
     transform = partial(file_to_fft,
                         n_fft=args.n_fft,
                         hop_length=args.hop_length,

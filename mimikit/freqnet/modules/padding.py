@@ -19,13 +19,3 @@ class LearnablePad1d(nn.Module):
             return x
         self.pad = self.pad.to(x)
         return torch.cat((torch.stack([self.pad] * x.size(0)), x)[::self.side], dim=-1)
-
-
-    def receptive_field(self):
-        shifts = []
-        for i, layer in enumerate(self.layers):
-            if shifts[-1] > layer.shift():
-                shifts += [shifts[-1] + layer.shift()]
-            else:
-                shifts += [layer.shift()]
-        return sum(shifts)

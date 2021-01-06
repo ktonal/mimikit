@@ -73,6 +73,8 @@ class FreqNet(FreqNetModel):
         """total shift of the network"""
         if not self.strict and (self.pad_input == 1 or self.concat_outputs == 1):
             return 1
+        elif self.pad_input == -1 or self.concat_outputs == -1:
+            return self.receptive_field()
         elif self.strict and self.concat_outputs == 1:
             return 0
         elif self.strict and self.pad_input == 1:

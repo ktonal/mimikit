@@ -108,7 +108,10 @@ class LoggingHooks:
                 exp.save()
                 print("Updated TensorBoard with", filename)
             elif isinstance(exp, NeptuneExperiment):
+                # add .wav.html to neptune UI
                 log_audio(path, os.path.split(path)[-1], exp)
+                # add .wav to artifacts
+                exp.log_artifact(path, "audios/")
                 print("Updated neptune experiment", exp.id, "with", filename)
         return 1
 
