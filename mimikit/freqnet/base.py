@@ -130,6 +130,11 @@ class FreqNetModel(MMKHooks,
                    LightningModule,
                    ABC):
 
+    @property
+    def data(self):
+        """short-hand to quickly access the data object passed to the constructor"""
+        return self.datamodule.ds.data
+
     def __init__(self,
                  data_object=None,
                  input_seq_length=64,
@@ -210,7 +215,7 @@ class FreqNetModel(MMKHooks,
     def targets_shifts_and_lengths(self, input_length):
         raise NotImplementedError("subclasses of `FreqNetModel` have to implement `targets_shifts_and_lengths`")
 
-    def generate(self, prompt, n_steps, hop_length=HOP_LENGTH, time_domain=True, gl_dtype=np.float32):
+    def generate(self, prompt, n_steps, hop_length=HOP_LENGTH, time_domain=True):
         was_training = self.training
         self.eval()
         initial_device = self.device
@@ -227,8 +232,8 @@ class FreqNetModel(MMKHooks,
                 generated = torch.cat((generated, out[:, output_slice]), dim=1)
         if time_domain:
             generated = generated.transpose(1, 2).squeeze()
-            generated = librosa.griffinlim(generated.cpu().numpy().astype(gl_dtype), hop_length=hop_length, n_iter=64)
-            generated = torch.from_numpy(generated.astype(np.float32))
+            generated = librosa.griffinlim(generated.cpu().numpy(), hop_length=hop_length, n_iter=64)
+            generated = torch.from_numpy(generated)
         self.to(initial_device)
         self.train() if was_training else None
         return generated.unsqueeze(0)
