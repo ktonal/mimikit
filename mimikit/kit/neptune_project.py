@@ -32,7 +32,7 @@ def get_neptune_project(api_token, project_name: str):
     return project
 
 
-def download_model(api_token, full_exp_path, destination="./"):
+def download_experiment(api_token, full_exp_path, destination="./"):
     session = Session.with_default_backend(api_token=api_token)
     namespace, project, exp_id = full_exp_path.split("/")
     project_name = namespace + "/" + project
