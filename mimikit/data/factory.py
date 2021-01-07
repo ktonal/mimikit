@@ -247,7 +247,9 @@ def aggregate_dbs(target, dbs, mode="w", remove_sources=False):
     args = make_integration_args(target)
     for arg in args: integrate(*arg)
     if remove_sources:
-        for src in dbs: os.remove(src)
+        for src in dbs:
+            if src != target:
+                os.remove(src)
     infos = infos.astype(object)
     infos.to_hdf(target, "info", "r+")
     metadata.to_hdf(target, "metadata", "r+")

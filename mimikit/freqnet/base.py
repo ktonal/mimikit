@@ -2,7 +2,6 @@ import torch
 from pytorch_lightning import LightningModule, LightningDataModule
 from torch.utils.data import DataLoader
 import librosa
-import numpy as np
 from abc import ABC
 
 from ..data import DataObject, FeatureProxy, HOP_LENGTH

@@ -81,7 +81,7 @@ def get_trainer(model=None,
                           " by mimikit nor by pytorch_lightning's Trainer.")
     # add epoch progress bar
     kwargs.setdefault("callbacks", []).append(EpochProgressBarCallback())
-    kwargs.setdefault("progress_bar_refresh_rate", 5)
+    kwargs.setdefault("progress_bar_refresh_rate", 20)
     kwargs.setdefault("process_position", 1)
     kwargs.setdefault("num_sanity_val_steps", 0)  # this is 2 by default and messes up the steps count...
     kwargs.setdefault("gpus", torch.cuda.device_count() if torch.cuda.is_available() else 0)
