@@ -97,7 +97,8 @@ class LoggingHooks:
         path = os.path.join(root, filename)
         if ".wav" != os.path.splitext(path)[-1]:
             path = path + ".wav"
-        audio_tensor = audio_tensor.squeeze().detach().cpu().numpy()
+        if isinstance(audio_tensor, torch.Tensor):
+            audio_tensor = audio_tensor.squeeze().detach().cpu().numpy()
         sf.write(path, audio_tensor, sample_rate, 'PCM_24')
         exps = [] if experiments is None else experiments
         exps += self.logger.experiment if getattr(self, "logger", False) else []
