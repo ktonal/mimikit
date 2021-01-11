@@ -190,22 +190,3 @@ class MMKHooks:
                 checkpoint["lr_schedulers"] = optim_state["lr_schedulers"]
 
         return checkpoint
-
-    def upload_to_neptune(self, root_dir=None, experiment=None, artifacts=("states", "logs", "audios")):
-        if root_dir is None:
-            if getattr(self, "trainer", None) is None:
-                raise ValueError("expected to either have a 'trainer' attribute or `root_dir` to be a"
-                                 " valid path to a model's root directory. Both were None.")
-            else:
-                root_dir = self.trainer.default_root_dir
-        if experiment is None:
-            if not any(isinstance(exp, NeptuneExperiment) for exp in self.logger.experiment):
-                raise ValueError("`experiment` is None and this model isn't bound to any NeptuneExperiment...")
-            experiment = [exp for exp in self.logger.experiment if isinstance(exp, NeptuneExperiment)][0]
-        # log everything!
-        for directory in os.listdir(root_dir):
-            if directory in artifacts:
-                artifact = os.path.join(root_dir, directory)
-                experiment.log_artifact(artifact, directory)
-                print("successfully uploaded", artifact, "to", experiment.id)
-        return 1

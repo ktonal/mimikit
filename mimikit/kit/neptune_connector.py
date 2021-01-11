@@ -1,9 +1,12 @@
 from mimikit.data import Database
 from neptune import Session
+from neptune.experiments import Experiment
 from zipfile import ZipFile
 import os
+from typing import Tuple
 from getpass import getpass
 import shutil
+from pytorch_lightning import LightningModule
 
 
 class NeptuneConnector:
@@ -230,3 +233,57 @@ class NeptuneConnector:
         exp = data_project.get_experiments(id=exp_id)[0]
         exp.download_artifact(path_to_artifact, destination)
         return Database(os.path.join(destination, os.path.split(path_to_artifact)[-1]))
+
+    def upload_model(self,
+                     setup_key: str,
+                     model: [str, LightningModule],
+                     artifacts: Tuple[str] = ("states", "logs", "audios")):
+        """
+        upload the sub-directories of a model to neptune at the specified setup_key
+
+        Parameters
+        ----------
+        setup_key : str
+            the key in self.setup where the data should be uploaded.
+        model : str or LightningModule
+            the model to be uploaded.
+            if it is a LightningModule, `upload_model` looks for its root_directory where it might find it.
+            if it is a string, than it is interpreted as the root_directory of the model to be uploaded
+        artifacts : tuple of str, optional
+            tuple containing the names of the sub-directories to be uploaded.
+            by default `upload_model` uploads the sub-directories "states", "logs" and "audios".
+            each artifact will sit at the top-level of the experiment's artifacts
+
+        Returns
+        -------
+        `1` if the upload was successful
+
+        Raises
+        ------
+        ValueError if `model` is not a string and has neither a `trainer` nor a `_loaded_from_checkpoint` attribute
+        """
+        if isinstance(model, str):
+            root_dir = model
+            experiment = None
+        else:
+            if getattr(model, "trainer", None) is not None:
+                root_dir = model.trainer.default_root_dir
+            elif getattr(model, "_loaded_checkpoint", False):
+                root_dir = os.path.split(os.path.dirname(model._loaded_checkpoint))[0]
+            else:
+                raise ValueError("Expected to either find a 'trainer' or a '_loaded_from_checkpoint' attribute in the"
+                                 " model. Found neither.")
+            experiment = [exp for exp in model.logger.experiment if isinstance(exp, Experiment)]
+            experiment = None if not any(experiment) else experiment[0]
+        if experiment is None:
+            _, _, exp_id = self.path(setup_key, split=True)
+            if exp_id is None:
+                experiment = self.create_experiment(setup_key, {})
+            else:
+                experiment = self.get_experiment(setup_key)
+        for directory in os.listdir(root_dir):
+            if directory in artifacts:
+                artifact = os.path.join(root_dir, directory)
+                experiment.log_artifact(artifact, directory)
+                print("successfully uploaded", artifact, "to", experiment.id)
+        return 1
