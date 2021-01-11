@@ -74,7 +74,7 @@ class AudioFileWalker:
     @staticmethod
     def is_audio_file(filename):
         # filter out hidden files (isn't cross-platform, but, it's a start!...)
-        if filename.startswith("."):
+        if os.path.split(filename)[-1].startswith("."):
             return False
         return os.path.splitext(filename)[-1].strip(".") in AudioFileWalker.AUDIO_EXTENSIONS
 

@@ -4,7 +4,6 @@ import pandas as pd
 import os
 from datetime import datetime
 
-from neptune import Session
 from torch.utils.data.dataset import Subset
 
 from .metadata import Metadata
@@ -153,27 +152,3 @@ def add_data(h5_file, ds_name, array, filename):
     return rv
 
 
-def upload_database(db, api_token, project_name, experiment_name):
-    session = Session.with_default_backend(api_token=api_token)
-    data_project = session.get_project(project_name)
-    feature = [name for name in db.features if "label" not in name][0]
-    feat_prox = getattr(db, feature)
-    params = {"name": experiment_name,
-              "feature_name": feature,
-              "shape": feat_prox.shape,
-              "files": len(db.metadata)}
-    params.update(feat_prox.attrs)
-    exp = data_project.create_experiment(name=experiment_name,
-                                         params=params)
-    exp.log_artifact(db.h5_file)
-    return exp.stop()
-
-
-def download_database(api_token, full_exp_path, database_name, destination="./"):
-    session = Session.with_default_backend(api_token=api_token)
-    namespace, project, exp_id = full_exp_path.split("/")
-    project_name = namespace + "/" + project
-    data_project = session.get_project(project_name)
-    exp = data_project.get_experiments(id=exp_id)[0]
-    exp.download_artifact(database_name, destination)
-    return Database(os.path.join(destination, database_name))

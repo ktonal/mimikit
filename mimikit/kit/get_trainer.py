@@ -14,9 +14,7 @@ def get_trainer(model=None,
                 version=None,
                 resume_from_checkpoint=None,
                 epochs=None,  # add MMKCheckpoint if not None
-                neptune_api_token=None,  # add NeptuneLogger if not None
-                neptune_project=None,
-                neptune_exp_id=None,
+                neptune_connector=None,
                 **kwargs):
 
     # Figure out the root_dir
@@ -46,25 +44,25 @@ def get_trainer(model=None,
         next_version = 0
         default_root_dir = root_dir
 
-    # Figure out loggers
-    if (neptune_api_token is None) != (neptune_project is None):
-        raise ValueError("Expected `neptune_project` and `neptune_api_token` to both be either None or not None")
-
     user_logger = kwargs.get("logger", None)
     loggers = []
 
-    if neptune_api_token is not None:
+    if neptune_connector is not None:
         if model is None:
             raise ValueError("Expected `model` not to be None in order to create a neptune.Experiment")
-        loggers.append(NeptuneLogger(neptune_api_token, neptune_project, params=model.hparams,
-                                     experiment_name=default_root_dir, experiment_id=neptune_exp_id))
+        api_token = neptune_connector.api_token
+        path = neptune_connector.path('model', split=True)
+        project = "/".join(path[:2])
+        exp_id = path[-1]
+        loggers.append(NeptuneLogger(api_token, project, params=model.hparams,
+                                     experiment_name=default_root_dir, experiment_id=exp_id))
     if user_logger is None:
         loggers.append(MMKDefaultLogger(default_root_dir, next_version))
     elif user_logger:
         loggers.append(user_logger)
     else:  # it is falsy and the user DOESN'T want logging
         loggers = False
-        if neptune_api_token is not None:
+        if neptune_connector is not None:
             warnings.warn("You provided arguments to instantiate a NeptuneLogger but set `logger=False` in the kwargs. "
                           "The latter resulting in turning any logging off, your experiment won't be logged to neptune.")
 

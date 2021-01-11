@@ -25,7 +25,7 @@ class LoggingHooks:
     def neptune_experiment(self):
         """ short hand to access own NeptuneExperiment"""
         exps = [exp for exp in self.logger.experiment
-               if isinstance(exp, NeptuneExperiment)]
+                if isinstance(exp, NeptuneExperiment)]
         if any(exps):
             return exps[0]
         return None
@@ -126,7 +126,6 @@ def _check_version(other_v):
 
 
 class MMKHooks:
-
     _loaded_checkpoint = None
 
     @classmethod
@@ -210,5 +209,3 @@ class MMKHooks:
                 experiment.log_artifact(artifact, directory)
                 print("successfully uploaded", artifact, "to", experiment.id)
         return 1
-
-

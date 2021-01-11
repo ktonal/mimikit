@@ -1,4 +1,4 @@
-from .api import Database, FeatureProxy, download_database, upload_database
+from .api import Database, FeatureProxy
 from .data_object import DataObject
 from .factory import make_root_db, AudioFileWalker
 from .metadata import Metadata
