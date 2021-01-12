@@ -5,6 +5,7 @@ import soundfile
 
 from mimikit.kit import get_trainer
 from mimikit.freqnet import *
+from mimikit.data import freqnet_db
 
 
 @pytest.fixture
