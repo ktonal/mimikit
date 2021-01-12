@@ -25,10 +25,8 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt'), "r", enco
 PACKAGES = find_packages(exclude=('tests', 'tests.*'))
 
 if os.environ.get("MIMIKIT_NOTORCH", False):
-    print("No torch install")
     PACKAGES = [p for p in PACKAGES if "data" in p or "connectors" in p]
     REQUIRES = [r for r in REQUIRES if "torch" not in r and "test-tube" not in r]
-    print(REQUIRES, PACKAGES)
 
 kwargs = {
     'name': 'mimikit',
