@@ -24,6 +24,7 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt'), "r", enco
 
 PACKAGES = find_packages(exclude=('tests', 'tests.*'))
 
+
 kwargs = {
     'name': 'mimikit',
     'version': version,
@@ -32,8 +33,8 @@ kwargs = {
     "long_description_content_type": "text/markdown",
     'author': 'Antoine Daurat',
     'author_email': 'ktonalberlin@gmail.com',
-    'url': 'https://github.com/k-tonal/mmk',
-    'download_url': 'https://github.com/k-tonal/mmk',
+    'url': 'https://github.com/k-tonal/mimikit',
+    'download_url': 'https://github.com/k-tonal/mimikit',
     # 'license': 'GNU General Public License v3 (GPLv3)',
     'classifiers': [
         'Development Status :: 3 - Alpha',
@@ -55,7 +56,7 @@ kwargs = {
     'packages': PACKAGES,
     "entry_points": {
         'console_scripts': [
-            'freqnet-db=mimikit.freqnet.freqnet_db:main'
+            'freqnet-db=mimikit.data.freqnet_db:main'
         ]}
 
 }

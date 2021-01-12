@@ -1,4 +1,3 @@
-from mimikit.data import Database
 from neptune import Session
 from neptune.experiments import Experiment
 from zipfile import ZipFile
@@ -7,6 +6,8 @@ from typing import Tuple
 from getpass import getpass
 import shutil
 from pytorch_lightning import LightningModule
+
+from mimikit.data import Database
 
 
 class NeptuneConnector:
