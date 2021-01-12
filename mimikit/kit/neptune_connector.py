@@ -140,7 +140,8 @@ class NeptuneConnector:
 
         Returns
         -------
-        `1` if download and unzipping were successful
+        experiment : neptune.Experiment
+            the neptune object for the downloaded experiment
 
         """
         namespace, project, exp_id = self.path(setup_key, split=True)
@@ -155,7 +156,7 @@ class NeptuneConnector:
                         dst=os.path.join(destination, subdir))
         os.remove(os.path.join(destination, "output.zip"))
         shutil.rmtree(os.path.join(destination, "output"))
-        return 1
+        return exp
 
     def get_project(self, setup_key: str):
         """
