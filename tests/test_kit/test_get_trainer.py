@@ -9,7 +9,7 @@ import shutil
 from mimikit.kit.get_trainer import get_trainer
 from mimikit.kit.loggers import MMKDefaultLogger
 from mimikit.kit.checkpoint import MMKCheckpoint
-from mimikit.kit.neptune_connector import NeptuneConnector
+from mimikit.connectors.neptune import NeptuneConnector
 
 
 class DummyModel:

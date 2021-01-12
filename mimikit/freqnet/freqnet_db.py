@@ -3,7 +3,7 @@ from functools import partial
 from multiprocessing import cpu_count
 
 from mimikit.data import Database, make_root_db, file_to_fft, AudioFileWalker
-from mimikit.kit.neptune_connector import NeptuneConnector
+from mimikit.connectors.neptune import NeptuneConnector
 
 
 parser = argparse.ArgumentParser(prog="freqnet-db",
