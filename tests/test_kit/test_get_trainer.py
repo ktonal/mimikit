@@ -17,6 +17,11 @@ class DummyModel:
     hparams = {}
 
 
+# patch environment variable for the Neptune Connector
+NeptuneConnector.NEPTUNE_TOKEN_KEY = "NEPTUNE_CONNECTOR_TEST_KEY"
+os.environ[NeptuneConnector.NEPTUNE_TOKEN_KEY] = "kjh429873wkejh234"
+
+
 class Case:
     """
     This class defines expectations and assertions. Logic of the test is in test_get_trainer at
