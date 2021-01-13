@@ -90,6 +90,8 @@ class NeptuneConnector:
         self.user = user
         self.setup = setup
         self._session = None
+        # initialize the token right-away
+        token = self.api_token
 
     def path(self, setup_key: str, split: bool = False):
         """
