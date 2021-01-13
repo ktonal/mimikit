@@ -27,7 +27,7 @@ class NeptuneConnector:
         """
         api_token = os.environ.get(self.NEPTUNE_TOKEN_KEY, None)
         if api_token is None:
-            api_token = getpass("Couldn't find your api token in environment. "
+            api_token = getpass("Couldn't find your api token in this system's environment. "
                                 "Please paste your API token from neptune here: ")
             os.environ[self.NEPTUNE_TOKEN_KEY] = api_token
         return api_token
@@ -49,13 +49,43 @@ class NeptuneConnector:
     def __init__(self,
                  user: str = None,
                  setup: dict = None):
+        """
+        manages the integration of ``neptune`` into ``mimikit``.
+
+        In order to connect to neptune, the ``NeptuneConnector`` probes the system's environment for an API token, and
+        if none were found, it prompts the user for it and subsequently stores it in the environment.
+        You can configure the name of the environment variable through the static attribute
+        ``NeptuneConnector.NEPTUNE_TOKEN_KEY`` which is, by default, set to "NEPTUNE_API_TOKEN".
+
+        Each instance of the ``NeptuneConnector`` type holds a dictionary in it's ``setup`` attribute where the keys
+        are user-defined and the values are expected to be paths on a neptune-user's graph.
+        Specifically, ``"<user>"`` being expected in the ``user`` argument of the ``NeptuneConnector`` constructor,
+        the values in ``setup`` can be of two forms :
+            1.  ``"<project>"``
+            2. ``"<project>/<experiment-id>"``
+        thus allowing the ``NeptuneConnector`` to
+            1. create new experiments in ``"<user>/<project>"``
+            2. retrieve data from specific experiments @ ``"<user>/<project>/<experiment-id>"``
+
+        All methods of the ``NeptuneConnector`` take a ``setup_key`` argument to specify "where" the method should be
+        executed.
+
+        Parameters
+        ----------
+        user : str
+            the neptune username
+        setup : dict
+            a dictionary where the values are paths in the neptune user's graph.
+            see description above for details.
+
+        """
         self.user = user
         self.setup = setup
         self._session = None
 
     def path(self, setup_key: str, split: bool = False):
         """
-        get the path for a setup_key.
+        returns the full neptune path corresponding to ``setup_key``.
 
         Parameters
         ----------
