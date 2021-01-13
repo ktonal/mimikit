@@ -5,7 +5,15 @@ import os
 from typing import Tuple
 from getpass import getpass
 import shutil
-from pytorch_lightning import LightningModule
+
+try:
+    from pytorch_lightning import LightningModule
+except ModuleNotFoundError:
+    # we only need lightning for annotation purposes
+    # and setup.py allows for a "no-torch" install that contains this module
+    # so we simulate the import if the module wasn't found
+    class pytorch_lightning:
+        LightningModule = object()
 
 from mimikit.data import Database
 
