@@ -166,16 +166,18 @@ class NeptuneConnector:
         project = self.session.get_project(project_name)
         return project.create_experiment(params=params, **kwargs)
 
-    def download_experiment(self, setup_key: str, destination="./"):
+    def download_experiment(self, setup_key: str, destination: str = "./", artifacts: str = "/"):
         """
-        downloads all artifacts lying at the root of an experiment
+        downloads all artifacts lying at the root of an experiment into a folder named after the experiment-id
 
         Parameters
         ----------
         setup_key : str
             the key to look up in self.setup
         destination : str, optional
-            a directory where to unzip the experiment's artifacts
+            a directory where to create the folder `"<exp-id>/"` in which the data will be unzipped.
+        artifacts : str, optional
+            an optional path in the artifacts to download, default is "/" i.e. all artifacts. Has to be a directory.
 
         Returns
         -------
@@ -187,14 +189,18 @@ class NeptuneConnector:
         project_name = namespace + "/" + project
         model_project = self.session.get_project(project_name)
         exp = model_project.get_experiments(id=exp_id)[0]
-        exp.download_artifacts('/', destination)
-        with ZipFile(os.path.join(destination, "output.zip")) as f:
+        destination = os.path.join(destination, exp_id)
+        exp.download_artifacts(artifacts, destination)
+        artifacts_name = "output" if artifacts == "/" else os.path.split(artifacts.strip("/"))[-1]
+        with ZipFile(os.path.join(destination, artifacts_name + ".zip")) as f:
             f.extractall(destination)
-        for subdir in os.listdir(os.path.join(destination, "output")):
-            shutil.move(src=os.path.join(destination, "output", subdir),
-                        dst=os.path.join(destination, subdir))
-        os.remove(os.path.join(destination, "output.zip"))
-        shutil.rmtree(os.path.join(destination, "output"))
+        if artifacts == "/":
+            for subdir in os.listdir(os.path.join(destination, artifacts_name)):
+                shutil.move(src=os.path.join(destination, artifacts_name, subdir),
+                            dst=os.path.join(destination, subdir))
+        os.remove(os.path.join(destination, artifacts_name + ".zip"))
+        if artifacts == "/":
+            shutil.rmtree(os.path.join(destination, artifacts_name))
         return exp
 
     def get_project(self, setup_key: str):
