@@ -19,7 +19,6 @@ from mimikit.data import Database
 
 
 class NeptuneConnector:
-
     NEPTUNE_TOKEN_KEY = "NEPTUNE_API_TOKEN"
 
     @property
@@ -246,7 +245,8 @@ class NeptuneConnector:
         if exp_id is None:
             feature = [name for name in db.features if "label" not in name][0]
             feat_prox = getattr(db, feature)
-            params = {"feature_name": feature,
+            params = {"name": db.h5_file,
+                      "feature_name": feature,
                       "shape": feat_prox.shape,
                       "files": len(db.metadata)}
             params.update(feat_prox.attrs)
@@ -294,13 +294,11 @@ class NeptuneConnector:
         setup_key : str
             the key in self.setup where the data should be uploaded.
         model : str or LightningModule
-            the model to be uploaded.
-            if it is a LightningModule, `upload_model` looks for its root_directory where it might find it.
-            if it is a string, than it is interpreted as the root_directory of the model to be uploaded
+            the model (``LightningModule``) to be uploaded or a root directory (``str``) for the ``artifacts``.
         artifacts : tuple of str, optional
             tuple containing the names of the sub-directories to be uploaded.
             by default `upload_model` uploads the sub-directories "states", "logs" and "audios".
-            each artifact will sit at the top-level of the experiment's artifacts
+            each uploaded artifact will sit at the top-level of the experiment
 
         Returns
         -------
