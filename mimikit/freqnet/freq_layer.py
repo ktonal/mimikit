@@ -137,7 +137,7 @@ class FreqLayer(nn.Module):
 
     def rel_shift(self):
         """relative shift at this layer wrt. to the previous layer"""
-        return (int(self.strict) + self.receptive_field() // self.kernel_size) if self.pad_input == 0 else int(self.strict)
+        return (int(self.strict) + (self.kernel_size - 1) * self.dilation) if self.pad_input == 0 else int(self.strict)
 
     def output_length(self, input_length):
         if abs(self.concat_outputs):
