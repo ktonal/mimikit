@@ -33,7 +33,6 @@ def concat(x, y, shift=1):
 
 
 class FreqLayer(nn.Module):
-    kernel_size = 2
     stride = 1
     bias = True
     sides = {1: 1, -1: -1, 0: 0, "left": 1, "right": -1}
@@ -44,6 +43,7 @@ class FreqLayer(nn.Module):
                  layer_dim=512,
                  groups=1,
                  strict=False,
+                 kernel_size=2,
                  accum_outputs=0,
                  concat_outputs=0,
                  pad_input=0,
@@ -57,6 +57,7 @@ class FreqLayer(nn.Module):
         self.layer_dim = layer_dim
         self.groups = groups
         self.strict = strict
+        self.kernel_size = kernel_size
         if pad_input != 0 and concat_outputs != 0:
             raise ValueError("pad_input and concat_outputs can not be both non zero")
         # accum and concat have opposite signs :
