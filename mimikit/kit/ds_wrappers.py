@@ -50,7 +50,7 @@ class ShiftedSeqsPair(DSWrapper):
         return super(ShiftedSeqsPair, self).__call__(dataset)
 
     def __len__(self):
-        ln = (self.N - max(self.lengths) - max(self.shifts) + 1) // self.stride
+        ln = (self.N - max(shift + ln for shift, ln in zip(self.shifts, self.lengths)) + 1) // self.stride
         return ln
 
     def __getitem__(self, item):
