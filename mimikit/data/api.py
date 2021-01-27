@@ -148,8 +148,9 @@ class Database(object):
         self.info = self._get_dataframe("/info")
         self.metadata = Metadata(self._get_dataframe("/metadata"))
         with h5py.File(h5_file, "r") as f:
+            self.attrs = {k: v for k, v in f.attrs.items()}
             # add found features as self.feature_name = FeatureProxy(self.h5_file, feature_name)
-            self._register_features(self.features)
+            self._register_features(f.attrs["features"])
             self._register_dataframes(self.dataframes)
 
     @property
