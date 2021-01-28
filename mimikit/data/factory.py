@@ -7,7 +7,7 @@ import os
 import warnings
 
 from .api import Database
-from .metadata import Metadata
+from .regions import Regions
 from .transforms import default_extract_func
 
 warnings.filterwarnings("ignore", message="PySoundFile failed.")
@@ -115,8 +115,8 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
     print("making db for %s" % abs_path)
     tmp_db = os.path.splitext(abs_path)[0] + ".h5"
     rv = extract_func(abs_path)
-    if "metadata" not in rv:
-        raise ValueError("Expected `extract_func` to return a ('metadata', Metadata) item. Found none")
+    if "regions" not in rv:
+        raise ValueError("Expected `extract_func` to return a ('regions', Regions) item. Found none")
     info = {}
     f = h5py.File(tmp_db, mode)
     for name, (attrs, data) in rv.items():
@@ -192,10 +192,11 @@ def _aggregate_db_infos(infos):
         dims = shapes[0][1:]
         assert all(shp[1:] == dims for shp in
                    shapes[1:]), "all features should have the same dimensions but for the first axis"
-        regions = Metadata.from_duration([s[0] for s in shapes])
+        # collect the regions for the files
+        regions = Regions.from_duration([s[0] for s in shapes])
         ds_shape = (regions.last_stop, *dims)
         regions.index = paths
-        ds_definitions[f] = {"shape": ds_shape, "dtype": dtype, "regions": regions}
+        ds_definitions[f] = {"shape": ds_shape, "dtype": dtype, "meta_regions": regions}
     return ds_definitions
 
 
@@ -224,23 +225,28 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
             f.create_dataset(name, shape=params["shape"], dtype=params["dtype"],
                              chunks=True, maxshape=(None, *params["shape"][1:]))
 
-    # write the regions df and prepare args for copying the data into the appropriate regions
+    # prepare args for copying the tmp_files into the appropriate regions
     args = []
     for feature, info in features_infos.items():
         # collect the arguments for copying each file into its regions in the master datasets/features
         args += [(source, feature, indices) for source, indices in
-                 zip(info["regions"].index, info["regions"].slices(time_axis=0))]
-        # write the regions df for this feature
-        pd.DataFrame(info["regions"]).to_hdf(target, feature + "_regions", mode="r+")
+                 zip(info["meta_regions"].index, info["meta_regions"].slices(time_axis=0))]
 
     # copy the data
+    intra_regions = None
     for source, key, indices in args:
         with h5py.File(source, "r") as src:
             data = src[key][()]
             attrs = {k: v for k, v in src[key].attrs.items()}
+        # concat the regions :
+        regions = pd.read_hdf(source, key="regions", mode="r")
+        regions.loc[:, ("start", "stop")] += indices[0].start
+        regions.loc[:, "name"] = source
+        intra_regions = pd.concat(([intra_regions] if intra_regions is not None else []) + [regions])
         with h5py.File(target, "r+") as trgt:
             trgt[key][indices] = data
             trgt[key].attrs.update(attrs)
+    pd.DataFrame(intra_regions).to_hdf(target, "regions", mode="r+")
 
     # remove the temp_dbs
     for src, _ in tmp_dbs_infos:
