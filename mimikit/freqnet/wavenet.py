@@ -2,12 +2,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
 from multiprocessing import cpu_count
-import os
 
 from . import FreqNet
 from .modules.io import PermuteTF
 from ..data import Database, make_root_db
-from ..kit import NeptuneConnector
+from ..connectors.neptune import NeptuneConnector
 from ..data.transforms import file_to_qx
 
 
