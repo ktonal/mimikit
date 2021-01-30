@@ -92,9 +92,9 @@ def _sizeof_fmt(num, suffix='b'):
 
 # Core function
 
-def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
+def file_to_db(abs_path, extract_func=default_extract_func, output_path=None, mode="w"):
     """
-    apply `extract_func` to `abs_path` and write the result in a .h5 file
+    apply ``extract_func`` to ``abs_path`` and write the result in a .h5 file.
 
     Parameters
     ----------
@@ -102,6 +102,9 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
         path to the file to be extracted
     extract_func : function
         the function to use for the extraction - should take exactly one argument
+    output_path : str or None
+        name of the created .h5 file if not None, else the name of the created .h5 file
+        will be of the form : "<abs_path_without_extension>.h5"
     mode : str
         the mode to use when opening the .h5 file. default is "w".
 
@@ -110,13 +113,17 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
     created_file, infos : str, dict
         the name of the created .h5 file and a ``dict`` with the keys ``"dtype"`` and ``"shape"``
     """
-    print("making a temp db for %s" % abs_path)
-    tmp_db = os.path.splitext(abs_path)[0] + ".h5"
+    print("making .h5 for %s" % abs_path)
+    if output_path is None:
+        output_path = os.path.splitext(abs_path)[0] + ".h5"
+    else:
+        if output_path[-3:] != ".h5":
+            output_path += ".h5"
     rv = extract_func(abs_path)
     if "regions" not in rv:
         raise ValueError("Expected `extract_func` to return a ('regions', Regions) item. Found none")
     info = {}
-    f = h5py.File(tmp_db, mode)
+    f = h5py.File(output_path, mode)
     for name, (attrs, data) in rv.items():
         if issubclass(type(data), np.ndarray):
             ds = f.create_dataset(name=name, shape=data.shape, data=data)
@@ -124,11 +131,11 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
             info[name] = {"dtype": ds.dtype, "shape": ds.shape}
         elif issubclass(type(data), pd.DataFrame):
             f.close()
-            pd.DataFrame(data).to_hdf(tmp_db, name, "r+")
-            f = h5py.File(tmp_db, "r+")
+            pd.DataFrame(data).to_hdf(output_path, name, "r+")
+            f = h5py.File(output_path, "r+")
     f.flush()
     f.close()
-    return tmp_db, info
+    return output_path, info
 
 
 # Multiprocessing routine
@@ -155,7 +162,9 @@ def _make_db_for_each_file(file_walker,
     temp_dbs : list of tuples
         each tuple in the list is of the form ``("<created_file>.h5", dict(feature_name=dict(dtype=..., shape=...), ...))``
     """
-    args = [(file, extract_func) for file in file_walker]
+    # add ".tmp_" prefix to the output_paths
+    args = [(file, extract_func, os.path.join(os.path.split(file)[0], ".tmp_" + os.path.split(file)[1]))
+            for file in file_walker]
     if len(args) > n_cores:
         with Pool(n_cores) as p:
             tmp_dbs_infos = p.starmap(file_to_db, args)
@@ -239,7 +248,8 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
         # concat the regions :
         regions = pd.read_hdf(source, key="regions", mode="r")
         regions.loc[:, ("start", "stop")] += indices[0].start
-        regions.loc[:, "name"] = source
+        # remove ".tmp_" from the source's name
+        regions.loc[:, "name"] = "".join(source.split(".tmp_"))
         intra_regions = pd.concat(([intra_regions] if intra_regions is not None else []) + [regions])
         with h5py.File(target, "r+") as trgt:
             trgt[key][indices] = data
