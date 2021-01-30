@@ -101,13 +101,13 @@ class FeatureProxy(object):
 
     def subset(self, indices):
         """
-        transform self into a torch `Subset` (`Dataset`) containing only `indices` from the original data
+        transform self into a torch ``Subset`` (``Dataset``) containing only ``indices`` from the original data
 
         Parameters
         ----------
-        indices : Regions or any object that `Subset` accepts as indices
-            if `indices` is of type `Regions`, the returned `Subset` will only contain the files (rows) present
-            in `indices`.
+        indices : ``Regions`` or any object that ``Subset`` accepts as indices
+            if ``indices`` is of type ``Regions``, the returned ``Subset`` will only contain the files (rows) present
+            in ``indices``.
 
         Returns
         -------
@@ -117,6 +117,29 @@ class FeatureProxy(object):
         if isinstance(indices, Regions):
             indices = indices.all_indices
         return Subset(DataObject(self), indices)
+
+    def regions(self, indices):
+        """
+        transform self into a torch ``Subset`` containing the files whose indices have been passed
+        as ``ints`` in ``indices``
+
+        Parameters
+        ----------
+        indices : list of ints
+            correspond to the rows of db.regions you want to keep
+
+        Returns
+        -------
+        subset : torch.utils.data.Subset
+            the obtained subset
+
+        Examples
+        --------
+        >>>>db = Database("test.h5")
+        >>>>sub = db.fft.regions([1, 2, 3, 9])
+        """
+        regions = Database(self.h5_file).regions.iloc[indices]
+        return self.subset(regions)
 
     def __repr__(self):
         return "<FeatureProxy: '%s/%s'>" % (self.h5_file, self.name)

@@ -110,7 +110,7 @@ def file_to_db(abs_path, extract_func=default_extract_func, mode="w"):
     created_file, infos : str, dict
         the name of the created .h5 file and a ``dict`` with the keys ``"dtype"`` and ``"shape"``
     """
-    print("making db for %s" % abs_path)
+    print("making a temp db for %s" % abs_path)
     tmp_db = os.path.splitext(abs_path)[0] + ".h5"
     rv = extract_func(abs_path)
     if "regions" not in rv:
