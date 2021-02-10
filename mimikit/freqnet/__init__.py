@@ -1,4 +1,4 @@
-from .base import FreqNetModel, FreqOptim, FreqData
+from .base import FreqNetModel, FreqOptim, FreqNetDB
 from .freaksnet import FreaksNet
 from .freq_layer import FreqLayer
 from .freqnet import FreqNet

@@ -4,8 +4,8 @@ import pandas as pd
 import soundfile
 import h5py
 
-from mimikit.data.factory import AudioFileWalker, file_to_db, make_root_db
-from mimikit.data import default_extract_func, DataObject, Database
+from mimikit.data.factory import AudioFileWalker, file_to_h5, make_root_db
+from mimikit.data import default_extract_func, Database
 
 
 @pytest.fixture
@@ -54,9 +54,9 @@ def test_file_to_db(audio_tree):
         return dic
 
     with pytest.raises(ValueError, match=r".*regions.*"):
-        file_to_db(file_path, faulty_extract_func)
+        file_to_h5(file_path, faulty_extract_func)
 
-    file_to_db(file_path)
+    file_to_h5(file_path)
     with h5py.File(file_path.split(".")[0] + ".h5", "r") as f:
         assert f["regions"] is not None
 
@@ -70,8 +70,8 @@ def test_make_root_db_and_Database(audio_tree):
     assert np.any(db.fft[:4] != 0), db.fft[:4]
     assert isinstance(db.fft.get(db.regions.iloc[:1]), np.ndarray), db.fft.get(db.regions.iloc[:1])
 
-    # test Dataset Integration
-    ds = DataObject(db.fft)
-    assert ds is not None, ds
-    assert len(ds) == len(db.fft), (len(ds), len(db.fft))
-    assert np.all(ds[:10] == db.fft[:10])
+    # # test Dataset Integration
+    # ds = DataObject(db.fft)
+    # assert ds is not None, ds
+    # assert len(ds) == len(db.fft), (len(ds), len(db.fft))
+    # assert np.all(ds[:10] == db.fft[:10])

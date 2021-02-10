@@ -1,37 +1,32 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from functools import partial
-from multiprocessing import cpu_count
 
 from . import FreqNet
 from .modules.io import PermuteTF
-from ..data import Database, make_root_db
-from ..connectors.neptune import NeptuneConnector
-from ..data.transforms import file_to_qx
+from ..kit.data import DBDataset
+from ..data import transforms as T
+from ..kit.ds_utils import ShiftedSequences
 
 
-def wavenet_db(target,
-               roots=None,
-               files=None,
-               mu=255,
-               sample_rate=22050,
-               neptune_path=None):
-    transform = partial(file_to_qx,
-                        mu=mu,
-                        sr=sample_rate)
-    if roots is None and files is None:
-        roots = "./"
-    make_root_db(target, roots=roots, files=files, extract_func=transform, n_cores=cpu_count() // 2)
+class WaveNetDB(DBDataset):
 
-    if neptune_path is not None:
-        path = neptune_path.split("/")
-        user, rest = path[0], "/".join(path[1:]) if path[-1] is not None else path[1]
-        connector = NeptuneConnector(user=user, setup={"db": rest})
-        db = Database(target)
-        print("uploading database to neptune...")
-        connector.upload_database("db", db)
-    print("done!")
-    return Database(target)
+    qx = None
+
+    @staticmethod
+    def extract(path, mu=255, sr=22050):
+        qx = T.FileTo.mu_law_compress(path, sr, mu)
+        return dict(qx=(dict(mu=mu, sr=sr), qx.reshape(-1, 1), None))
+
+    def prepare_dataset(self, model):
+        args = model.targets_shifts_and_lengths(model.hparams["input_seq_length"])
+        self.slicer = ShiftedSequences(len(self.qx), [(0, model.hparams["input_seq_length"])] + args)
+
+    def __getitem__(self, item):
+        slices = self.slicer(item)
+        return tuple(self.qx[sl] for sl in slices)
+
+    def __len__(self):
+        return len(self.slicer)
 
 
 def wavenet_loss_fn(output, target):

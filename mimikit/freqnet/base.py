@@ -1,11 +1,12 @@
 import torch
-from pytorch_lightning import LightningModule, LightningDataModule
-from torch.utils.data import DataLoader
+from pytorch_lightning import LightningModule
 import librosa
 from abc import ABC
 
-from ..data import DataObject, FeatureProxy, HOP_LENGTH
-from ..kit import ShiftedSeqsPair, MMKHooks, LoggingHooks, tqdm
+from ..data import Database, HOP_LENGTH
+from ..kit import MMKHooks, LoggingHooks, tqdm
+from ..kit.submodules.data import DBDataset, DataSubModule
+from ..kit.ds_utils import ShiftedSequences
 
 
 class ManyOneCycleLR(torch.optim.lr_scheduler.OneCycleLR):
@@ -17,7 +18,7 @@ class ManyOneCycleLR(torch.optim.lr_scheduler.OneCycleLR):
             super(ManyOneCycleLR, self).step(epoch=epoch)
 
 
-class FreqOptim:
+class FreqOptim(LightningModule):
     """
     simple class to modularize the optimization setup used in a ``FreqNetModel``.
 
@@ -25,15 +26,15 @@ class FreqOptim:
     ``OneCycleLR`` scheduler (the only modification being that it won't raise a ``ValueError`` if you use for more
     steps than what it expects and will instead restarts its cycle)
     """
+
     def __init__(self,
-                 model,
                  max_lr=1e-3,
                  betas=(.9, .9),
                  div_factor=3.,
                  final_div_factor=1.,
                  pct_start=.25,
                  cycle_momentum=False):
-        self.model = model
+        super(FreqOptim, self).__init__()
         self.max_lr = max_lr
         self.betas = betas
         self.div_factor = div_factor
@@ -45,7 +46,7 @@ class FreqOptim:
         self.max_epochs = None
 
     def configure_optimizers(self):
-        self.opt = torch.optim.Adam(self.model.parameters(), lr=self.max_lr, betas=self.betas)
+        self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
         self.sched = ManyOneCycleLR(self.opt,
                                     steps_per_epoch=self.steps_per_epoch,
                                     epochs=self.max_epochs,
@@ -57,100 +58,44 @@ class FreqOptim:
         return [self.opt], [{"scheduler": self.sched, "interval": "step", "frequency": 1}]
 
 
-class FreqData(LightningDataModule):
-    """
-    boilerplate subclass of ``pytorch_lightning.LightningDataModule`` to handle the data of a ``FreqNetModel``.
+class FreqNetDB(DBDataset):
+    features = ["fft"]
+    fft = None
 
-    the data is passed through ``data_object``, wrapped in a ``ShiftedSeqsPair`` in ``prepare_data()`` and
-    in ``setup("fit")`` it is moved to the gpu if ``in_mem_data`` is ``True`` and split into train, val and test sets
-    according to ``splits``
-    """
-    def __init__(self,
-                 model,
-                 data_object=None,
-                 input_seq_length=64,
-                 batch_size=64,
-                 in_mem_data=True,
-                 splits=None,
-                 **loader_kwargs,
-                 ):
-        super(FreqData, self).__init__()
-        self.model = model
-        self.ds = DataObject(data_object)
-        self.input_seq_length = input_seq_length
-        self.batch_size = batch_size
-        self.in_mem_data = in_mem_data
-        self.splits = splits
-        loader_kwargs.setdefault("drop_last", False)
-        loader_kwargs.setdefault("shuffle", True)
-        self.loader_kwargs = loader_kwargs
-        self.train_ds, self.val_ds, self.test_ds = None, None, None
+    @staticmethod
+    def extract(path, n_fft=2048, hop_length=512, sr=22050):
+        import mimikit.data.transforms as T
+        params = dict(n_fft=n_fft, hop_length=hop_length, sr=sr)
+        fft = T.FileTo.mag_spec(path, **params)
+        return dict(fft=(params, fft, None))
 
-    def prepare_data(self, *args, **kwargs):
-        if not (getattr(self.model, "targets_shifts_and_lengths", False)):
-            raise TypeError("Expected `model` to implement `targets_shifts_and_lengths(input_length)`"
-                            " in order to compute the right slices for the batches")
-        targets_def = self.model.targets_shifts_and_lengths(self.input_seq_length)
-        wrapper = ShiftedSeqsPair(self.input_seq_length, targets_def)
-        self.ds = wrapper(self.ds)
+    def prepare_dataset(self, model):
+        args = model.targets_shifts_and_lengths(model.hparams["input_seq_length"])
+        self.slicer = ShiftedSequences(len(self.fft), [(0, model.hparams["input_seq_length"])] + args)
 
-    def setup(self, stage=None):
-        if stage == "fit":
-            if self.in_mem_data and torch.cuda.is_available():
-                self.ds.to_tensor()
-                self.ds.to("cuda")
-            if self.splits is None:
-                self.splits = (1.,)
-            sets = self.ds.split(self.splits)
-            for ds, attr in zip(sets, ["train_ds", "val_ds", "test_ds"]):
-                setattr(self, attr, ds)
+    def __getitem__(self, item):
+        slices = self.slicer(item)
+        return tuple(self.fft[sl] for sl in slices)
 
-    def train_dataloader(self):
-        if not self.has_prepared_data:
-            self.prepare_data()
-        if not self.has_setup_fit:
-            self.setup("fit")
-        return DataLoader(self.train_ds, batch_size=self.batch_size, **self.loader_kwargs)
-
-    def val_dataloader(self, shuffle=False):
-        has_val = len(self.splits) >= 2 and self.splits[1] is not None
-        if not has_val:
-            return None
-        if not self.has_prepared_data:
-            self.prepare_data()
-        if not self.has_setup_fit:
-            self.setup("fit")
-        kwargs = self.loader_kwargs.copy()
-        kwargs["shuffle"] = shuffle
-        return DataLoader(self.val_ds, batch_size=self.batch_size, **kwargs)
-
-    def test_dataloader(self, shuffle=False):
-        has_test = len(self.splits) >= 3 and self.splits[2] is not None
-        if not has_test:
-            return None
-        if not self.has_prepared_data:
-            self.prepare_data()
-        if not self.has_setup_fit:
-            self.setup("test")
-        kwargs = self.loader_kwargs.copy()
-        kwargs["shuffle"] = shuffle
-        return DataLoader(self.test_ds, batch_size=self.batch_size, **kwargs)
+    def __len__(self):
+        return len(self.slicer)
 
 
 class FreqNetModel(MMKHooks,
                    LoggingHooks,
+                   DataSubModule,
+                   FreqOptim,
                    LightningModule,
                    ABC):
     """
     base class for all ``FreqNets`` that handles optim, data and a few handy methods like ``generate()``
     """
-    @property
-    def data(self):
-        """short-hand to quickly access the data object passed to the constructor"""
-        return self.datamodule.ds.data
+
+    db_class = FreqNetDB
 
     def __init__(self,
-                 data_object=None,
+                 db=None,
+                 files=None,
                  input_seq_length=64,
                  batch_size=64,
                  in_mem_data=True,
@@ -162,18 +107,18 @@ class FreqNetModel(MMKHooks,
                  pct_start=.25,
                  cycle_momentum=False,
                  **loaders_kwargs):
-        super(FreqNetModel, self).__init__()
-        # dimensionality of inputs is automatically available
-        if data_object is not None and not isinstance(data_object, str):
-            self.input_dim = data_object.shape[-1]
-            self.datamodule = FreqData(self, data_object, input_seq_length, batch_size,
-                                       in_mem_data, splits, **loaders_kwargs)
-        else:
-            raise ValueError("Please pass a valid data_object to instantiate a FreqNetModel."
-                             " If you are loading from a checkpoint, you can do so by modifying your method call to :\n"
-                             "FreqNetModel.load_from_checkpoint(path_to_ckpt, data_object=my_data_object)")
-        self.optim = FreqOptim(self, max_lr, betas, div_factor, final_div_factor, pct_start,
-                               cycle_momentum)
+        # first : call super of LightningModule
+        # Note: don't call super(FreqNetModel, self)! This way, we can explicitly specify how to init submodules
+        super(LightningModule, self).__init__()
+
+        # then : init submodules WITHOUT calling their super because
+        # they are supposed to call their supers in their own init methods.
+        FreqOptim.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
+        DataSubModule.__init__(self, db, files, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
+
+        # finally : do what you need to!
+        self.input_dim = self.db.fft.shape[-1]
+
         # calling this updates self.hparams from any subclass : call it when subclassing!
         self.save_hyperparameters()
 
@@ -192,36 +137,10 @@ class FreqNetModel(MMKHooks,
     def setup(self, stage: str):
         if stage == "fit":
             self.logger.log_hyperparams(self.hparams)
-            self.optim.max_epochs = self.trainer.max_epochs
-            self.optim.steps_per_epoch = len(self.datamodule.train_dataloader())
-
-    def configure_optimizers(self):
-        return self.optim.configure_optimizers()
-
-    def _set_hparams(self, hp):
-        """
-        Small handy hook to
-            - copy params of a db in hparams
-            - make sure we don't store arrays or tensors in hparams by replacing them
-            by their string
-        """
-        # replace inputs passed to the hparams with their string
-        if "data_object" in hp:
-            if isinstance(hp["data_object"], FeatureProxy):
-                # copy the attrs of the db to hparams
-                for k, v in hp["data_object"].attrs.items():
-                    hp[k] = v
-            string = repr(hp["data_object"])
-            hp["data_object"] = string[:88] + ("..." if len(string) > 88 else "")
-        super(FreqNetModel, self)._set_hparams(hp)
+            self.max_epochs = self.trainer.max_epochs
+            self.steps_per_epoch = len(self.datamodule.train_dataloader())
 
     # Convenience Methods for generative audio models (see also, `LoggingHooks.log_audio`):
-
-    def random_train_example(self):
-        return next(iter(self.datamodule.train_dataloader()))[0][0:1]
-
-    def random_val_example(self):
-        return next(iter(self.datamodule.val_dataloader(shuffle=True)))[0][0:1]
 
     def generation_slices(self):
         raise NotImplementedError("subclasses of `FreqNetModel` have to implement `generation_slices`")

@@ -1,5 +1,5 @@
 import librosa
-from .regions import Regions
+from ..extract.segment import from_recurrence_matrix
 
 N_FFT = 2048
 HOP_LENGTH = 512
@@ -7,33 +7,70 @@ SR = 22050
 MU = 255
 
 
-def stft(file, n_fft=N_FFT, hop_length=HOP_LENGTH, sr=SR):
-    y, sr = librosa.load(file, sr=sr)
-    fft = librosa.stft(y, n_fft=n_fft, hop_length=hop_length)
-    # returns the feature and its attributes
-    return fft, dict(n_fft=n_fft, hop_length=hop_length, sr=sr)
+class SignalTo:
+
+    @staticmethod
+    def stft(y, n_fft=N_FFT, hop_length=HOP_LENGTH, **kwargs):
+        S = librosa.stft(y, n_fft=n_fft, hop_length=hop_length, **kwargs)
+        return S
+
+    @staticmethod
+    def mag_spec(y, n_fft=N_FFT, hop_length=HOP_LENGTH, **kwargs):
+        S = SignalTo.stft(y, n_fft, hop_length, **kwargs)
+        return abs(S)
+
+    @staticmethod
+    def mu_law_compress(y, mu=MU):
+        y = librosa.util.normalize(y)
+        qx = librosa.mu_compress(y, mu, quantize=True)
+        qx = qx + (MU + 1) // 2
+        return qx
 
 
-def file_to_fft(abs_path, n_fft=N_FFT, hop_length=HOP_LENGTH, sr=SR):
-    fft, params = stft(abs_path, n_fft, hop_length, sr)
-    fft = abs(fft)
-    regions = Regions.from_duration([fft.shape[1]])
-    params.update(dict(time_axis=0))
-    return dict(fft=(params, fft.T), regions=({}, regions))
+class SignalFrom:
+
+    @staticmethod
+    def gla(mag_spec, **kwargs):
+        return librosa.griffinlim(mag_spec, **kwargs)
+
+    @staticmethod
+    def mu_law_compressed(qx, mu=MU):
+        return librosa.mu_expand(qx, mu, quantize=True)
 
 
-def mu_law_compress(file, mu=MU, sr=SR):
-    y, sr = librosa.load(file, sr=sr)
-    y = librosa.util.normalize(y)
-    qx = librosa.mu_compress(y, mu, quantize=True)
-    qx = qx + (MU + 1) // 2
-    return qx, dict(mu=mu, sr=sr)
+class MagSpecTo:
+
+    @staticmethod
+    def regions(S, **kwargs):
+        return from_recurrence_matrix(S, **kwargs)
 
 
-def file_to_qx(abs_path, mu=MU, sr=SR):
-    qx, params = mu_law_compress(abs_path, mu, sr)
-    regions = Regions.from_duration([qx.shape[0]])
-    return dict(qx=(params, qx.reshape(-1, 1)), regions=({}, regions))
+class FileTo:
+
+    @staticmethod
+    def signal(file_path, sr=SR):
+        y, _ = librosa.load(file_path, sr=sr)
+        return y
+
+    @staticmethod
+    def stft(file_path, sr=SR, n_fft=N_FFT, hop_length=HOP_LENGTH, **kwargs):
+        y = FileTo.signal(file_path, sr)
+        S = SignalTo.stft(y, n_fft, hop_length, **kwargs)
+        return S
+
+    @staticmethod
+    def mag_spec(file_path, sr=SR, n_fft=N_FFT, hop_length=HOP_LENGTH, **kwargs):
+        y = FileTo.signal(file_path, sr)
+        S = SignalTo.mag_spec(y, n_fft, hop_length, **kwargs)
+        return S
+
+    @staticmethod
+    def mu_law_compress(file_path, sr=SR, mu=MU):
+        y = FileTo.signal(file_path, sr)
+        y = librosa.util.normalize(y)
+        qx = librosa.mu_compress(y, mu, quantize=True)
+        qx = qx + (MU + 1) // 2
+        return qx
 
 
-default_extract_func = file_to_fft
+default_extract_func = FileTo.signal

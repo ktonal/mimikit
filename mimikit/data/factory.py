@@ -6,7 +6,6 @@ from typing import Iterable
 import os
 import warnings
 
-from .api import Database
 from .regions import Regions
 from .transforms import default_extract_func
 
@@ -92,7 +91,7 @@ def _sizeof_fmt(num, suffix='b'):
 
 # Core function
 
-def file_to_db(abs_path, extract_func=default_extract_func, output_path=None, mode="w"):
+def file_to_h5(abs_path, extract_func=default_extract_func, output_path=None, mode="w"):
     """
     apply ``extract_func`` to ``abs_path`` and write the result in a .h5 file.
 
@@ -101,7 +100,7 @@ def file_to_db(abs_path, extract_func=default_extract_func, output_path=None, mo
     abs_path : str
         path to the file to be extracted
     extract_func : function
-        the function to use for the extraction - should take exactly one argument
+        the function to use for the extraction - should take exactly one argument: the path to the file to be extracted.
     output_path : str or None
         name of the created .h5 file if not None, else the name of the created .h5 file
         will be of the form : "<abs_path_without_extension>.h5"
@@ -120,19 +119,17 @@ def file_to_db(abs_path, extract_func=default_extract_func, output_path=None, mo
         if output_path[-3:] != ".h5":
             output_path += ".h5"
     rv = extract_func(abs_path)
-    if "regions" not in rv:
-        raise ValueError("Expected `extract_func` to return a ('regions', Regions) item. Found none")
     info = {}
     f = h5py.File(output_path, mode)
-    for name, (attrs, data) in rv.items():
-        if issubclass(type(data), np.ndarray):
-            ds = f.create_dataset(name=name, shape=data.shape, data=data)
-            ds.attrs.update(attrs)
-            info[name] = {"dtype": ds.dtype, "shape": ds.shape}
-        elif issubclass(type(data), pd.DataFrame):
+    for name, (attrs, data, regions) in rv.items():
+        ds = f.create_dataset(name=name, shape=data.shape, data=data)
+        ds.attrs.update(attrs)
+        info[name] = {"dtype": ds.dtype, "shape": ds.shape}
+        if regions is not None:
             f.close()
-            pd.DataFrame(data).to_hdf(output_path, name, "r+")
+            pd.DataFrame(regions).to_hdf(output_path, name + "_regions", "r+")
             f = h5py.File(output_path, "r+")
+    f.attrs["features"] = list(rv.keys())
     f.flush()
     f.close()
     return output_path, info
@@ -167,9 +164,9 @@ def _make_db_for_each_file(file_walker,
             for file in file_walker]
     if len(args) > n_cores:
         with Pool(n_cores) as p:
-            tmp_dbs_infos = p.starmap(file_to_db, args)
+            tmp_dbs_infos = p.starmap(file_to_h5, args)
     else:
-        tmp_dbs_infos = [file_to_db(*arg) for arg in args]
+        tmp_dbs_infos = [file_to_h5(*arg) for arg in args]
     return tmp_dbs_infos
 
 
@@ -199,11 +196,11 @@ def _aggregate_db_infos(infos):
         dims = shapes[0][1:]
         assert all(shp[1:] == dims for shp in
                    shapes[1:]), "all features should have the same dimensions but for the first axis"
-        # collect the regions for the files
+        # collect the regions for the files (this is different from the possible segmentation regions!)
         regions = Regions.from_duration([s[0] for s in shapes])
         ds_shape = (regions.last_stop, *dims)
         regions.index = paths
-        ds_definitions[f] = {"shape": ds_shape, "dtype": dtype, "meta_regions": regions}
+        ds_definitions[f] = {"shape": ds_shape, "dtype": dtype, "files_regions": regions}
     return ds_definitions
 
 
@@ -237,24 +234,33 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
     for feature, info in features_infos.items():
         # collect the arguments for copying each file into its regions in the master datasets/features
         args += [(source, feature, indices) for source, indices in
-                 zip(info["meta_regions"].index, info["meta_regions"].slices(time_axis=0))]
+                 zip(info["files_regions"].index, info["files_regions"].slices(time_axis=0))]
+        # "<feature>_files" will store the slices corresponding to the files for this feature
+        pd.DataFrame(info["files_regions"]).to_hdf(target, feature + "_files", mode="r+")
 
     # copy the data
-    intra_regions = None
+    intra_regions = {}
     for source, key, indices in args:
+        if key not in intra_regions:
+            intra_regions[key] = []
         with h5py.File(source, "r") as src:
             data = src[key][()]
             attrs = {k: v for k, v in src[key].attrs.items()}
-        # concat the regions :
-        regions = pd.read_hdf(source, key="regions", mode="r")
-        regions.loc[:, ("start", "stop")] += indices[0].start
-        # remove ".tmp_" from the source's name
-        regions.loc[:, "name"] = "".join(source.split(".tmp_"))
-        intra_regions = pd.concat(([intra_regions] if intra_regions is not None else []) + [regions])
+        if key + "_regions" in f:
+            # concat the regions :
+            regions = pd.read_hdf(source, key=key + "_regions", mode="r")
+            regions.loc[:, ("start", "stop")] += indices[0].start
+            regions.reset_index(inplace=True)
+            # remove ".tmp_" from the source's name
+            regions.loc[:, "name"] = "".join(source.split(".tmp_"))
+            intra_regions[key] = pd.concat(intra_regions[key] + [regions])
         with h5py.File(target, "r+") as trgt:
             trgt[key][indices] = data
             trgt[key].attrs.update(attrs)
-    pd.DataFrame(intra_regions).to_hdf(target, "regions", mode="r+")
+    # "<feature>_regions" will store the segmenting slices for this feature
+    for key, regions in intra_regions.items():
+        if regions is not None:
+            pd.DataFrame(regions).reset_index(drop=True).to_hdf(target, key + "_regions", mode="r+")
 
     # remove the temp_dbs
     for src, _ in tmp_dbs_infos:
@@ -292,4 +298,3 @@ def make_root_db(db_name, roots='./', files=None, extract_func=default_extract_f
     walker = AudioFileWalker(roots, files)
     tmp_dbs_infos = _make_db_for_each_file(walker, extract_func, n_cores)
     _aggregate_dbs(db_name, tmp_dbs_infos, "w")
-    return Database(db_name)
