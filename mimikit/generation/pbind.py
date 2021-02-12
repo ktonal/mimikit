@@ -712,7 +712,14 @@ class Event:
         raise KeyError(key)
 
     def __getitem__(self, key):
-        res = self.get(key)
+        res = self.map.get(key)
+        if res is None:
+            return self.parent.get(key)
+        else:
+            return res
+
+    def get(self, key):
+        res = self.map.get(key)
         if res is None:
             return self.parent.get(key)
         else:
@@ -722,7 +729,7 @@ class Event:
         self.map[key] = value
 
     def value(self, key):
-        res = self.get(key)
+        res = self.map.get(key)
         if res is None:
             res = self.parent.get(key)
         if callable(res):
