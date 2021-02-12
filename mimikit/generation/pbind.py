@@ -314,7 +314,7 @@ class Pser(Pattern):
         yield None
         yield rout.inval
 
-        
+
 class Prand(Pattern):
     def __init__(self, lst, repeats=1):
         Pattern.__init__(self)
@@ -356,7 +356,7 @@ class Pwrand(Pattern):
         yield None
         yield inval
 
-        
+
 class Pconst(Pattern):
     def __init__(self, val):
         Pattern.__init__(self)
@@ -388,7 +388,7 @@ class Padd(Pbinop):
             inval = rout.inval
             val1 = op1str.next(inval)
             val2 = op2str.next(inval)
-            if (val1 == None) or (val2 == None):
+            if (val1 is None) or (val2 is None):
                 yield None
                 yield inval
                 return
@@ -407,13 +407,13 @@ class Pmul(Pbinop):
             inval = rout.inval
             val1 = op1str.next(inval)
             val2 = op2str.next(inval)
-            if (val1 == None) or (val2 == None):
+            if (val1 is None) or (val2 is None):
                 yield None
                 yield inval
                 return
             yield val1 * val2
 
-            
+
 class Pdiv(Pbinop):
     def __init__(self, a, b):
         Pbinop.__init__(self, a, b)
@@ -426,7 +426,7 @@ class Pdiv(Pbinop):
             inval = rout.inval
             val1 = op1str.next(inval)
             val2 = op2str.next(inval)
-            if (val1 == None) or (val2 == None):
+            if (val1 is None) or (val2 is None):
                 yield None
                 yield inval
                 return
@@ -508,7 +508,7 @@ class Pfin(FilterPattern):
         counter = 0
         while counter < n:
             val = stream.next(inval)
-            if (val == None):
+            if val is None:
                 yield None
                 yield inval
                 return
@@ -546,7 +546,7 @@ class Pcollect(FilterPattern):
         while True:
             inval = rout.inval
             val = stream.next(inval)
-            if val == None:
+            if val is None:
                 yield None
                 yield inval
                 return
@@ -570,7 +570,7 @@ class Pwhite(Pattern):
             inval = rout.inval
             loval = lostr.next(inval)
             hival = histr.next(inval)
-            if (loval == None) or (hival == None):
+            if (loval is None) or (hival is None):
                 yield None
                 yield inval
             if (type(loval) == int) and (type(hival) == int):
@@ -613,7 +613,7 @@ class Pbrown(Pattern):
             inval = rout.inval
             loval = lostr.next(inval)
             hival = histr.next(inval)
-            stepval = stepstr.next(inval) 
+            stepval = stepstr.next(inval)
             if (loval is None) or (hival is None) or (stepval is None):
                 yield None
                 yield inval
@@ -794,7 +794,7 @@ class Pybind(Pattern):
         return SCRoutine(self, override_inval)
 
     def generator(self, rout):
-        streampairs = { key: patify(val).asStream() for key, val in self.patternpairs.items() }
+        streampairs = {key: patify(val).asStream() for key, val in self.patternpairs.items()}
 
         while True:
             inval = rout.inval
@@ -819,4 +819,3 @@ class Pybind(Pattern):
                 else:
                     event[name] = streamout
             yield event
-
