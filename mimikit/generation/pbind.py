@@ -213,6 +213,8 @@ def patify(val):
 def patvalue(val, inval=None):
     if isinstance(val, numbers.Number):
         return val
+    elif isinstance(val, Pattern):
+        return val.asStream().next()
     else:
         if len(inspect.getargspec(lambda: 3).args):
             return val(inval)
@@ -659,12 +661,12 @@ class Pindex(Pattern):
         idxstr = patify(self.index).asStream()
         while True:
             idx = idxstr.next(inval)
-            if idx == None:
+            if idx is None:
                 yield None
                 yield inval
             yield embedInStream(rout, self.lst[idx % lsize])
 
-            
+
 class Pseries(Pattern):
     def __init__(self, start, step, length):
         Pattern.__init__(self)
@@ -682,7 +684,7 @@ class Pseries(Pattern):
             yield cur
             inval = rout.inval
             stp = stepstr.next(inval)
-            if stp == None:
+            if stp is None:
                 yield None
                 yield inval
                 return
@@ -710,19 +712,19 @@ class Event:
         raise KeyError(key)
 
     def __getitem__(self, key):
-        try:
-            return self.map[key]
-        except:
+        res = self.get(key)
+        if res is None:
             return self.parent.get(key)
+        else:
+            return res
 
     def __setitem__(self, key, value):
         self.map[key] = value
 
     def value(self, key):
-        try:
-            res = self.map[key]
-        except:
-            res = self.parent[key]
+        res = self.get(key)
+        if res is None:
+            res = self.parent.get(key)
         if callable(res):
             return res(self)
         else:
@@ -776,92 +778,38 @@ class Pbind(Pattern):
             yield event
 
 
+class Pybind(Pattern):
+    def __init__(self, **kwargs):
+        Pattern.__init__(self)
+        self.patternpairs = kwargs
 
+    def asStream(self, override_inval=None):
+        return SCRoutine(self, override_inval)
 
-# give it a unique switch that tries to keep the group values
-# unique - this might not be possible if the element stream
-# does not provide enough different values
-# class Prepscheme2(Pattern):
-# 	var <>groupsize, <>groupscheme, <>reset;
-# 	*new { arg groupsize, groupscheme, pattern, reset=false;
-# 		^super.new(pattern).groupsize_(groupsize).groupscheme_(groupscheme).reset_(reset);
-# 	}
-# 	storeArgs { ^[pattern,groupsize, groupscheme, reset] }
+    def generator(self, rout):
+        streampairs = { key: patify(val).asStream() for key, val in self.patternpairs.items() }
 
-#         def generator(self, rout):
-# 	    stream = patify(pattern).asStream()
-# 	    gsizestream = patify(groupsize).asStream()
-# 	    gschemestream = patify(groupscheme).asStream()
-# 	    resetstream = patify(reset).asStream()
-# 	    groups = [None] * 16            
-
-#             while True:
-#                 gscheme = gschemestream.next(event)
-#                 resetval = gschemestream.next(event)
-# 		if resetval:
-# 		    groups = [None] * 16
-# 		while isinstance(gscheme, basestring) and (isinstane(gscheme[0], string)):
-# 		    sym = gscheme.at(0);
- 
-#                     if sym == 'take':
-#                         for k in range(1, len(gscheme)):
-#                             groups[gscheme[k]] = None
-#                     elif sym == 'reset':
-#                         groups = [None] * 16
-#                     elif sym == 'set':
-#                         groups[gscheme[1]] = groups[gscheme[2]]
-#                     elif sym == 'swap':
-# 			tmp = groups[gscheme[1]]; 
-# 			groups[gscheme[1]] = groups[gscheme[2]];
-# 			groups[gscheme[2]] = tmp;
-#                     elif sym == 'sort':
-#                         tmp = [x for x in groups if x is not None]
-# 			if gscheme[1] > 0:
-# 			    groups = sorted(tmp)
-#                         else:
-# 			    groups = tmp.sort({ arg a,b;  a.wrapAt(0) > b.wrapAt(0) })
-					
-# 			groups.postln;
-# 			groups = groups.extend(16)
-#                     elif sym == 'sortfunc':
-# 			tmp = groups.reject(_.isNil);
-# 			//tmp.postln;
-# 			groups = tmp.sort(gscheme[1]);
-# 			groups = groups.extend(16)
-
-# 		    elif sym == 'scramble': 
-# 			tmp = groups.reject(_.isNil);
-# 			groups = tmp.scramble ++ Array.newClear(16-tmp.size);					
-				
-# 		    elif sym == 'permute' 
-# 			tmp = groups.reject(_.isNil);
-# 			groups = tmp.permute(gscheme[1]) ++ Array.newClear(16-tmp.size);
-				
-# 			gscheme = gschemestream.next(event);
-			
-# 			group = groups.at(gscheme);
-# 			gsize = gsizestream.next(event);
-# 			if (gsize.isNil) { ^event };
-# 			gsize.do({ arg k;
-# 				if (k >= group.size) {
-# 					val = stream.next(event);
-# 					if (val.isNil) { ^event };
-# 					group = group.add(val);
-# 					groups.put(gscheme, group);
-# 					event = val.yield;
-# 				} {
-# 					event = groups.at(gscheme).at(k).yield;
-# 				};
-# 			});
-# 		};		
-# 	}
-# }
-
-# pb = Pbind('type', 'model',   'model', Prand([0,1,2], inf), 'dur', Pseq([0.5, 1.0], inf))
-# pst = pb.asStream()
-# pst.next(Event({}))
-
-#pb = Pbind('type', 'model',   'model', Prand([0,1,2], inf), 'dur', Pseq([0.5, 1.0], inf))
-#pst = pb.asStream({})
-#pst.next(Event({}))
+        while True:
+            inval = rout.inval
+            if inval is None:
+                yield None
+                return
+            event = inval.copy()
+            for name, stream in streampairs.items():
+                streamout = stream.next(event)
+                if streamout is None:
+                    yield None
+                    yield None
+                    return
+                # support tupled
+                if isinstance(name, (list, tuple)):
+                    if (name.size > streamout.size):
+                        print("the pattern is not providing enough values to assign to the key set:" + name)
+                        yield None
+                        return
+                    # here we would iterate over the name
+                    print("list type keys are not supported (yet)")
+                else:
+                    event[name] = streamout
+            yield event
 
