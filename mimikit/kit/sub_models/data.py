@@ -1,11 +1,14 @@
+from abc import ABC
+
 import torch
 from torch.utils.data import DataLoader
-from ..db_dataset import DBDataset
 import pytorch_lightning as pl
 from inspect import getfullargspec
 
+from ..db_dataset import DBDataset
 
-class DBDataModule(pl.LightningDataModule):
+
+class DBDataModule(pl.LightningDataModule, ABC):
     """
     boilerplate subclass of ``pytorch_lightning.LightningDataModule`` to handle standard "data-tasks" :
         - give a Database a chance to prepare itself for serving data once the model has been instantiated

@@ -5,7 +5,7 @@ import soundfile
 
 from mimikit.kit import get_trainer
 from mimikit.freqnet import *
-from mimikit.data import freqnet_db
+from mimikit.h5data import freqnet_db
 
 
 @pytest.fixture
@@ -202,7 +202,7 @@ def test_freqnet_computed_properties():
                     ("forward case_" + str(i), outpt.size(1), expected[attr])
 
             if attr == "targets":
-                result = net.targets_shifts_and_lengths(input_length)
+                result = net.batch_info(input_length)
                 assert result == expected[attr], \
                     (attr, "case_" + str(i), result, expected[attr])
 

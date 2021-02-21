@@ -1,4 +1,5 @@
-from .base import FreqNetModel, FreqOptim, FreqNetDB
+from .base import FreqNetModel, FreqNetDB
+from mimikit.submodules.optim import FreqOptim
 from .freaksnet import FreaksNet
 from .freq_layer import FreqLayer
 from .freqnet import FreqNet

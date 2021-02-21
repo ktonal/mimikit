@@ -1,84 +1,14 @@
 import h5py
-import numpy as np
 import pandas as pd
 from multiprocessing import cpu_count, Pool
-from typing import Iterable
 import os
 import warnings
 
+from mimikit.audios.file_walker import AudioFileWalker
+
 from .regions import Regions
-from .transforms import default_extract_func
 
 warnings.filterwarnings("ignore", message="PySoundFile failed.")
-
-
-class AudioFileWalker:
-
-    AUDIO_EXTENSIONS = ("wav", "aif", "aiff", "mp3", "m4a", "mp4")
-
-    def __init__(self, roots=None, files=None):
-        """
-        recursively find audio files from `roots` and/or collect audio files passed in `files`
-
-        Parameters
-        ----------
-        roots : str or list of str
-            a single path (string, os.Path) or an Iterable of paths from which to collect audio files recursively
-        files : str or list of str
-            a single path (string, os.Path) or an Iterable of paths
-
-        Examples
-        --------
-        >>> files = list(AudioFileWalker(roots="./my-directory", files=["sound.mp3"]))
-
-        Notes
-        ------
-        any file whose extension isn't in AudioFileWalker.AUDIO_EXTENSIONS will be ignored,
-        regardless whether it was found recursively or passed through the `files` argument.
-        """
-        generators = []
-
-        if roots is not None and isinstance(roots, Iterable):
-            if isinstance(roots, str):
-                if not os.path.exists(roots):
-                    raise FileNotFoundError("%s does not exist." % roots)
-                generators += [AudioFileWalker.walk_root(roots)]
-            else:
-                for r in roots:
-                    if not os.path.exists(r):
-                        raise FileNotFoundError("%s does not exist." % r)
-                generators += [AudioFileWalker.walk_root(root) for root in roots]
-
-        if files is not None and isinstance(files, Iterable):
-            if isinstance(files, str):
-                if not os.path.exists(files):
-                    raise FileNotFoundError("%s does not exist." % files)
-                generators += [(f for f in [files] if AudioFileWalker.is_audio_file(files))]
-            else:
-                for f in files:
-                    if not os.path.exists(f):
-                        raise FileNotFoundError("%s does not exist." % f)
-                generators += [(f for f in files if AudioFileWalker.is_audio_file(f))]
-
-        self.generators = generators
-
-    def __iter__(self):
-        for generator in self.generators:
-            for file in generator:
-                yield file
-
-    @staticmethod
-    def walk_root(root):
-        for directory, _, files in os.walk(root):
-            for audio_file in filter(AudioFileWalker.is_audio_file, files):
-                yield os.path.join(directory, audio_file)
-
-    @staticmethod
-    def is_audio_file(filename):
-        # filter out hidden files
-        if os.path.split(filename.strip("/"))[-1].startswith("."):
-            return False
-        return os.path.splitext(filename)[-1].strip(".") in AudioFileWalker.AUDIO_EXTENSIONS
 
 
 def _sizeof_fmt(num, suffix='b'):
@@ -91,7 +21,19 @@ def _sizeof_fmt(num, suffix='b'):
 
 # Core function
 
-def file_to_h5(abs_path, extract_func=default_extract_func, output_path=None, mode="w"):
+def write_feature(h5_file, feature_name, attrs, data, regions=None, files=None):
+    with h5py.File(h5_file, "r+") as f:
+        ds = f.create_dataset(name=feature_name, shape=data.shape, data=data)
+        ds.attrs.update(attrs)
+        f.attrs["features"] = [*f.attrs["features"], feature_name]
+    if regions is not None:
+        pd.DataFrame(regions).to_hdf(h5_file, feature_name + "_regions", "r+")
+    if files is not None:
+        pd.DataFrame(files).to_hdf(h5_file, feature_name + "_files", "r+")
+    return None
+
+
+def file_to_h5(abs_path, extract_func=None, output_path=None, mode="w"):
     """
     apply ``extract_func`` to ``abs_path`` and write the result in a .h5 file.
 
@@ -138,7 +80,7 @@ def file_to_h5(abs_path, extract_func=default_extract_func, output_path=None, mo
 # Multiprocessing routine
 
 def _make_db_for_each_file(file_walker,
-                           extract_func=default_extract_func,
+                           extract_func=None,
                            n_cores=cpu_count()):
     """
     apply ``extract_func`` to the files found by ``file_walker``
@@ -236,31 +178,35 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
         args += [(source, feature, indices) for source, indices in
                  zip(info["files_regions"].index, info["files_regions"].slices(time_axis=0))]
         # "<feature>_files" will store the slices corresponding to the files for this feature
-        pd.DataFrame(info["files_regions"]).to_hdf(target, feature + "_files", mode="r+")
+        files_regions = info["files_regions"]
+        files_regions.index = files_regions.index.str.replace(".tmp_", "").str.replace(".h5", "")
+        files_regions = files_regions.reset_index(drop=False)
+        files_regions = files_regions.rename(columns={"index": "name"})
+        pd.DataFrame(files_regions).to_hdf(target, feature + "_files", mode="r+")
 
     # copy the data
     intra_regions = {}
     for source, key, indices in args:
-        if key not in intra_regions:
-            intra_regions[key] = []
         with h5py.File(source, "r") as src:
             data = src[key][()]
             attrs = {k: v for k, v in src[key].attrs.items()}
-        if key + "_regions" in f:
-            # concat the regions :
-            regions = pd.read_hdf(source, key=key + "_regions", mode="r")
-            regions.loc[:, ("start", "stop")] += indices[0].start
-            regions.reset_index(inplace=True)
-            # remove ".tmp_" from the source's name
-            regions.loc[:, "name"] = "".join(source.split(".tmp_"))
-            intra_regions[key] = pd.concat(intra_regions[key] + [regions])
+            if key + "_regions" in src:
+                if key not in intra_regions:
+                    intra_regions[key] = []
+                # concat the regions :
+                regions = pd.read_hdf(source, key=key + "_regions", mode="r")
+                regions.loc[:, ("start", "stop")] += indices[0].start
+                regions = regions.reset_index(drop=False)
+                # remove ".tmp_" from the source's name
+                regions.loc[:, "name"] = "".join(source.split(".tmp_"))
+                intra_regions[key] += [regions.itertuples()]
         with h5py.File(target, "r+") as trgt:
             trgt[key][indices] = data
             trgt[key].attrs.update(attrs)
     # "<feature>_regions" will store the segmenting slices for this feature
     for key, regions in intra_regions.items():
         if regions is not None:
-            pd.DataFrame(regions).reset_index(drop=True).to_hdf(target, key + "_regions", mode="r+")
+            pd.concat(regions).reset_index(drop=True).to_hdf(target, key + "_regions", mode="r+")
 
     # remove the temp_dbs
     for src, _ in tmp_dbs_infos:
@@ -268,7 +214,7 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
             os.remove(src)
 
 
-def make_root_db(db_name, roots='./', files=None, extract_func=default_extract_func,
+def make_root_db(db_name, roots='./', files=None, extract_func=None,
                  n_cores=cpu_count()):
     """
     extract and aggregate several files into a single .h5 Database

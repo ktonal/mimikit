@@ -1,10 +1,10 @@
 import torch.nn as nn
 import torch.nn.functional as F
 
-from . import FreqNet
-from .modules.io import PermuteTF
-from ..kit.data import DBDataset
-from ..data import transforms as T
+from .freqnet import FreqNet
+from mimikit.kit.modules.ops import Transpose
+from ..kit.db_dataset import DBDataset
+from ..audios import transforms as A
 from ..kit.ds_utils import ShiftedSequences
 
 
@@ -14,7 +14,7 @@ class WaveNetDB(DBDataset):
 
     @staticmethod
     def extract(path, mu=255, sr=22050):
-        qx = T.FileTo.mu_law_compress(path, sr, mu)
+        qx = A.FileTo.mu_law_compress(path, sr, mu)
         return dict(qx=(dict(mu=mu, sr=sr), qx.reshape(-1, 1), None))
 
     def prepare_dataset(self, model):
@@ -46,6 +46,7 @@ class WaveNet(FreqNet):
                  ):
         super(WaveNet, self).__init__(
             loss_fn=wavenet_loss_fn,
+            input_dim=input_dim,
             model_dim=model_dim,
             groups=groups,
             n_layers=n_layers,
@@ -58,17 +59,15 @@ class WaveNet(FreqNet):
             with_residual_conv=with_residual_conv,
             **data_optim_kwargs)
 
-        self.input_dim = input_dim
-
         self.inpt = nn.Sequential(
-            nn.Embedding(self.input_dim, self.model_dim), PermuteTF())
+            nn.Embedding(self.input_dim, self.model_dim), Transpose(1, 2))
 
         self.outpt = nn.Sequential(
             nn.ReLU(inplace=True),
             nn.Conv1d(self.model_dim, self.model_dim, 1),
             nn.ReLU(inplace=True),
             nn.Conv1d(self.model_dim, self.input_dim, 1),
-            PermuteTF(),
+            Transpose(1, 2),
             nn.LogSoftmax(dim=1)
         )
 

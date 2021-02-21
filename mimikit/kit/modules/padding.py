@@ -10,7 +10,7 @@ class LearnablePad1d(nn.Module):
         amount = abs(amount)
         if amount > 0:
             if learn_padding:
-                self.pad = nn.Parameter(torch.zeros(input_dim, amount), requires_grad=True)
+                self.pad = nn.Parameter(torch.randn(input_dim, amount), requires_grad=True)
             else:
                 self.pad = torch.zeros(input_dim, amount)
 
@@ -18,4 +18,4 @@ class LearnablePad1d(nn.Module):
         if self.pad is None:
             return x
         self.pad = self.pad.to(x)
-        return torch.cat((torch.stack([self.pad] * x.size(0)), x)[::self.side], dim=-1)
+        return torch.cat((torch.stack([self.pad] * x.size(0)), x)[::self.side], dim=-1).contiguous()

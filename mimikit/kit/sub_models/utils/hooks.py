@@ -1,5 +1,6 @@
 from pytorch_lightning.utilities.cloud_io import load as pl_load
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
+from pytorch_lightning import LightningModule
 from time import time, gmtime
 from typing import Optional, Union, Callable, Dict, IO
 import torch
@@ -15,11 +16,11 @@ except ImportError:
     warnings.warn("It seems neptune and/or neptunecontrib are not installed. "
                   "You won't be able to log checkpoints and data to neptune.")
 
-from .. import __version__ as version
-from ..data.transforms import SR
+from .... import __version__ as version
+from ....h5data.transforms import SR
 
 
-class LoggingHooks:
+class LoggingHooks(LightningModule):
 
     @property
     def neptune_experiment(self):
@@ -125,7 +126,8 @@ def _check_version(other_v):
                       (", try to install the right version with `pip install mimikit==%s" % v))
 
 
-class MMKHooks:
+class MMKHooks(LightningModule):
+
     _loaded_checkpoint = None
 
     @classmethod

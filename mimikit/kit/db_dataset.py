@@ -3,7 +3,7 @@ from torch.utils.data import Dataset, random_split
 from torch.utils.data._utils.collate import default_convert
 import pytorch_lightning as pl
 
-from ..data import Database
+from ..h5data import Database
 
 
 class DBDataset(Database, Dataset):

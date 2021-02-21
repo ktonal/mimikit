@@ -1,20 +1,21 @@
 import torch.nn as nn
 import numpy as np
+from pytorch_lightning import LightningModule
 
-from .modules import GatedLinearInput, AbsLinearOutput, mean_L1_prop
-from .freq_layer import FreqLayer
-from .base import FreqNetModel
+from ..modules import DilatedConv1d
+from mimikit.kit.modules.ops import Transpose
 
 
-class FreqNet(FreqNetModel):
+class DilatedConv1dBlocks(LightningModule):
     LAYER_KWARGS = ["groups", "strict", "accum_outputs", "concat_outputs", "kernel_size",
-                    "pad_input", "learn_padding", "with_skip_conv", "with_residual_conv"]
+                    "pad_input", "learn_padding", "with_skip_conv", "with_residual_conv",
+                    "local_cond_dim", "global_cond_dim"]
 
     def __init__(self,
-                 loss_fn=mean_L1_prop,
+                 input_dim=None,
                  model_dim=512,
-                 groups=1,
                  n_layers=(2,),
+                 groups=1,
                  kernel_size=2,
                  strict=False,
                  accum_outputs=0,
@@ -23,10 +24,14 @@ class FreqNet(FreqNetModel):
                  learn_padding=False,
                  with_skip_conv=True,
                  with_residual_conv=True,
-                 **data_optim_kwargs):
-        super(FreqNet, self).__init__(**data_optim_kwargs)
-        self._loss_fn = loss_fn
+                 local_cond_dim=None,
+                 global_cond_dim=None
+                 ):
+        super(DilatedConv1dBlocks, self).__init__()
         self.model_dim = model_dim
+        if input_dim is None:
+            raise ValueError("input_dim can not be None")
+        self.input_dim = input_dim
         self.groups = groups
         self.n_layers = n_layers
         self.kernel_size = kernel_size
@@ -37,35 +42,26 @@ class FreqNet(FreqNetModel):
         self.learn_padding = learn_padding
         self.with_skip_conv = with_skip_conv
         self.with_residual_conv = with_residual_conv
+        self.local_cond_dim = local_cond_dim
+        self.global_cond_dim = global_cond_dim
 
-        # Input Encoder
-        self.inpt = GatedLinearInput(self.input_dim, self.model_dim)
-
-        # Auto-regressive Part
         layer_kwargs = {attr: getattr(self, attr) for attr in self.LAYER_KWARGS}
         # for simplicity we keep all the layers in a flat list
-        self.layers = nn.ModuleList([
-            FreqLayer(layer_index=i, input_dim=model_dim, layer_dim=model_dim, **layer_kwargs)
-            for n_layers in self.n_layers for i in range(n_layers)
-        ])
-
-        # Output Decoder
-        self.outpt = AbsLinearOutput(self.model_dim, self.input_dim)
+        self.layers = nn.ModuleList(
+            [Transpose(1, 2)] + [
+                DilatedConv1d(layer_index=i, input_dim=model_dim, layer_dim=model_dim, **layer_kwargs)
+                for n_layers in self.n_layers for i in range(n_layers)
+            ] + [Transpose(1, 2)])
 
         self.save_hyperparameters()
 
-    def forward(self, x):
+    def forward(self, x, local_cond=None, global_cond=None):
         """
         """
-        x = self.inpt(x)
         skips = None
         for layer in self.layers:
-            x, skips = layer(x, skips)
-        x = self.outpt(skips)
+            x, skips = layer(x, skips, local_cond, global_cond)
         return x
-
-    def loss_fn(self, predictions, targets):
-        return self._loss_fn(predictions, targets)
 
     def all_rel_shifts(self):
         """sequence of shifts from one layer to the next"""
@@ -106,21 +102,3 @@ class FreqNet(FreqNetModel):
             out_length = layer.output_length(out_length)
             lengths += [out_length]
         return tuple(lengths)
-
-    def targets_shifts_and_lengths(self, input_length):
-        return [(self.shift(), self.output_length(input_length))]
-
-    def generation_slices(self):
-        # input is always the last receptive field
-        input_slice = slice(-self.receptive_field(), None)
-        if not self.strict and (self.pad_input == 1 or self.concat_outputs == 1):
-            # then there's only one future time-step : the last output
-            output_slice = slice(-1, None)
-        elif self.strict and (self.pad_input == 1 or self.concat_outputs == 1):
-            # then there are as many future-steps as they are layers and they all are
-            # at the end of the outputs
-            output_slice = slice(-len(self.layers), None)
-        else:
-            # for all other cases, the first output has the shift of the whole network
-            output_slice = slice(None, 1)
-        return input_slice, output_slice

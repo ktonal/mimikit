@@ -2,7 +2,8 @@ import argparse
 from functools import partial
 from multiprocessing import cpu_count
 
-from . import Database, make_root_db, AudioFileWalker
+from . import Database, make_root_db
+from mimikit.audios.file_walker import AudioFileWalker
 from ..connectors.neptune import NeptuneConnector
 
 

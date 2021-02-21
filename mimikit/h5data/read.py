@@ -51,9 +51,10 @@ class FeatureProxy(object):
             self.N = ds.shape[0]
             self.shape = ds.shape
             self.attrs = {k: v for k, v in ds.attrs.items()}
+            has_files = self.name + "_files" in f
             has_regions = self.name + "_regions" in f
-        self.files = pd.read_hdf(h5_file, self.name + "_files", mode="r+")
-        self.regions = pd.read_hdf(h5_file, self.name + "_regions", mode="r+") if has_regions else None
+        self.files = pd.read_hdf(h5_file, self.name + "_files", mode="r") if has_files else None
+        self.regions = pd.read_hdf(h5_file, self.name + "_regions", mode="r") if has_regions else None
         self._f = h5py.File(h5_file, "r") if keep_open else None
         # sequence for restricting the data to specific indices
         self._idx_map = []
