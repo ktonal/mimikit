@@ -18,7 +18,13 @@ class ManyOneCycleLR(torch.optim.lr_scheduler.OneCycleLR):
 
 
 class FreqOptim:
+    """
+    simple class to modularize the optimization setup used in a ``FreqNetModel``.
 
+    Here the method ``configure_optimizers()`` returns an ``Adam`` optimizer and a slightly modified
+    ``OneCycleLR`` scheduler (the only modification being that it won't raise a ``ValueError`` if you use for more
+    steps than what it expects and will instead restarts its cycle)
+    """
     def __init__(self,
                  model,
                  max_lr=1e-3,
@@ -52,12 +58,19 @@ class FreqOptim:
 
 
 class FreqData(LightningDataModule):
+    """
+    boilerplate subclass of ``pytorch_lightning.LightningDataModule`` to handle the data of a ``FreqNetModel``.
+
+    the data is passed through ``data_object``, wrapped in a ``ShiftedSeqsPair`` in ``prepare_data()`` and
+    in ``setup("fit")`` it is moved to the gpu if ``in_mem_data`` is ``True`` and split into train, val and test sets
+    according to ``splits``
+    """
     def __init__(self,
                  model,
                  data_object=None,
                  input_seq_length=64,
                  batch_size=64,
-                 to_gpu=True,
+                 in_mem_data=True,
                  splits=None,
                  **loader_kwargs,
                  ):
@@ -66,7 +79,7 @@ class FreqData(LightningDataModule):
         self.ds = DataObject(data_object)
         self.input_seq_length = input_seq_length
         self.batch_size = batch_size
-        self.to_gpu = to_gpu
+        self.in_mem_data = in_mem_data
         self.splits = splits
         loader_kwargs.setdefault("drop_last", False)
         loader_kwargs.setdefault("shuffle", True)
@@ -83,7 +96,7 @@ class FreqData(LightningDataModule):
 
     def setup(self, stage=None):
         if stage == "fit":
-            if self.to_gpu and torch.cuda.is_available():
+            if self.in_mem_data and torch.cuda.is_available():
                 self.ds.to_tensor()
                 self.ds.to("cuda")
             if self.splits is None:
@@ -128,7 +141,9 @@ class FreqNetModel(MMKHooks,
                    LoggingHooks,
                    LightningModule,
                    ABC):
-
+    """
+    base class for all ``FreqNets`` that handles optim, data and a few handy methods like ``generate()``
+    """
     @property
     def data(self):
         """short-hand to quickly access the data object passed to the constructor"""
@@ -138,7 +153,7 @@ class FreqNetModel(MMKHooks,
                  data_object=None,
                  input_seq_length=64,
                  batch_size=64,
-                 to_gpu=True,
+                 in_mem_data=True,
                  splits=[.8, .2],
                  max_lr=1e-3,
                  betas=(.9, .9),
@@ -152,7 +167,7 @@ class FreqNetModel(MMKHooks,
         if data_object is not None and not isinstance(data_object, str):
             self.input_dim = data_object.shape[-1]
             self.datamodule = FreqData(self, data_object, input_seq_length, batch_size,
-                                       to_gpu, splits, **loaders_kwargs)
+                                       in_mem_data, splits, **loaders_kwargs)
         else:
             raise ValueError("Please pass a valid data_object to instantiate a FreqNetModel."
                              " If you are loading from a checkpoint, you can do so by modifying your method call to :\n"

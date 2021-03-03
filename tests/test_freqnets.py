@@ -54,7 +54,7 @@ def test_base(tmp_path):
     base = TestModel(data_object=np.random.randn(32, 1025),
                      input_seq_length=16,
                      batch_size=10,
-                     to_gpu=False,
+                     in_mem_data=False,
                      splits=[1.])
 
     assert isinstance(base.datamodule, FreqData)

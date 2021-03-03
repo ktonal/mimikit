@@ -6,20 +6,23 @@ from datetime import datetime
 
 from torch.utils.data.dataset import Subset
 
-from .metadata import Metadata
+from .regions import Regions
 from ..data.data_object import DataObject
 
 
 class FeatureProxy(object):
     """
-    Interface to the numerical data (array) stored in a .h5 file created with mimikit.
+    Interface to the numerical data (array) stored in a .h5 file created with ``mimikit.data.make_root_db``
+
+    ``FeatureProxy`` objects are like ``numpy`` arrays (on disk) and can be used as map-style ``Dataset``
+    because they implement ``__len__`` and ``__getitem__``.
 
     Parameters
     ----------
     h5_file : str
         name of the file
     ds_name : str
-        name of the ``h5py.Dataset`` containing the data
+        name of the ``h5py.Dataset`` containing the data to be served
 
     Attributes
     ----------
@@ -52,13 +55,13 @@ class FeatureProxy(object):
             rv = f[self.name][item]
         return rv
 
-    def get(self, metadata):
+    def get(self, regions):
         """
-        get the data (numpy array) corresponding to the rows of `metadata`
+        get the data (numpy array) corresponding to the rows of `regions`
 
         Parameters
         ----------
-        metadata : Metadata
+        regions : Regions
             the files you want to get as array
 
         Returns
@@ -71,35 +74,72 @@ class FeatureProxy(object):
         >>>from mimikit import Database
         >>>db = Database("my-db.h5")
         # only get files 0, 3 & 7
-        >>>db.fft.get(db.metadata.iloc[[0, 3, 7]])
+        >>>db.fft.get(db.regions.iloc[[0, 3, 7]])
 
         """
         t_axis = self.attrs.get("time_axis", 0)
-        slices = metadata.slices(t_axis)
+        slices = regions.slices(t_axis)
         return np.concatenate(tuple(self[slice_i] for slice_i in slices), axis=t_axis)
 
     def add(self, array, filename=None):
-        new = add_data(self.h5_file, self.name, array, filename)
+        """
+        EXPERIMENTAL! append `array` to the feature and fill the `"name"` column of `db.regions` with 'filename'
+        Parameters
+        ----------
+        array : np.ndarray
+            the array to append at the end of the feature
+        filename : str, optional
+            a name for the array being added
+
+        Returns
+        -------
+        new : FeatureProxy
+            the updated object
+        """
+        new = _add_data(self.h5_file, self.name, array, filename)
         return new
 
     def subset(self, indices):
         """
-        transform self into a torch `Subset` (`Dataset`) containing only `indices` from the original data
+        transform self into a torch ``Subset`` (``Dataset``) containing only ``indices`` from the original data
 
         Parameters
         ----------
-        indices : Metadata or any object that `Subset` accepts as indices
-            if `indices` is of type `Metadata`, the returned `Subset` will only contain the files (rows) present
-            in `indices`.
+        indices : ``Regions`` or any object that ``Subset`` accepts as indices
+            if ``indices`` is of type ``Regions``, the returned ``Subset`` will only contain the files (rows) present
+            in ``indices``.
 
         Returns
         -------
         subset : torch.utils.data.Subset
             the obtained subset
         """
-        if isinstance(indices, Metadata):
+        if isinstance(indices, Regions):
             indices = indices.all_indices
         return Subset(DataObject(self), indices)
+
+    def regions(self, indices):
+        """
+        transform self into a torch ``Subset`` containing the files whose indices have been passed
+        as ``ints`` in ``indices``
+
+        Parameters
+        ----------
+        indices : list of ints
+            correspond to the rows of db.regions you want to keep
+
+        Returns
+        -------
+        subset : torch.utils.data.Subset
+            the obtained subset
+
+        Examples
+        --------
+        >>>>db = Database("test.h5")
+        >>>>sub = db.fft.regions([1, 2, 3, 9])
+        """
+        regions = Database(self.h5_file).regions.iloc[indices]
+        return self.subset(regions)
 
     def __repr__(self):
         return "<FeatureProxy: '%s/%s'>" % (self.h5_file, self.name)
@@ -116,9 +156,9 @@ class Database(object):
 
     Attributes
     ----------
-    metadata : Metadata
+    regions : Regions
         pandas DataFrame where each row contains information about one stored file.
-        see ``Metadata`` for more information
+        see ``Regions`` for more information
 
     <feature_proxy> : FeatureProxy
         each feature created by the extracting function passed to ``make_root_db``
@@ -128,31 +168,26 @@ class Database(object):
     """
     def __init__(self, h5_file: str):
         self.h5_file = h5_file
-        self.info = self._get_dataframe("/info")
-        self.metadata = Metadata(self._get_dataframe("/metadata"))
+        self.regions = Regions(self._get_dataframe("/regions"))
         with h5py.File(h5_file, "r") as f:
+            self.attrs = {k: v for k, v in f.attrs.items()}
+            self.features = f.attrs["features"]
             # add found features as self.feature_name = FeatureProxy(self.h5_file, feature_name)
             self._register_features(self.features)
-            self._register_dataframes(self.dataframes)
-
-    @property
-    def features(self):
-        names = self.info.iloc[:, 2:].T.index.get_level_values(0)
-        return list(set(names))
-
-    @property
-    def dataframes(self):
-        keys = set()
-
-        def func(k, v):
-            if "pandas_type" in v.attrs.keys() and k.split("/")[0] not in ("layouts", "info", "metadata"):
-                keys.add(k)
-            return None
-
-        self.visit(func)
-        return list(keys)
 
     def visit(self, func=print):
+        """
+        wrapper for ``h5py.File.visititems()``
+
+        Parameters
+        ----------
+        func : function
+            a function to be applied recursively
+
+        Returns
+        -------
+        None
+        """
         with h5py.File(self.h5_file, "r") as f:
             f.visititems(func)
 
@@ -163,17 +198,26 @@ class Database(object):
             return pd.DataFrame()
 
     def save_dataframe(self, key, df):
+        """
+        stores a ``pd.DataFrame`` object under ``key``
+
+        Parameters
+        ----------
+        key : str
+            the key under which ``df`` will be stored
+        df : pd.DataFrame
+            the ``DataFrame`` to be stored
+
+        Returns
+        -------
+        df : pd.DataFrame
+            the ``DataFrame`` as it has been stored
+        """
         with h5py.File(self.h5_file, "r+") as f:
             if key in f:
                 f.pop(key)
         df.to_hdf(self.h5_file, key=key, mode="r+")
         return self._get_dataframe(key)
-
-    def layout_for(self, feature):
-        with h5py.File(self.h5_file, "r") as f:
-            if "layouts" not in f.keys():
-                return pd.DataFrame()
-        return self._get_dataframe("layouts/" + feature)
 
     def _register_features(self, names):
         for name in names:
@@ -194,28 +238,39 @@ def add_feature(h5_file, feature_name, array):
     pass
 
 
-def add_metadata(h5_file, start, stop, duration, ds_name, filename=None):
-    meta = pd.read_hdf(h5_file, "metadata")
-    layout = pd.read_hdf(h5_file, "layouts/" + ds_name)
-    info = pd.read_hdf(h5_file, "info")
-    new = Metadata.from_start_stop([start], [stop], [duration])
+def _add_regions(h5_file, start, stop, duration, filename=None):
+    """
+    adds a row of regions to ``db.regions``
+    """
+    meta = pd.read_hdf(h5_file, "regions")
+    new = Regions.from_start_stop([start], [stop], [duration])
     filename = datetime.now() if filename is None else filename
     new["name"] = filename
     new_meta = pd.concat((meta, new), axis=0, ignore_index=True)
-    new_layout = pd.concat((layout, new), axis=0, ignore_index=True)
-    new_info = info.iloc[info.index.max()]
-    new_info.loc[:] = ("added", filename,
-                       new_info[(ds_name, "dtype")],
-                       (new.duration.item(), *new_info[(ds_name, "shape")][1:]),
-                       "xMb")
-    new_info = info.append(new_info, ignore_index=True)
-    new_meta.to_hdf(h5_file, "metadata")
-    new_layout.to_hdf(h5_file, "layouts/" + ds_name)
-    new_info.to_hdf(h5_file, "info")
-    return new_info
+    new_meta.to_hdf(h5_file, "regions")
+    return new_meta
 
 
-def add_data(h5_file, ds_name, array, filename):
+def _add_data(h5_file, ds_name, array, filename):
+    """
+    EXPERIMENTAL!! adds data at the end of a ``Dataset`` in a .h5 file.
+
+    Parameters
+    ----------
+    h5_file : str
+        path to the file
+    ds_name : str
+        name of the ``h5py.Dataset`` to which ``array`` will be added
+    array : np.ndarray
+        the array to add
+    filename : str
+        a name for the array in ``db.regions``
+
+    Returns
+    -------
+    arr : np.ndarray
+        the array as it has been stored
+    """
     N = array.shape[0]
     with h5py.File(h5_file, "r+") as f:
         if f[ds_name].shape[1:] != array.shape[1:]:
@@ -226,5 +281,5 @@ def add_data(h5_file, ds_name, array, filename):
         f[ds_name].resize(M + N, axis=0)
         f[ds_name][-N:] = array
         rv = f[ds_name][-N:]
-    add_metadata(h5_file, M, N + M, N, ds_name, filename)
+    _add_regions(h5_file, M, N + M, N, filename)
     return rv
