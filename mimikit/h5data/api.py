@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import os
 
-from .factory import make_root_db
+from .write import make_root_db
 from .regions import Regions
 
 
@@ -50,6 +50,7 @@ class FeatureProxy(object):
             ds = f[self.name]
             self.N = ds.shape[0]
             self.shape = ds.shape
+            self.dtype = ds.dtype
             self.attrs = {k: v for k, v in ds.attrs.items()}
             has_files = self.name + "_files" in f
             has_regions = self.name + "_regions" in f
@@ -148,7 +149,7 @@ class Database(object):
     @classmethod
     def make(cls, db_name, roots=None, files=None, **kwargs):
         make_root_db(db_name, roots, files, partial(cls.extract, **kwargs))
-        return Database(db_name)
+        return cls(db_name)
 
     def restrict_to_files(self, files):
         for feature in self.features:

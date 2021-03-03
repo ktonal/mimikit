@@ -25,7 +25,7 @@ class DBDataset(Database, Dataset):
         """
         Database.__init__(self, h5_file, keep_open)
 
-    def prepare_dataset(self, model: pl.LightningModule):
+    def prepare_dataset(self, model: pl.LightningModule, datamodule: pl.LightningDataModule):
         """
         placeholder for implementing what need to be done before serving data.
 

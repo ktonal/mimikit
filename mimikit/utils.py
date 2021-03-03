@@ -4,7 +4,7 @@ from librosa.display import specshow
 import IPython.display as ipd
 import matplotlib.pyplot as plt
 
-from .h5data.transforms import HOP_LENGTH, SR
+HOP_LENGTH, SR = 512, 22050
 
 # Conversion
 

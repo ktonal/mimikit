@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from pytorch_lightning import LightningModule
 
-from ..h5data import transforms as T
+from ..audios import transforms as T
 from ..kit.db_dataset import DBDataset
 from ..kit.ds_utils import ShiftedSequences
 
@@ -14,35 +14,6 @@ from mimikit.kit.modules.ops import Abs, Transpose
 
 from ..kit.sub_models.optim import SuperAdam
 from ..kit.sub_models.sequence_model import SequenceModel
-
-
-class FreqNetBase(SequenceModel,
-                  SuperAdam,
-                  LightningModule,
-                  ABC):
-
-    def __init__(self,
-                 db=None,
-                 files=None,
-                 input_seq_length=64,
-                 batch_size=64,
-                 in_mem_data=True,
-                 splits=[.8, .2],
-                 max_lr=1e-3,
-                 betas=(.9, .9),
-                 div_factor=3.,
-                 final_div_factor=1.,
-                 pct_start=.25,
-                 cycle_momentum=False,
-                 **loaders_kwargs):
-        super(LightningModule, self).__init__()
-        SequenceModel.__init__(self, db, files, batch_size, in_mem_data, splits, **loaders_kwargs)
-        SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
-        self.save_hyperparameters()
-
-    def setup(self, stage: str):
-        # SuperAdam needs setup
-        SuperAdam.setup(self, stage)
 
 
 class FreqNetDB(DBDataset):
@@ -65,6 +36,35 @@ class FreqNetDB(DBDataset):
 
     def __len__(self):
         return len(self.slicer)
+
+
+class FreqNetBase(SequenceModel,
+                  SuperAdam,
+                  LightningModule,
+                  ABC):
+
+    def __init__(self,
+                 db=None,
+                 files=None,
+                 input_seq_length=64,
+                 batch_size=64,
+                 in_mem_data=True,
+                 splits=[.8, .2],
+                 max_lr=1e-3,
+                 betas=(.9, .9),
+                 div_factor=3.,
+                 final_div_factor=1.,
+                 pct_start=.25,
+                 cycle_momentum=False,
+                 **loaders_kwargs):
+        super(LightningModule, self).__init__()
+        SequenceModel.__init__(self)
+        SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
+        self.save_hyperparameters()
+
+    def setup(self, stage: str):
+        # SuperAdam needs setup
+        SuperAdam.setup(self, stage)
 
 
 class FreqNet(FreqNetBase):

@@ -17,7 +17,6 @@ except ImportError:
                   "You won't be able to log checkpoints and data to neptune.")
 
 from .... import __version__ as version
-from ....h5data.transforms import SR
 
 
 class LoggingHooks(LightningModule):
@@ -77,7 +76,7 @@ class LoggingHooks(LightningModule):
             self.hparams.update({"training_time_sec": duration})
             self.logger.log_hyperparams(self.hparams)
 
-    def log_audio(self, filename, audio_tensor, sample_rate=SR, experiments=None):
+    def log_audio(self, filename, audio_tensor, sample_rate=22050, experiments=None):
         # TensorBoards write their own "Event" file which is quite cumbersome to extract afterwards...
         # NeptuneLoggers need an audio file written on disk and store it afterwards as html on the server...
         # Just to be sure and even if it is then in 3 places : we add the audio in root_dir/audios of the model!

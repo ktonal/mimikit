@@ -2,13 +2,13 @@ from abc import ABC
 
 import torch
 from torch.utils.data import DataLoader
-import pytorch_lightning as pl
+from pytorch_lightning import LightningDataModule, LightningModule
 from inspect import getfullargspec
 
 from ..db_dataset import DBDataset
 
 
-class DBDataModule(pl.LightningDataModule, ABC):
+class DBDataModule(LightningDataModule):
     """
     boilerplate subclass of ``pytorch_lightning.LightningDataModule`` to handle standard "data-tasks" :
         - give a Database a chance to prepare itself for serving data once the model has been instantiated
@@ -34,16 +34,18 @@ class DBDataModule(pl.LightningDataModule, ABC):
         self.train_ds, self.val_ds, self.test_ds = None, None, None
 
     def prepare_data(self, *args, **kwargs):
-        self.db.prepare_dataset(self.model)
+        self.db.prepare_dataset(model=self.model, datamodule=self)
 
     def setup(self, stage=None):
         if stage == "fit":
             if self.in_mem_data and torch.cuda.is_available():
                 self.db.to_tensor()
                 self.db.to("cuda")
-            if self.splits is None:
-                self.splits = (1.,)
-            sets = self.db.split(self.splits)
+            if not self.splits:
+                print("no splits")
+                sets = (self.db, )
+            else:
+                sets = self.db.split(self.splits)
             for ds, attr in zip(sets, ["train_ds", "val_ds", "test_ds"]):
                 setattr(self, attr, ds)
 
@@ -84,7 +86,7 @@ class DBDataModule(pl.LightningDataModule, ABC):
         return {k: v for k, v in kwargs.items() if k in valids}
 
 
-class DataSubModule(pl.LightningModule):
+class DataSubModule(LightningModule):
 
     db_class = None
 
@@ -100,10 +102,10 @@ class DataSubModule(pl.LightningModule):
                  splits: list = [.8, .2],
                  **loaders_kwargs,
                  ):
-        super(DataSubModule, self).__init__()
+        super(LightningModule, self).__init__()
         if db is not None:
             if isinstance(db, str):
-                db = self.db_class(db, keep_open=not in_mem_data)
+                db = self.db_class(db)
             if files is not None:
                 db = db.restrict_to_files(files)
             self.datamodule = DBDataModule(self, db, in_mem_data, splits, **loaders_kwargs)

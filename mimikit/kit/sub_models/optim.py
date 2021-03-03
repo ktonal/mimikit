@@ -2,6 +2,20 @@ import torch
 from pytorch_lightning import LightningModule
 
 
+class Adam(LightningModule):
+    def __init__(self,
+                 max_lr=1e-3,
+                 betas=(.9, .9)
+                 ):
+        super(LightningModule, self).__init__()
+        self.max_lr = max_lr
+        self.betas = betas
+
+    def configure_optimizers(self):
+        self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
+        return self.opt
+
+
 class ManyOneCycleLR(torch.optim.lr_scheduler.OneCycleLR):
     def step(self, epoch=None):
         try:
@@ -25,7 +39,7 @@ class SuperAdam(LightningModule):
                  final_div_factor=1.,
                  pct_start=.25,
                  cycle_momentum=False):
-        super(SuperAdam, self).__init__()
+        super(LightningModule, self).__init__()
         self.max_lr = max_lr
         self.betas = betas
         self.div_factor = div_factor
@@ -51,4 +65,4 @@ class SuperAdam(LightningModule):
     def setup(self, stage: str):
         if stage == "fit":
             self.max_epochs = self.trainer.max_epochs
-            self.steps_per_epoch = self.trainer.num_training_batches
+            self.steps_per_epoch = len(self.datamodule.train_ds)

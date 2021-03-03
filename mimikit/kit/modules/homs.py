@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from functools import wraps
+
 import torch.nn as nn
 import torch
 from copy import deepcopy
@@ -61,11 +64,15 @@ class HOMSequential(HOM):
 
 
 class SequentialAdd(HOMSequential):
-    ops_ = torch.Tensor.add_
+    @property
+    def ops_(self):
+        return torch.Tensor.add_
 
 
 class SequentialMul(HOMSequential):
-    ops_ = torch.Tensor.mul_
+    @property
+    def ops_(self):
+        return torch.Tensor.mul_
 
 
 class SequentialCollect(HOMSequential):
@@ -93,12 +100,15 @@ class Paths(HOM):
     def __init__(self, *modules):
         super(Paths, self).__init__(*modules)
 
-    def forward(self, *args):
-        return tuple(self.output_or_none(mod, x) for mod, x in zip(self, args))
+    def forward(self, *inputs):
+        inputs = self.flat_inputs(*inputs)
+        return tuple(self.output_or_none(mod, x) for mod, x in zip(self, inputs))
 
 
 class FPaths(Paths):
-    ops_ = None
+    @property
+    def ops(self):
+        return None
 
     def forward(self, *inputs):
         # flatten ((x, x, ....), ) to (x, x, ...)
@@ -114,16 +124,20 @@ class FPaths(Paths):
             output = self.output_or_none(mod, x)
             if output is not None:
                 # all output shapes have to be the same!...
-                self.ops_(out, output)
+                self.ops(out, output)
         return out
 
 
 class AddPaths(FPaths):
-    ops_ = torch.Tensor.add_
+    @property
+    def ops(self):
+        return torch.Tensor.add
 
 
 class MulPaths(FPaths):
-    ops_ = torch.Tensor.mul_
+    @property
+    def ops(self):
+        return torch.Tensor.mul
 
 
 # *******************************************************************
@@ -140,11 +154,12 @@ def block(name, layer_func, container_cls=HOMSequential):
 
 class Tiers(HOMSequential):
 
-    def forward(self, *tiers_inputs):
+    def forward(self, tiers_inputs):
         output = None
         for tier, inpt in zip(self, tiers_inputs):
             output = tier(inpt, output)
         return output
+
 
 # *******************************************************************
 # ************************* MISC ************************************
@@ -168,3 +183,22 @@ class GatedUnit(MulPaths):
     def __new__(cls, module):
         return MulPaths(nn.Sequential(module, nn.Tanh()),
                         nn.Sequential(deepcopy(module), nn.Sigmoid()))
+
+
+def propped(*bases):
+    def wrapper(cls):
+        cls = dataclass(cls, init=True, repr=False, eq=False, frozen=False)
+
+        def with_init_mod(old_init):
+            @wraps(old_init)
+            def new_init(self, *args, **kwargs):
+                for base in bases:
+                    base.__init__(self)
+                old_init(self, *args, **kwargs)
+
+            return new_init
+
+        cls.__init__ = with_init_mod(cls.__init__)
+        return cls
+
+    return wrapper

@@ -20,7 +20,7 @@ class Transpose(nn.Module):
         return args[0].transpose(*self.dims).contiguous() if args[0] is not None else None
 
 
-class SidedPad(nn.Module):
+class CausalPad(nn.Module):
 
     @staticmethod
     def int_to_lr(i):
@@ -34,3 +34,18 @@ class SidedPad(nn.Module):
 
     def forward(self, x):
         return F.pad(x, self.pad, **self.kwargs)
+
+
+class Slice(nn.Module):
+
+    def __init__(self, slc):
+        super(Slice, self).__init__()
+        self.slc = slc
+
+    def forward(self, x):
+        return x[self.slc]
+
+
+class Clone(nn.Module):
+    def forward(self, x):
+        return x.clone()
