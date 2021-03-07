@@ -22,6 +22,8 @@ class WaveNetDB(DBDataset):
     def prepare_dataset(self, model, datamodule):
         prm = model.batch_info()
         self.slicer = ShiftedSequences(len(self.qx), list(zip(prm["shifts"], prm["lengths"])))
+        datamodule.loader_kwargs.setdefault("drop_last", False)
+        datamodule.loader_kwargs.setdefault("shuffle", True)
 
     def __getitem__(self, item):
         slices = self.slicer(item)

@@ -2,82 +2,71 @@ import numpy as np
 from numpy.lib.stride_tricks import as_strided as np_as_strided
 from pytorch_lightning import LightningModule
 import torch
-import torch.nn.functional as F
 import torch.nn as nn
 
 from ..kit import DBDataset
 from ..audios import transforms as A
-
+from ..kit.ds_utils import ShiftedSequences
 from ..kit import SuperAdam, SequenceModel, DataSubModule
-from ..kit.sub_models.optim import RMS
 from ..kit.networks.sample_rnn import SampleRNNNetwork
 
 from torch.utils.data import Sampler, RandomSampler, BatchSampler
 import math
 
 
-class ThreadedSampler(Sampler):
-    def __init__(self, n_samples, batch_size=64, thread_length=8 * 16000, seq_len=512):
+class TBPTTSampler(Sampler):
+    """
+    yields batches of indices for performing Truncated Back Propagation Through Time
+    """
+    def __init__(self,
+                 n_samples,
+                 batch_size=64,  # nbr of "tracks" per batch
+                 chunk_length=8*16000,  # total length of a track
+                 seq_len=512  # nbr of samples per backward pass
+                 ):
         super().__init__(None)
         self.n_samples = n_samples
         self.batch_size = batch_size
-        self.thread_length = thread_length
+        self.chunk_length = chunk_length
         self.seq_len = seq_len
-        self.n_chunks = self.n_samples // self.thread_length
-        self.n_per_chunk = self.thread_length // self.seq_len
+        self.n_chunks = self.n_samples // self.chunk_length
+        self.n_per_chunk = self.chunk_length // self.seq_len
 
     def __iter__(self):
-
         smp = RandomSampler(torch.arange(self.n_chunks))
-        for top in BatchSampler(smp, self.batch_size, True):
+        for top in BatchSampler(smp, self.batch_size, True):  # drop last!
             for start in range(self.n_per_chunk):
-                idx = tuple((t * self.thread_length) + (start * self.seq_len) for t in top)
-                yield idx
+                # start indices of the batch
+                yield tuple((t * self.chunk_length) + (start * self.seq_len) for t in top)
 
     def __len__(self):
         return int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
-
-
-class FramedSequences:
-
-    def __init__(self, seq_len, frame_sizes):
-        frame_sizes = list(frame_sizes[:-1])
-        top_size = frame_sizes[0]
-        bottom_size = frame_sizes[-1]
-
-        self.seq_len = seq_len
-        self.seq_shifts = [top_size - size for size in frame_sizes + [bottom_size]]
-        self.seq_strides = frame_sizes + [1]
-        frame_sizes += [bottom_size]
-        self.frame_sizes = frame_sizes
-        self.top_size = top_size
-
-    def __call__(self, item):
-        shapes = [dict(slice=slice(item + shift, item + shift + self.seq_len),
-                       shape=(int(self.seq_len / stride), size),
-                       stride_0=stride)
-                  for shift, stride, size in zip(self.seq_shifts, self.seq_strides, self.frame_sizes)]
-        shapes[-1]["slice"] = slice(shapes[-1]["slice"].start, item + self.top_size + self.seq_len - 1)
-        return shapes, slice(item + self.top_size, item + self.top_size + self.seq_len)
 
 
 class FramesDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=22050, mu=255):
+    def extract(path, sr=16000, mu=255):
         signal = A.FileTo.mu_law_compress(path, sr=sr, mu=mu)
         return dict(qx=(dict(sr=sr, mu=mu), signal.reshape(-1, 1), None))
 
     def prepare_dataset(self, model, datamodule):
-        batch_seq_len, frame_sizes = model.batch_info()
-        self.frame_prm = FramedSequences(batch_seq_len, frame_sizes)
+        batch_size, chunk_len, batch_seq_len, frame_sizes = model.batch_info()
+        shifts = [frame_sizes[0] - size for size in frame_sizes + (0,)]  # (0,) for the target
+        lengths = [batch_seq_len for _ in frame_sizes[:-1]]
+        lengths += [frame_sizes[0] + batch_seq_len]
+        lengths += [batch_seq_len]
+
+        self.slicer = ShiftedSequences(len(self.qx), list(zip(shifts, lengths)))
+        self.frame_sizes = frame_sizes
+        self.seq_len = batch_seq_len
+
         # round the size of the dataset to a multiple of the chunk size :
-        batch_sampler = ThreadedSampler(8 * 16000 * (len(self.qx) // (8 * 16000)),
-                                        model.hparams.batch_size,
-                                        8 * 16000,
-                                        model.hparams.batch_seq_len)
-        self.length = len(batch_sampler)
+        batch_sampler = TBPTTSampler(chunk_len * (len(self.qx) // chunk_len),
+                                     batch_size,
+                                     chunk_len,
+                                     batch_seq_len)
         datamodule.loader_kwargs.update(dict(batch_sampler=batch_sampler))
         for k in ["batch_size", "shuffle", "drop_last"]:
             if k in datamodule.loader_kwargs:
@@ -87,19 +76,22 @@ class FramesDB(DBDataset):
     def __getitem__(self, item):
         if type(self.qx) is not torch.Tensor:
             itemsize = self.qx.dtype.itemsize
-            as_strided = lambda prm: np_as_strided(self.qx[prm["slice"]],
-                                                   shape=prm["shape"],
-                                                   strides=(itemsize * prm["stride_0"], itemsize))
+            as_strided = lambda slc, fs: np_as_strided(self.qx[slc],
+                                                       shape=(self.seq_len, fs),
+                                                       strides=(itemsize, itemsize))
         else:
-            as_strided = lambda prm: torch.as_strided(self.qx[prm["slice"]],
-                                                      size=prm["shape"],
-                                                      stride=(prm["stride_0"], 1))
+            as_strided = lambda slc, fs: torch.as_strided(self.qx[slc],
+                                                          size=(self.seq_len, fs),
+                                                          stride=(1, 1))
 
-        shapes, tgrt_slice = self.frame_prm(item)
+        slices = self.slicer(item)
+        tiers_slc, bottom_slc, target_slc = slices[:-2], slices[-2], slices[-1]
+        inputs = [self.qx[slc].reshape(-1, fs) for slc, fs in zip(tiers_slc, self.frame_sizes[:-1])]
+        # ugly but necessary if self.qx became a tensor...
         with torch.no_grad():
-            inputs = [self.qx[prm["slice"]].reshape(-1, prm["shape"][1])
-                      for prm in shapes[:-1]] + [as_strided(shapes[-1])]
-        target = self.qx[tgrt_slice]
+            inputs += [as_strided(bottom_slc, self.frame_sizes[-1])]
+
+        target = self.qx[target_slc]
 
         return tuple(inputs), target
 
@@ -107,24 +99,16 @@ class FramesDB(DBDataset):
         return len(self.qx)
 
 
-def wavenet_loss_fn(output, target):
-    criterion = nn.CrossEntropyLoss(reduction="none")
-    # diff = (output.max(dim=-1).indices.view(-1) - target.view(-1)).abs()
-    # out = output.view(-1, output.size(-1))
-    # mx = out.argmax(dim=-1)
-    # diff = (mx[1:] - mx[:-1]) - (target.view(-1)[1:] - target.view(-1)[:-1])
-    # return (criterion(output.view(-1, output.size(-1)), target.view(-1))[1:] * (1 + diff.abs_())).mean()
-    return (criterion(output.view(-1, output.size(-1)), target.view(-1))).mean()
-
-
 class SampleRNN(SequenceModel,
                 DataSubModule,
                 SuperAdam,
                 SampleRNNNetwork,
                 LightningModule):
-    @property
-    def loss_fn(self):
-        return wavenet_loss_fn
+
+    @staticmethod
+    def loss_fn(output, target):
+        criterion = nn.CrossEntropyLoss(reduction="mean")
+        return criterion(output.view(-1, output.size(-1)), target.view(-1))
 
     db_class = FramesDB
 
@@ -134,7 +118,7 @@ class SampleRNN(SequenceModel,
                  emb_dim=128,
                  mlp_dim=256,
                  n_rnn=1,
-                 q_levels=256,
+                 q_levels=256,  # == mu + 1
                  max_lr=1e-3,
                  betas=(.9, .9),
                  div_factor=3.,
@@ -145,27 +129,29 @@ class SampleRNN(SequenceModel,
                  files=None,
                  batch_size=64,
                  batch_seq_len=512,
+                 chunk_len=8*16000,
                  in_mem_data=True,
-                 splits=[],
+                 splits=None,  # tbptt should implement the splits...
                  **loaders_kwargs
                  ):
         super(LightningModule, self).__init__()
         SequenceModel.__init__(self)
         DataSubModule.__init__(self, db, files, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
-        # RMS.__init__(self, lr=1e-3, alpha=0.995, eps=1e-8, weight_decay=0., momentum=0.1, centered=True)
         SampleRNNNetwork.__init__(self, frame_sizes, net_dim, n_rnn, q_levels, emb_dim, mlp_dim)
         self.save_hyperparameters()
         self.stored_grad_norms = []
 
     def batch_info(self, *args, **kwargs):
-        return self.hparams.batch_seq_len, self.frame_sizes
+        return tuple(self.hparams[key] for key in ["batch_size", "chunk_len", "batch_seq_len", "frame_sizes"])
 
     def setup(self, stage: str):
         SuperAdam.setup(self, stage)
 
-    # def backward(self, loss, optimizer, optimizer_idx: int, *args, **kwargs) -> None:
-    #     loss.backward(retain_graph=True)
+    def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
+        if (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
+            self.reset_h0()
+
     def on_after_backward(self):
         if self.global_step % 5 == 0:
             out, norms = {}, []
@@ -186,6 +172,4 @@ class SampleRNN(SequenceModel,
             out[prefix + 'total'] = round(norm, 4)
             self.stored_grad_norms.append(out)
 
-    def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        if (batch_idx * self.hparams.batch_seq_len) % (8 * 16000) == 0:
-            self.reset_h0()
+
