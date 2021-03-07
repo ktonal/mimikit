@@ -90,7 +90,7 @@ class NeptuneConnector:
         self.setup = setup
         self._session = None
         # initialize the token right-away
-        token = self.api_token
+        _ = self.api_token
 
     def path(self, setup_key: str, split: bool = False):
         """
@@ -248,7 +248,7 @@ class NeptuneConnector:
             params = {"name": db.h5_file,
                       "feature_name": feature,
                       "shape": feat_prox.shape,
-                      "files": len(db.metadata)}
+                      }
             params.update(feat_prox.attrs)
             exp = self.create_experiment(setup_key, params=params)
         else:

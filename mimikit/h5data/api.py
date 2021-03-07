@@ -138,7 +138,7 @@ class Database(object):
         self.h5_file = h5_file
         with h5py.File(h5_file, "r") as f:
             self.attrs = {k: v for k, v in f.attrs.items()}
-            self.features = f.attrs["features"]
+            self.features = f.attrs.get("features", ["fft"])
         # add found features as self.feature_name = FeatureProxy(self.h5_file, feature_name)
         self._register_features(self.features, keep_open)
 
