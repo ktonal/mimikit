@@ -1,11 +1,10 @@
 import math
 import torch.nn as nn
-
-from ..modules.homs import propped
+from dataclasses import dataclass
 from ..modules import homs as H, ops as Ops
 
 
-@propped(nn.Module)
+@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class WaveNetLayer(nn.Module):
     layer_i: int
     layer_dim: int = 128
@@ -17,9 +16,11 @@ class WaveNetLayer(nn.Module):
     bias: bool = True
     groups: int = 1
 
-    pad_input: int = 0
-    accum_outputs: int = 0
+    pad_input: int = 1
+    accum_outputs: int = -1
     strict: int = False
+    with_residual_conv: bool = True
+    with_skip_conv: bool = True
 
     shift_diff = property(
         lambda self:
@@ -69,11 +70,11 @@ class WaveNetLayer(nn.Module):
             ))
 
     def accumulator(self):
-        return H.AddPaths(Ops.Clone(),
-                          Ops.Slice((slice(None), slice(None), slice(None, self.output_padding))),
-                          )
+        return H.AddPaths(nn.Identity(),
+                          nn.Identity())
 
     def __post_init__(self):
+        nn.Module.__init__(self)
         self.gcu = self.gcu_()
 
         if self.with_residual_conv:
@@ -133,11 +134,21 @@ class WNNetwork(nn.Module):
             nn.Sequential(nn.Embedding(n_cin_classes, cin_dim), Ops.Transpose(1, 2)) if cin_dim else None,
             nn.Sequential(nn.Embedding(n_gin_classes, gin_dim), Ops.Transpose(1, 2)) if gin_dim else None
         )
-        self.layers = WNBlock(n_layers, layers_dim, layers_dim, groups, strict, kernel_size,
-                              accum_outputs, pad_input,
-                              with_skip_conv, with_residual_conv,
-                              cin_dim, gin_dim
-                              )
+        self.layers = nn.Sequential(*[
+            WaveNetLayer(i,
+                         layer_dim=layers_dim,
+                         kernel_size=kernel_size,
+                         cin_dim=cin_dim,
+                         gin_dim=gin_dim,
+                         groups=groups,
+                         pad_input=pad_input,
+                         accum_outputs=accum_outputs,
+                         strict=strict,
+                         with_skip_conv=with_skip_conv,
+                         with_residual_conv=with_residual_conv,
+                         ) for block in n_layers for i in range(block)
+        ])
+
         self.outpt = nn.Sequential(
             nn.ReLU(),
             nn.Conv1d(layers_dim, layers_dim, kernel_size=1),
@@ -151,14 +162,14 @@ class WNNetwork(nn.Module):
 
         # properties of the network used for making batches and generation:
 
-        self.all_rel_shifts = tuple(layer.props.shift_diff for layer in self.layers)
+        self.all_rel_shifts = tuple(layer.shift_diff for layer in self.layers)
 
         rf = 0
         for i, layer in enumerate(self.layers):
             if i == (len(self.layers) - 1):
-                rf += layer.props.receptive_field
-            elif self.layers[i + 1].props.layer_i == 0:
-                rf += layer.props.receptive_field - 1
+                rf += layer.receptive_field
+            elif self.layers[i + 1].layer_i == 0:
+                rf += layer.receptive_field - 1
         self.receptive_field = rf
 
         if not self.strict and self.pad_input == 1:
@@ -182,6 +193,6 @@ class WNNetwork(nn.Module):
         out_length = input_length
         lengths = []
         for layer in self.layers:
-            out_length = layer.props.output_length(out_length)
+            out_length = layer.output_length(out_length)
             lengths += [out_length]
         return tuple(lengths)

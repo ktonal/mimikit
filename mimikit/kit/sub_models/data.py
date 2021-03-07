@@ -100,15 +100,17 @@ class DataSubModule(LightningModule):
                  files: list = None,
                  in_mem_data: bool = True,
                  splits: list = [.8, .2],
+                 keep_open=False,
                  **loaders_kwargs,
                  ):
         super(LightningModule, self).__init__()
         if db is not None:
+            db_ = db
             if isinstance(db, str):
-                db = self.db_class(db)
+                db_ = self.db_class(db_, keep_open=keep_open)
             if files is not None:
-                db = db.restrict_to_files(files)
-            self.datamodule = DBDataModule(self, db, in_mem_data, splits, **loaders_kwargs)
+                db_ = db_.restrict_to_files(files)
+            self.datamodule = DBDataModule(self, db_, in_mem_data, splits, **loaders_kwargs)
             # data_params = dict(h5_file=db.h5_file, files=files, splits=splits, **loaders_kwargs, **db.hparams)
             self.save_hyperparameters()
 

@@ -9,7 +9,7 @@ from ..kit import DBDataset
 from ..audios import transforms as A
 
 from ..kit import SuperAdam, SequenceModel, DataSubModule
-
+from ..kit.sub_models.optim import RMS
 from ..kit.networks.sample_rnn import SampleRNNNetwork
 
 from torch.utils.data import Sampler, RandomSampler, BatchSampler
@@ -83,9 +83,6 @@ class FramesDB(DBDataset):
             if k in datamodule.loader_kwargs:
                 datamodule.loader_kwargs.pop(k)
         datamodule.loader_kwargs["sampler"] = None
-        print("Qx", len(self.qx), "rounded", 8 * 16000 * (len(self.qx) // (8 * 16000)))
-        print("sampler", len(batch_sampler))
-        print("self", len(self))
 
     def __getitem__(self, item):
         if type(self.qx) is not torch.Tensor:
@@ -113,7 +110,11 @@ class FramesDB(DBDataset):
 def wavenet_loss_fn(output, target):
     criterion = nn.CrossEntropyLoss(reduction="none")
     # diff = (output.max(dim=-1).indices.view(-1) - target.view(-1)).abs()
-    return (criterion(output.view(-1, output.size(-1)), target.view(-1)) * (1)).mean()
+    # out = output.view(-1, output.size(-1))
+    # mx = out.argmax(dim=-1)
+    # diff = (mx[1:] - mx[:-1]) - (target.view(-1)[1:] - target.view(-1)[:-1])
+    # return (criterion(output.view(-1, output.size(-1)), target.view(-1))[1:] * (1 + diff.abs_())).mean()
+    return (criterion(output.view(-1, output.size(-1)), target.view(-1))).mean()
 
 
 class SampleRNN(SequenceModel,
@@ -139,7 +140,7 @@ class SampleRNN(SequenceModel,
                  div_factor=3.,
                  final_div_factor=1.,
                  pct_start=.25,
-                 cycle_momentum=False,
+                 cycle_momentum=True,
                  db=None,
                  files=None,
                  batch_size=64,
@@ -152,8 +153,10 @@ class SampleRNN(SequenceModel,
         SequenceModel.__init__(self)
         DataSubModule.__init__(self, db, files, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
+        # RMS.__init__(self, lr=1e-3, alpha=0.995, eps=1e-8, weight_decay=0., momentum=0.1, centered=True)
         SampleRNNNetwork.__init__(self, frame_sizes, net_dim, n_rnn, q_levels, emb_dim, mlp_dim)
         self.save_hyperparameters()
+        self.stored_grad_norms = []
 
     def batch_info(self, *args, **kwargs):
         return self.hparams.batch_seq_len, self.frame_sizes
@@ -161,8 +164,27 @@ class SampleRNN(SequenceModel,
     def setup(self, stage: str):
         SuperAdam.setup(self, stage)
 
-    def backward(self, loss, optimizer, optimizer_idx: int, *args, **kwargs) -> None:
-        loss.backward(retain_graph=True)
+    # def backward(self, loss, optimizer, optimizer_idx: int, *args, **kwargs) -> None:
+    #     loss.backward(retain_graph=True)
+    def on_after_backward(self):
+        if self.global_step % 5 == 0:
+            out, norms = {}, []
+            prefix = f'grad_1_norm_'
+            for name, p in self.named_parameters():
+                if p.grad is None:
+                    continue
+
+                # `np.linalg.norm` implementation likely uses fp64 intermediates
+                flat = p.grad.data.cpu().numpy().ravel()
+                norm = np.linalg.norm(flat, 1)
+                norms.append(norm)
+
+                out[name] = round(norm, 4)
+
+            # handle total norm
+            norm = np.linalg.norm(norms, 1)
+            out[prefix + 'total'] = round(norm, 4)
+            self.stored_grad_norms.append(out)
 
     def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
         if (batch_idx * self.hparams.batch_seq_len) % (8 * 16000) == 0:

@@ -189,16 +189,13 @@ def propped(*bases):
     def wrapper(cls):
         cls = dataclass(cls, init=True, repr=False, eq=False, frozen=False)
 
-        def with_init_mod(old_init):
-            @wraps(old_init)
-            def new_init(self, *args, **kwargs):
-                for base in bases:
-                    base.__init__(self)
-                old_init(self, *args, **kwargs)
+        @wraps(cls.__init__)
+        def new_init(self, *args, **kwargs):
+            for base in bases:
+                base.__init__(self)
+            cls.__init__(self, *args, **kwargs)
 
-            return new_init
-
-        cls.__init__ = with_init_mod(cls.__init__)
+        cls.__init__ = new_init
         return cls
 
     return wrapper

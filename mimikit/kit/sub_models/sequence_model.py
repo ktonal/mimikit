@@ -28,7 +28,7 @@ class SequenceModel(MMKHooks,
     def validation_step(self, batch, batch_idx):
         batch, target = batch
         output = self.forward(batch)
-        L = self.__class__.loss_fn(output, target)
+        L = self.loss_fn(output, target)
         return {"val_loss": L}
 
     def setup(self, stage: str):
