@@ -13,7 +13,6 @@ class MMKCheckpoint(ModelCheckpoint):
         self.epochs = epochs
 
         super(MMKCheckpoint, self).__init__(
-            filepath=None,
             monitor=None,
             verbose=False,
             save_last=None,
