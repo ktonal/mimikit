@@ -19,7 +19,8 @@ class SampleRNNTier(nn.Module):
 
     def linearize(self, q_samples):
         """ maps input samples (0 <= qx < 256) to floats (-.5 <= x < .5) """
-        return (q_samples.float() / self.q_levels) - .5
+        return ((q_samples.float() / self.q_levels) - .5) * 4
+        # return q_samples
 
     def embeddings_(self):
         if self.embedding_dim is not None:
@@ -29,13 +30,23 @@ class SampleRNNTier(nn.Module):
     def input_proj_(self):
 
         if not self.is_bottom:  # top & middle tiers
-            return nn.Linear(self.frame_size, self.dim, bias=False)
+            return nn.Sequential(nn.Linear(self.frame_size, self.dim), )
+            # class Bagger(nn.Module):
+            #     def __init__(self, dim):
+            #         super(Bagger, self).__init__()
+            #         self.emb = nn.EmbeddingBag(256, dim)
+            #
+            #     def forward(self, qx):
+            #         B, T, fs = qx.size()
+            #         return self.emb(qx.view(B * T, fs)).reshape(B, T, -1).contiguous()
+            #
+            # return Bagger(self.dim)
 
         else:  # bottom tier
             class BottomProjector(nn.Module):
                 def __init__(self, emb_dim, out_dim, frame_size):
                     super(BottomProjector, self).__init__()
-                    self.cnv = nn.Conv1d(emb_dim, out_dim, kernel_size=frame_size, bias=False)
+                    self.cnv = nn.Conv1d(emb_dim, out_dim, kernel_size=frame_size)
 
                 def forward(self, hx):
                     """ hx : (B x T x FS x E) """
@@ -50,7 +61,6 @@ class SampleRNNTier(nn.Module):
         # no rnn for bottom tier
         if self.is_bottom:
             return None
-
         return nn.LSTM(self.dim, self.dim, self.n_rnn, batch_first=True)
 
     def up_sampling_net_(self):
@@ -70,15 +80,23 @@ class SampleRNNTier(nn.Module):
                 B, T, _ = x.size()
                 return self.fc(x).reshape(B, T * self.up_sampling, self.out_dim)
 
+        class ConvUpscaler(nn.Module):
+            def __init__(self, dim, up_sampling):
+                super(ConvUpscaler, self).__init__()
+                self.cv = nn.ConvTranspose1d(dim, dim, kernel_size=up_sampling, stride=up_sampling)
+
+            def forward(self, x):
+                return self.cv(x.transpose(1, 2).contiguous()).transpose(1, 2).contiguous()
+
         return TimeUpscalerLinear(self.dim, self.dim, self.up_sampling)
 
     def mlp_(self):
-        if not self.is_bottom:
+        if self.mlp_dim is None:
             return None
         return nn.Sequential(
             nn.Linear(self.dim, self.mlp_dim), nn.ReLU(),
             nn.Linear(self.mlp_dim, self.mlp_dim), nn.ReLU(),
-            nn.Linear(self.mlp_dim, self.q_levels),
+            nn.Linear(self.mlp_dim, self.q_levels if self.is_bottom else self.dim),
         )
 
     def __post_init__(self):
@@ -97,6 +115,7 @@ class SampleRNNTier(nn.Module):
             x = self.embeddings(input_samples)
 
         if self.inpt_proj is not None:
+            # print(self.tier_index, x.size())
             p = self.inpt_proj(x)
             if prev_tier_output is not None:
                 x = p + prev_tier_output
@@ -105,13 +124,8 @@ class SampleRNNTier(nn.Module):
 
         if self.rnn is not None:
             if hidden is None or x.size(0) != hidden[0].size(1):
-                # I think this is important that both hidden be initialized with tiny random values...
-                # zeros would kill gradients wrt the hidden (which we do not want!)
-                # and large random values would make little sense...
-                # My instinct tells me that it is to relate to the range of the linearization of the input samples, 
-                # but it's just intuition...
-                h0 = (torch.randn(self.n_rnn, x.size(0), self.dim) * .05).to(x)
-                c0 = (torch.randn(self.n_rnn, x.size(0), self.dim) * .05).to(x)
+                h0 = torch.zeros(self.n_rnn, x.size(0), self.dim).to(x)
+                c0 = torch.zeros(self.n_rnn, x.size(0), self.dim).to(x)
                 hidden = (h0, c0)
             else:
                 # TRUNCATED back propagation through time == detach()!

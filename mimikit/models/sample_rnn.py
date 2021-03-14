@@ -3,13 +3,15 @@ from numpy.lib.stride_tricks import as_strided as np_as_strided
 from pytorch_lightning import LightningModule
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 
 from ..kit import DBDataset
 from ..audios import transforms as A
 from ..kit.ds_utils import ShiftedSequences
 from ..kit import SuperAdam, SequenceModel, DataSubModule
 from ..kit.networks.sample_rnn import SampleRNNNetwork
-
+from ..kit.sub_models.utils import tqdm
+from ..utils import audio
 from torch.utils.data import Sampler, RandomSampler, BatchSampler
 import math
 
@@ -26,11 +28,11 @@ class TBPTTSampler(Sampler):
                  ):
         super().__init__(None)
         self.n_samples = n_samples
-        self.batch_size = batch_size
         self.chunk_length = chunk_length
         self.seq_len = seq_len
         self.n_chunks = self.n_samples // self.chunk_length
         self.n_per_chunk = self.chunk_length // self.seq_len
+        self.batch_size = min(batch_size, self.n_chunks)
 
     def __iter__(self):
         smp = RandomSampler(torch.arange(self.n_chunks))
@@ -130,6 +132,11 @@ class SampleRNN(SequenceModel,
                  batch_size=64,
                  batch_seq_len=512,
                  chunk_len=8*16000,
+                 n_test_warmups=10,
+                 n_test_prompts=2,
+                 n_test_steps=16000,
+                 test_temp=0.5,
+                 test_every_n_epochs=3,
                  in_mem_data=True,
                  splits=None,  # tbptt should implement the splits...
                  **loaders_kwargs
@@ -152,24 +159,91 @@ class SampleRNN(SequenceModel,
         if (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
             self.reset_h0()
 
-    def on_after_backward(self):
-        if self.global_step % 5 == 0:
-            out, norms = {}, []
-            prefix = f'grad_1_norm_'
-            for name, p in self.named_parameters():
-                if p.grad is None:
-                    continue
+    # def on_after_backward(self):
+    #     if self.global_step % 1 == 0:
+    #         out, norms = {}, []
+    #         prefix = f'grad_1_norm_'
+    #         for name, p in self.named_parameters():
+    #             if p.grad is None:
+    #                 continue
+    #
+    #             # `np.linalg.norm` implementation likely uses fp64 intermediates
+    #             flat = p.grad.data.cpu().numpy().ravel()
+    #             norm = np.linalg.norm(flat, 1)
+    #             norms.append(norm)
+    #
+    #             out[name] = round(norm, 4)
+    #
+    #         # handle total norm
+    #         norm = np.linalg.norm(norms, 1)
+    #         out[prefix + 'total'] = round(norm, 4)
+    #         self.stored_grad_norms.append(out)
 
-                # `np.linalg.norm` implementation likely uses fp64 intermediates
-                flat = p.grad.data.cpu().numpy().ravel()
-                norm = np.linalg.norm(flat, 1)
-                norms.append(norm)
+    def on_epoch_end(self):
+        super().on_epoch_end()
+        if (1 + self.current_epoch) % self.hparams.test_every_n_epochs != 0:
+            return
+        new = self.warm_up(self.hparams.n_test_warmups, self.hparams.n_test_prompts)
+        new = self.generate(new, self.hparams.n_test_steps, self.hparams.test_temp)
+        self.train()
+        for i in range(new.size(0)):
+            y = new[i].squeeze().cpu().numpy()
+            y = A.SignalFrom.mu_law_compressed(y - 128, 255)
 
-                out[name] = round(norm, 4)
+            print("prompt number", i)
+            plt.figure(figsize=(32, 4))
+            plt.plot(y)
+            plt.show()
 
-            # handle total norm
-            norm = np.linalg.norm(norms, 1)
-            out[prefix + 'total'] = round(norm, 4)
-            self.stored_grad_norms.append(out)
+            audio(y, sr=16000)
 
+    def warm_up(self, n_warmups=10, n_prompts=4):
+        self.eval()
+        self.to("cuda")
+        self.reset_h0()
 
+        dl = iter(self.datamodule.train_dataloader())
+
+        for _ in tqdm(range(n_warmups)):
+            inpt, trgt = next(dl)
+            inpt = tuple(x[:n_prompts].to("cuda") for x in inpt)
+            with torch.no_grad():
+                new = nn.Softmax(dim=-1)(self(inpt)).argmax(dim=-1)
+
+        return new
+
+    def generate(self, prompt, n_steps=16000, temperature=.5):
+        fs = [*self.frame_sizes]
+        outputs = [None] * (len(fs) - 1)
+        hiddens = self.hidden
+        tiers = self.tiers
+
+        new = prompt
+
+        for t in tqdm(range(new.size(1), n_steps + new.size(1))):
+            for i in range(len(tiers) - 1):
+                if t % fs[i] == 0:
+                    inpt = new[:, t - fs[i]:t].unsqueeze(1)
+
+                    if i == 0:
+                        prev_out = None
+                    else:
+                        prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
+
+                    with torch.no_grad():
+                        out, h = tiers[i](inpt, prev_out, hiddens[i])
+                    hiddens[i] = h
+                    outputs[i] = out
+
+            prev_out = outputs[-1]
+            inpt = new[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
+            with torch.no_grad():
+                out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
+                if temperature is None:
+                    pred = (nn.Softmax(dim=-1)(out)).argmax(dim=-1)
+                else:
+                    # great place to implement dynamic cooling/heating !
+                    pred = torch.multinomial(nn.Softmax(dim=-1)(out / temperature).reshape(-1, out.size(-1)), 1)
+                new = torch.cat((new, pred), dim=-1)
+
+        return new
