@@ -57,11 +57,10 @@ class WaveNet(WNNetwork,
                  layers_dim=128,
                  kernel_size=2,
                  groups=1,
-                 strict=False,
                  accum_outputs=0,
                  pad_input=0,
-                 with_skip_conv=False,
-                 with_residual_conv=False,
+                 skip_dim=None,
+                 residuals_dim=None,
                  max_lr=1e-3,
                  betas=(.9, .9),
                  div_factor=3.,
@@ -82,8 +81,8 @@ class WaveNet(WNNetwork,
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
 
         WNNetwork.__init__(self, n_layers, mu, n_cin_classes, cin_dim, n_gin_classes, gin_dim,
-                           layers_dim, kernel_size, groups, strict, accum_outputs, pad_input,
-                           with_skip_conv, with_residual_conv)
+                           layers_dim, kernel_size, groups, accum_outputs, pad_input,
+                           skip_dim, residuals_dim)
         self.save_hyperparameters()
         
     def setup(self, stage: str):

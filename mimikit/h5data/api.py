@@ -72,14 +72,6 @@ class FeatureProxy(object):
             rv = f[self.name][item]
         return rv
 
-    def restrict_to_files(self, files):
-        self.files = self.files[self.files.reset_index().index.isin(files)]
-        idx = Regions(self.files).all_indices
-        self.N = len(idx)
-        self._idx_map = idx
-        self.shape = (self.N, *self.shape[1:])
-        return self
-
     def get_regions(self, regions):
         """
         get the data (numpy array) corresponding to the rows of `regions`
@@ -151,10 +143,9 @@ class Database(object):
         make_root_db(db_name, roots, files, partial(cls.extract, **kwargs))
         return cls(db_name)
 
-    def restrict_to_files(self, files):
-        for feature in self.features:
-            getattr(self, feature).restrict_to_files(files)
-        return self
+    @classmethod
+    def make_temp(cls, roots=None, files=None, **kwargs):
+        return cls.make("/tmp/%s-tmp.h5" % cls.__name__, roots, files, **kwargs)
 
     def _visit(self, func=print):
         with h5py.File(self.h5_file, "r") as f:

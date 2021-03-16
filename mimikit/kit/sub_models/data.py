@@ -15,7 +15,6 @@ class DataSubModule(LightningModule):
 
     def __init__(self,
                  db: [DBDataset, str] = None,
-                 files: list = None,
                  in_mem_data: bool = True,
                  splits: [list, None] = [.8, .2],
                  keep_open=False,
@@ -26,8 +25,6 @@ class DataSubModule(LightningModule):
             db_ = db
             if isinstance(db, str):
                 db_ = self.db_class(db_, keep_open=keep_open)
-            if files is not None:
-                db_ = db_.restrict_to_files(files)
             self.datamodule = DBDataModule(self, db_, in_mem_data, splits, **loaders_kwargs)
             self.hparams.update(db_.attrs)
 

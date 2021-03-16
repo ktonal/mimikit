@@ -43,7 +43,7 @@ class Slice(nn.Module):
         self.slc = slc
 
     def forward(self, x):
-        return x[self.slc]
+        return x[self.slc].contiguous()
 
 
 class Clone(nn.Module):

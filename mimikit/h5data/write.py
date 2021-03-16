@@ -81,6 +81,7 @@ def file_to_h5(abs_path, extract_func=None, output_path=None, mode="w"):
 
 def _make_db_for_each_file(file_walker,
                            extract_func=None,
+                           destination="",
                            n_cores=cpu_count()):
     """
     apply ``extract_func`` to the files found by ``file_walker``
@@ -102,10 +103,11 @@ def _make_db_for_each_file(file_walker,
         each tuple in the list is of the form ``("<created_file>.h5", dict(feature_name=dict(dtype=..., shape=...), ...))``
     """
     # add ".tmp_" prefix to the output_paths
-    args = [(file, extract_func, os.path.join(os.path.split(file)[0], ".tmp_" + os.path.split(file)[1]))
+    # args = [(file, extract_func, )
+    args = [(file, extract_func, os.path.join(destination, os.path.split(file)[1]))
             for file in file_walker]
-    if len(args) > n_cores:
-        with Pool(n_cores) as p:
+    if len(args) > 1:
+        with Pool(min(n_cores, len(args))) as p:
             tmp_dbs_infos = p.starmap(file_to_h5, args)
     else:
         tmp_dbs_infos = [file_to_h5(*arg) for arg in args]
@@ -215,6 +217,7 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
 
 
 def make_root_db(db_name, roots='./', files=None, extract_func=None,
+                 tmp_destination="/tmp/",
                  n_cores=cpu_count()):
     """
     extract and aggregate several files into a single .h5 Database
@@ -232,6 +235,7 @@ def make_root_db(db_name, roots='./', files=None, extract_func=None,
     extract_func : function, optional
         the function to use for the extraction - should take exactly one argument.
         the default transforms the file to the stft with n_fft=2048 and hop_length=512.
+    tmp_destination : str, optional
     n_cores : int, optional
         the number of cores to use to parallelize the extraction process.
         default is the number of available cores on the system.
@@ -242,5 +246,5 @@ def make_root_db(db_name, roots='./', files=None, extract_func=None,
         the created db
     """
     walker = AudioFileWalker(roots, files)
-    tmp_dbs_infos = _make_db_for_each_file(walker, extract_func, n_cores)
+    tmp_dbs_infos = _make_db_for_each_file(walker, extract_func, tmp_destination, n_cores)
     _aggregate_dbs(db_name, tmp_dbs_infos, "w")

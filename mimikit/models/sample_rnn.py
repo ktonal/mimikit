@@ -128,7 +128,6 @@ class SampleRNN(SequenceModel,
                  pct_start=.25,
                  cycle_momentum=True,
                  db=None,
-                 files=None,
                  batch_size=64,
                  batch_seq_len=512,
                  chunk_len=8*16000,
@@ -143,7 +142,7 @@ class SampleRNN(SequenceModel,
                  ):
         super(LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataSubModule.__init__(self, db, files, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
+        DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
         SampleRNNNetwork.__init__(self, frame_sizes, net_dim, n_rnn, q_levels, emb_dim, mlp_dim)
         self.save_hyperparameters()
@@ -158,26 +157,6 @@ class SampleRNN(SequenceModel,
     def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
         if (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
             self.reset_h0()
-
-    # def on_after_backward(self):
-    #     if self.global_step % 1 == 0:
-    #         out, norms = {}, []
-    #         prefix = f'grad_1_norm_'
-    #         for name, p in self.named_parameters():
-    #             if p.grad is None:
-    #                 continue
-    #
-    #             # `np.linalg.norm` implementation likely uses fp64 intermediates
-    #             flat = p.grad.data.cpu().numpy().ravel()
-    #             norm = np.linalg.norm(flat, 1)
-    #             norms.append(norm)
-    #
-    #             out[name] = round(norm, 4)
-    #
-    #         # handle total norm
-    #         norm = np.linalg.norm(norms, 1)
-    #         out[prefix + 'total'] = round(norm, 4)
-    #         self.stored_grad_norms.append(out)
 
     def on_epoch_end(self):
         super().on_epoch_end()
