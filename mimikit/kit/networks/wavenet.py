@@ -1,26 +1,29 @@
 import math
 import torch.nn as nn
 from dataclasses import dataclass
-from ..modules import homs as H, ops as Ops
 from typing import Optional
+
+from ..modules import homs as H, ops as Ops
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class WaveNetLayer(nn.Module):
-    layer_i: int
-    layer_dim: int = 128
-    kernel_size: int = 2
-    cin_dim: Optional[int] = None
-    gin_dim: Optional[int] = None
-    dilation = property(lambda self: self.kernel_size ** self.layer_i)
-    stride: int = 1
-    bias: bool = True
-    groups: int = 1
 
-    pad_input: int = 1
-    accum_outputs: int = -1
+    layer_i: int
+    gate_dim: int = 128
     residuals_dim: Optional[int] = None
     skip_dim: Optional[int] = None
+    kernel_size: int = 2
+    groups: int = 1
+    cin_dim: Optional[int] = None
+    gin_dim: Optional[int] = None
+    pad_input: int = 1
+    accum_outputs: int = -1
+
+    stride: int = 1
+    bias: bool = True
+
+    dilation = property(lambda self: self.kernel_size ** self.layer_i)
 
     shift_diff = property(
         lambda self:
@@ -52,14 +55,14 @@ class WaveNetLayer(nn.Module):
         return H.GatedUnit(
             H.AddPaths(
                 # core
-                nn.Conv1d(self.layer_dim, self.residuals_dim, **self.conv_kwargs),
+                nn.Conv1d(self.gate_dim, self.residuals_dim, **self.conv_kwargs),
                 # conditioning parameters :
                 nn.Conv1d(self.cin_dim, self.residuals_dim, **self.kwargs_1x1) if self.cin_dim else None,
                 nn.Conv1d(self.gin_dim, self.residuals_dim, **self.kwargs_1x1) if self.gin_dim else None
             ))
 
     def residuals_(self):
-        return nn.Conv1d(self.residuals_dim, self.layer_dim, **self.kwargs_1x1)
+        return nn.Conv1d(self.residuals_dim, self.gate_dim, **self.kwargs_1x1)
 
     def skips_(self):
         return H.Skips(
@@ -74,7 +77,7 @@ class WaveNetLayer(nn.Module):
 
         with_residuals = self.residuals_dim is not None
         if not with_residuals:
-            self.residuals_dim = self.layer_dim
+            self.residuals_dim = self.gate_dim
 
         self.gcu = self.gcu_()
 
@@ -96,20 +99,16 @@ class WaveNetLayer(nn.Module):
     def forward(self, inputs):
         x, cin, gin, skips = inputs
         if self.pad_input == 0:
-            shift = self.shift_diff if x.size(2) > self.kernel_size else self.kernel_size - 1
-            slc = slice(shift, None) if self.accum_outputs <= 0 else slice(None, -shift)
+            cause = self.shift_diff if x.size(2) > self.kernel_size else self.kernel_size - 1
+            slc = slice(cause, None) if self.accum_outputs <= 0 else slice(None, -cause)
             padder = nn.Identity()
         else:
             slc = slice(None)
             padder = Ops.CausalPad((0, 0, self.input_padding))
-        # print("x", x.size(), "skips", skips.size() if skips is not None else skips)
         y = self.gcu(padder(x), cin, gin)
         if skips is not None and y.size(-1) != skips.size(-1):
             skips = skips[:, :, slc]
-            # print("x", x.size(), "skips", skips.size() if skips is not None else skips)
         skips = self.skips(y, skips)
-        # if not self.training:
-        #     print(y.size(), slc, x[:, :, slc].size(), skips.size())
         y = self.accum(self.residuals(y), x[:, :, slc])
         return y, cin, gin, skips
 
@@ -123,56 +122,64 @@ class WaveNetLayer(nn.Module):
 
 
 # Finally : define the network class
-
+@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class WNNetwork(nn.Module):
 
-    def __init__(self,
-                 n_layers=(4,),
-                 mu=256,
-                 n_cin_classes=None,
-                 cin_dim=None,
-                 n_gin_classes=None,
-                 gin_dim=None,
-                 layers_dim=128,
-                 kernel_size=2,
-                 groups=1,
-                 accum_outputs=0,
-                 pad_input=0,
-                 skip_dim=None,
-                 residuals_dim=None,
-                 head_dim=None,
-                 ):
-        nn.Module.__init__(self)
-        self.inpt = H.Paths(
-            nn.Sequential(nn.Embedding(mu, layers_dim), Ops.Transpose(1, 2)),
-            nn.Sequential(nn.Embedding(n_cin_classes, cin_dim), Ops.Transpose(1, 2)) if cin_dim else None,
-            nn.Sequential(nn.Embedding(n_gin_classes, gin_dim), Ops.Transpose(1, 2)) if gin_dim else None
+    n_layers: tuple = (4,)
+    q_levels: int = 256
+    n_cin_classes: Optional[int] = None
+    cin_dim: Optional[int] = None
+    n_gin_classes: Optional[int] = None
+    gin_dim: Optional[int] = None
+    gate_dim: int = 128
+    kernel_size: int = 2
+    groups: int = 1
+    accum_outputs: int = 0
+    pad_input: int = 0
+    skip_dim: Optional[int] = None
+    residuals_dim: Optional[int] = None
+    head_dim: Optional[int] = None
+
+    def inpt_(self):
+        return H.Paths(
+            nn.Sequential(nn.Embedding(self.q_levels, self.gate_dim), Ops.Transpose(1, 2)),
+            nn.Sequential(nn.Embedding(self.n_cin_classes, self.cin_dim),
+                          Ops.Transpose(1, 2)) if self.cin_dim else None,
+            nn.Sequential(nn.Embedding(self.n_gin_classes, self.gin_dim), Ops.Transpose(1, 2)) if self.gin_dim else None
         )
-        self.layers = nn.Sequential(*[
+
+    def layers_(self):
+        return nn.Sequential(*[
             WaveNetLayer(i,
-                         layer_dim=layers_dim,
-                         kernel_size=kernel_size,
-                         cin_dim=cin_dim,
-                         gin_dim=gin_dim,
-                         groups=groups,
-                         pad_input=pad_input,
-                         accum_outputs=accum_outputs,
-                         skip_dim=skip_dim,
-                         residuals_dim=residuals_dim,
-                         ) for block in n_layers for i in range(block)
+                         gate_dim=self.gate_dim,
+                         skip_dim=self.skip_dim,
+                         residuals_dim=self.residuals_dim,
+                         kernel_size=self.kernel_size,
+                         cin_dim=self.cin_dim,
+                         gin_dim=self.gin_dim,
+                         groups=self.groups,
+                         pad_input=self.pad_input,
+                         accum_outputs=self.accum_outputs,
+                         )
+            for block in self.n_layers for i in range(block)
         ])
 
-        self.outpt = nn.Sequential(
+    def outpt_(self):
+        return nn.Sequential(
             nn.ReLU(),
-            nn.Conv1d(layers_dim if skip_dim is None else skip_dim,
-                      layers_dim if head_dim is None else head_dim, kernel_size=1),
+            nn.Conv1d(self.gate_dim if self.skip_dim is None else self.skip_dim,
+                      self.gate_dim if self.head_dim is None else self.head_dim, kernel_size=1),
             nn.ReLU(),
-            nn.Conv1d(layers_dim if head_dim is None else head_dim,
-                      mu, kernel_size=1),
+            nn.Conv1d(self.gate_dim if self.head_dim is None else self.head_dim,
+                      self.q_levels, kernel_size=1),
             Ops.Transpose(1, 2)
         )
 
-        self.pad_input = pad_input
+    def __post_init__(self):
+        nn.Module.__init__(self)
+        self.inpt = self.inpt_()
+        self.layers = self.layers_()
+        self.outpt = self.outpt_()
 
         rf = 0
         for i, layer in enumerate(self.layers):
@@ -192,7 +199,6 @@ class WNNetwork(nn.Module):
     def forward(self, xi, cin=None, gin=None):
         x, cin, gin = self.inpt(xi, cin, gin)
         y, _, _, skips = self.layers((x, cin, gin, None))
-        # print("y", y.size(), "skips", skips.size() if skips is not None else skips)
         return self.outpt(skips if skips is not None else y)
 
     def output_shape(self, input_shape):

@@ -7,7 +7,7 @@ from .modules import mean_L1_prop, GatedLinearInput, AbsLinearOutput
 
 class FreaksNet(FreqNet):
     """
-    Simple adaptation of FreqNet to have varying parameters for each layer.
+    Simple adaptation of FreqNetNetwork to have varying parameters for each layer.
     to each block of layer corresponds a tuple of values for the params listed in FeqNet.LAYER_PARAMS
     """
 

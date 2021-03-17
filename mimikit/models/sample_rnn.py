@@ -3,6 +3,7 @@ from numpy.lib.stride_tricks import as_strided as np_as_strided
 from pytorch_lightning import LightningModule
 import torch
 import torch.nn as nn
+from torchaudio.transforms import MuLawDecoding
 import matplotlib.pyplot as plt
 
 from ..kit import DBDataset
@@ -163,14 +164,15 @@ class SampleRNN(SequenceModel,
         if (1 + self.current_epoch) % self.hparams.test_every_n_epochs != 0:
             return
         new = self.warm_up(self.hparams.n_test_warmups, self.hparams.n_test_prompts)
-        new = self.generate(new, self.hparams.n_test_steps, self.hparams.test_temp)
+        new = self.generate(new,
+                            self.hparams.n_test_steps,
+                            decode_outputs=True,
+                            temperature=self.hparams.test_temp)
         self.train()
         for i in range(new.size(0)):
             y = new[i].squeeze().cpu().numpy()
-            y = A.SignalFrom.mu_law_compressed(y - 128, 255)
-
             print("prompt number", i)
-            plt.figure(figsize=(32, 4))
+            plt.figure(figsize=(20, 2))
             plt.plot(y)
             plt.show()
 
@@ -183,7 +185,7 @@ class SampleRNN(SequenceModel,
 
         dl = iter(self.datamodule.train_dataloader())
 
-        for _ in tqdm(range(n_warmups)):
+        for _ in range(n_warmups):
             inpt, trgt = next(dl)
             inpt = tuple(x[:n_prompts].to("cuda") for x in inpt)
             with torch.no_grad():
@@ -191,15 +193,32 @@ class SampleRNN(SequenceModel,
 
         return new
 
-    def generate(self, prompt, n_steps=16000, temperature=.5):
+    def decode_outputs(self, outputs):
+        decoder = MuLawDecoding(self.hparams.q_levels)
+        return decoder(outputs)
+
+    def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5):
+        # prepare model
+        was_training = self.training
+        initial_device = self.device
+        self.eval()
+        self.to("cuda" if torch.cuda.is_available() else "cpu")
+
+        # prepare prompt
+        if not isinstance(prompt, torch.Tensor):
+            prompt = torch.from_numpy(prompt)
+        if len(prompt.shape) == 1:
+            prompt = prompt.unsqueeze(0)
+        new = prompt.to(self.device)
+
+        # init variables
         fs = [*self.frame_sizes]
         outputs = [None] * (len(fs) - 1)
         hiddens = self.hidden
         tiers = self.tiers
 
-        new = prompt
-
-        for t in tqdm(range(new.size(1), n_steps + new.size(1))):
+        for t in tqdm(range(new.size(1), n_steps + new.size(1)),
+                      desc="Generate", dynamic_ncols=True, leave=False, unit="step"):
             for i in range(len(tiers) - 1):
                 if t % fs[i] == 0:
                     inpt = new[:, t - fs[i]:t].unsqueeze(1)
@@ -216,6 +235,7 @@ class SampleRNN(SequenceModel,
 
             prev_out = outputs[-1]
             inpt = new[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
+
             with torch.no_grad():
                 out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
                 if temperature is None:
@@ -224,5 +244,12 @@ class SampleRNN(SequenceModel,
                     # great place to implement dynamic cooling/heating !
                     pred = torch.multinomial(nn.Softmax(dim=-1)(out / temperature).reshape(-1, out.size(-1)), 1)
                 new = torch.cat((new, pred), dim=-1)
+
+        # reset model
+        self.to(initial_device)
+        self.train() if was_training else None
+
+        if decode_outputs:
+            new = self.decode_outputs(new)
 
         return new

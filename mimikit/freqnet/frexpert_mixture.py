@@ -8,7 +8,7 @@ from .freqnet import FreqNet
 
 class FrexpertMixture(FreqNetModel):
     """
-    Use the Base FreqNet class to load a bunch of FreqNets for a mixture
+    Use the Base FreqNetNetwork class to load a bunch of FreqNets for a mixture
     """
 
     def __init__(self, loss_fn=mean_L1_prop, **data_optim_kwargs):

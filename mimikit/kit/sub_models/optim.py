@@ -22,6 +22,7 @@ class ManyOneCycleLR(torch.optim.lr_scheduler.OneCycleLR):
             super(ManyOneCycleLR, self).step(epoch=epoch)
         except ValueError:
             self.last_epoch = 0
+            self._step_count = 1
             super(ManyOneCycleLR, self).step(epoch=epoch)
 
 
@@ -49,6 +50,7 @@ class SuperAdam(LightningModule):
         # those are set in setup when we know what the trainer and datamodule got
         self.steps_per_epoch = None
         self.max_epochs = None
+        self.opt, self.sched = None, None
 
     def configure_optimizers(self):
         self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
@@ -65,7 +67,7 @@ class SuperAdam(LightningModule):
     def setup(self, stage: str):
         if stage == "fit":
             self.max_epochs = self.trainer.max_epochs
-            self.steps_per_epoch = len(self.datamodule.train_ds)
+            self.steps_per_epoch = len(self.train_dataloader())
 
 
 class RMS(LightningModule):
