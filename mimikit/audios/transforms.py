@@ -1,5 +1,7 @@
 import librosa
+from scipy.signal import lfilter
 from ..extract.segment import from_recurrence_matrix
+
 
 N_FFT = 2048
 HOP_LENGTH = 512
@@ -65,8 +67,10 @@ class FileTo:
         return S
 
     @staticmethod
-    def mu_law_compress(file_path, sr=SR, mu=MU):
+    def mu_law_compress(file_path, sr=SR, mu=MU, preemph=None):
         y = FileTo.signal(file_path, sr)
+        if preemph is not None:
+            y = lfilter([1, -preemph], [1], y)
         y = librosa.util.normalize(y)
         qx = librosa.mu_compress(y, mu, quantize=True)
         qx = qx + (MU + 1) // 2

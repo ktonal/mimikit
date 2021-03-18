@@ -1,5 +1,6 @@
 import numpy as np
 from numpy.lib.stride_tricks import as_strided as np_as_strided
+from scipy.signal import lfilter
 from pytorch_lightning import LightningModule
 import torch
 import torch.nn as nn
@@ -50,8 +51,8 @@ class FramesDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=16000, mu=255):
-        signal = A.FileTo.mu_law_compress(path, sr=sr, mu=mu)
+    def extract(path, sr=16000, mu=255, preemph=0.6):
+        signal = A.FileTo.mu_law_compress(path, sr=sr, mu=mu, preemph=preemph)
         return dict(qx=(dict(sr=sr, mu=mu), signal.reshape(-1, 1), None))
 
     def prepare_dataset(self, model, datamodule):
@@ -197,7 +198,7 @@ class SampleRNN(SequenceModel,
         decoder = MuLawDecoding(self.hparams.q_levels)
         return decoder(outputs)
 
-    def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5):
+    def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5, preemph=0.6):
         # prepare model
         was_training = self.training
         initial_device = self.device
@@ -251,5 +252,8 @@ class SampleRNN(SequenceModel,
 
         if decode_outputs:
             new = self.decode_outputs(new)
+            if preemph is not None:
+                new = lfilter([1-preemph], [1, -preemph], new)
 
         return new
+
