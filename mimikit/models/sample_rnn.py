@@ -53,6 +53,8 @@ class FramesDB(DBDataset):
     @staticmethod
     def extract(path, sr=16000, mu=255, preemph=0.6):
         signal = A.FileTo.mu_law_compress(path, sr=sr, mu=mu, preemph=preemph)
+        if preemph is not None:
+            print("using preemph %f" % preemph)
         return dict(qx=(dict(sr=sr, mu=mu), signal.reshape(-1, 1), None))
 
     def prepare_dataset(self, model, datamodule):
