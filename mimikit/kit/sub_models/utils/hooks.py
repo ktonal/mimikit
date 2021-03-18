@@ -51,7 +51,7 @@ class LoggingHooks(LightningModule):
     def validation_step_end(self, out):
         return self.log_output(out)
 
-    def on_train_epoch_end(self, *args):
+    def _flush_ep_metrics(self):
         to_print = "Epoch %i " % self.current_epoch
         to_log = {}
         for k, v in self._ep_metrics.items():
@@ -60,6 +60,16 @@ class LoggingHooks(LightningModule):
         self.print(to_print)
         if getattr(self, "logger", None) is not None:
             self.logger.log_metrics(to_log)
+
+    def on_train_epoch_end(self, *args):
+        if any(self.trainer.val_dataloaders):
+            # wait until validation end
+            return
+        else:
+            self._flush_ep_metrics()
+
+    def on_validation_epoch_end(self, *args):
+        self._flush_ep_metrics()
 
     def on_fit_start(self):
         self._ep_time = time()

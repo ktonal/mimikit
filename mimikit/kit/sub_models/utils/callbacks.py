@@ -24,6 +24,13 @@ class EpochProgressBarCallback(Callback):
         self.epoch_bar = tqdm(range(1, trainer.max_epochs), unit="epoch",
                               position=0, leave=False, dynamic_ncols=True)
 
-    def on_epoch_end(self, trainer, pl_module):
+    def on_train_epoch_end(self, trainer, *args):
+        if any(trainer.val_dataloaders):
+            return
+        else:
+            self.epoch_bar.update()
+
+    def on_validation_epoch_end(self, *args):
         self.epoch_bar.update()
+
 
