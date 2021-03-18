@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.lib.stride_tricks import as_strided as np_as_strided
-from scipy.signal import lfilter
+from torchaudio.functional import biquad
+from torchaudio.functional import lfilter
 from pytorch_lightning import LightningModule
 import torch
 import torch.nn as nn
@@ -255,7 +256,7 @@ class SampleRNN(SequenceModel,
         if decode_outputs:
             new = self.decode_outputs(new)
             if preemph is not None:
-                new = lfilter([1-preemph], [1, -preemph], new)
+                new = biquad(new, 1 - preemph, 0, 0, 1, -preemph, 0)
 
         return new
 
