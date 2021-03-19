@@ -201,7 +201,7 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
                 regions = regions.reset_index(drop=False)
                 # remove ".tmp_" from the source's name
                 regions.loc[:, "name"] = "".join(source.split(".tmp_"))
-                intra_regions[key] += [regions.itertuples()]
+                intra_regions[key] += [regions]
         with h5py.File(target, "r+") as trgt:
             trgt[key][indices] = data
             trgt[key].attrs.update(attrs)
