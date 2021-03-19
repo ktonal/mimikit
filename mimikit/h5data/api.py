@@ -3,6 +3,7 @@ import h5py
 import numpy as np
 import pandas as pd
 import os
+from argparse import Namespace
 
 from .write import make_root_db
 from .regions import Regions
@@ -132,6 +133,7 @@ class Database(object):
             self.attrs = {k: v for k, v in f.attrs.items()}
             self.features = f.attrs.get("features", ["fft"])
         # add found features as self.feature_name = FeatureProxy(self.h5_file, feature_name)
+        self.params = Namespace()
         self._register_features(self.features, keep_open)
 
     @staticmethod
@@ -154,6 +156,7 @@ class Database(object):
     def _register_features(self, names, keep_open):
         for name in names:
             setattr(self, name, FeatureProxy(self.h5_file, name, keep_open))
+            setattr(self.params, name, getattr(self, name).attrs)
         return self
 
     def _register_dataframes(self, names):
