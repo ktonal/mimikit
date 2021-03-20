@@ -129,17 +129,17 @@ class FreqNet(FreqNetNetwork,
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
         self.before_generate()
 
-        new = self.prepare_prompt(prompt, n_steps, at_least_nd=3)
+        output = self.prepare_prompt(prompt, n_steps, at_least_nd=3)
         prior_t = prompt.size(1)
         rf = self.receptive_field
         _, out_slc = self.generation_slices()
 
         for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            new.data[:, t:t+1] = self.forward(new[:, t-rf:t])[:, out_slc]
+            output.data[:, t:t+1] = self.forward(output[:, t-rf:t])[:, out_slc]
 
         if decode_outputs:
-            new = self.decode_outputs(new)
+            output = self.decode_outputs(output)
 
         self.after_generate()
 
-        return new
+        return output

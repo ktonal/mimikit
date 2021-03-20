@@ -47,7 +47,7 @@ class FramesDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=16000, q_levels=255, emphasis=None):
+    def extract(path, sr=16000, q_levels=255, emphasis=0.):
         return QuantizedSignal.extract(path, sr, q_levels, emphasis)
 
     def prepare_dataset(self, model, datamodule):
@@ -202,7 +202,7 @@ class SampleRNN(SequenceModel,
         # prepare model
         self.before_generate()
 
-        new = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
 
         # init variables
         fs = [*self.frame_sizes]
@@ -213,7 +213,7 @@ class SampleRNN(SequenceModel,
         for t in self.generate_tqdm(range(prompt.size(1), n_steps + prompt.size(1))):
             for i in range(len(tiers) - 1):
                 if t % fs[i] == 0:
-                    inpt = new[:, t - fs[i]:t].unsqueeze(1)
+                    inpt = output[:, t - fs[i]:t].unsqueeze(1)
 
                     if i == 0:
                         prev_out = None
@@ -225,7 +225,7 @@ class SampleRNN(SequenceModel,
                     outputs[i] = out
 
             prev_out = outputs[-1]
-            inpt = new[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
+            inpt = output[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
 
             out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
             if temperature is None:
@@ -233,12 +233,12 @@ class SampleRNN(SequenceModel,
             else:
                 # great place to implement dynamic cooling/heating !
                 pred = torch.multinomial(nn.Softmax(dim=-1)(out / temperature).reshape(-1, out.size(-1)), 1)
-            new.data[:, t:t+1] = pred
+            output.data[:, t:t+1] = pred
 
         if decode_outputs:
-            new = self.decode_outputs(new)
+            output = self.decode_outputs(output)
 
         self.after_generate()
 
-        return new
+        return output
 

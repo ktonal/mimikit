@@ -14,7 +14,7 @@ class WaveNetDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=16000, q_levels=255, emphasis=None):
+    def extract(path, sr=16000, q_levels=255, emphasis=0.):
         return QuantizedSignal.extract(path, sr, q_levels, emphasis)
 
     def prepare_dataset(self, model, datamodule):
@@ -110,8 +110,7 @@ class WaveNet(WNNetwork,
         # prepare device, mode and turn off autograd
         self.before_generate()
 
-        # prepare prompt
-        new = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
         prior_t = prompt.size(1)
 
         def predict(outpt, temp):
@@ -131,7 +130,7 @@ class WaveNet(WNNetwork,
 
         outpt = self.outpt(skips if skips is not None else z)[:, -1:].squeeze()
         outpt = predict(outpt, temperature)
-        new.data[:, prior_t:prior_t+1] = outpt
+        output.data[:, prior_t:prior_t+1] = outpt
 
         qs = {i: q for i, q in enumerate(qs)}
 
@@ -154,7 +153,7 @@ class WaveNet(WNNetwork,
 
         for t in self.generate_tqdm(range(prior_t + 1, prior_t + n_steps)):
 
-            x, cin, gin = self.inpt(new[:, t-1:t], None, None)
+            x, cin, gin = self.inpt(output[:, t-1:t], None, None)
             q, _ = qs[0]
             q = q.roll(-1, 2)
             q[:, :, -1:] = x
@@ -185,10 +184,10 @@ class WaveNet(WNNetwork,
 
             outpt = self.outpt(skips if skips is not None else y).squeeze()
             outpt = predict(outpt, temperature)
-            new.data[:, t:t+1] = outpt
+            output.data[:, t:t+1] = outpt
 
         if decode_outputs:
-            new = self.decode_outputs(new)
+            output = self.decode_outputs(output)
 
         # reset the layers' parameters
         for mod, d in dilations.items():
@@ -198,5 +197,5 @@ class WaveNet(WNNetwork,
 
         self.after_generate()
 
-        return new
+        return output
 
