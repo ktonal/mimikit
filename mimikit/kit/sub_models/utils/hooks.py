@@ -136,7 +136,6 @@ def _check_version(other_v):
 
 
 class MMKHooks(LightningModule):
-
     _loaded_checkpoint = None
 
     @classmethod
@@ -201,3 +200,25 @@ class MMKHooks(LightningModule):
                 checkpoint["lr_schedulers"] = optim_state["lr_schedulers"]
 
         return checkpoint
+
+    @staticmethod
+    def load_checkpoint_hparams(checkpoint_path):
+        ckpt = pl_load(checkpoint_path)
+        return ckpt['hyper_parameters']
+
+    @staticmethod
+    def list_available_states(root_dir):
+        return [os.path.abspath(os.path.join(root_dir, "states", f))
+                for f in os.listdir(os.path.join(root_dir, "states")) if "epoch=" in f]
+
+    @staticmethod
+    def list_available_epochs(root_dir):
+        epochs = []
+        for f in os.listdir(os.path.join(root_dir, "states")):
+            if "epoch=" in f:
+                epochs += [int(f[6:][:-5])]
+        return epochs
+
+    @classmethod
+    def load_epoch_checkpoint(cls, root_dir, epoch):
+        return cls.load_from_checkpoint(os.path.join(root_dir, "states", "epoch=%i.ckpt" % epoch))
