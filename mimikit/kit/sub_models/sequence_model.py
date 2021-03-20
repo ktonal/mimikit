@@ -1,19 +1,22 @@
 import torch
-from pytorch_lightning import LightningModule
+import pytorch_lightning as pl
 from abc import ABC
+import matplotlib.pyplot as plt
+
 
 from .utils import MMKHooks, LoggingHooks, tqdm
+from ...utils import audio
 
 
 class SequenceModel(MMKHooks,
                     LoggingHooks,
-                    LightningModule,
+                    pl.LightningModule,
                     ABC):
 
     loss_fn = None
 
     def __init__(self):
-        super(LightningModule, self).__init__()
+        super(pl.LightningModule, self).__init__()
         MMKHooks.__init__(self)
         LoggingHooks.__init__(self)
 
@@ -56,11 +59,12 @@ class SequenceModel(MMKHooks,
         while len(prompt.shape) < at_least_nd:
             prompt = prompt.unsqueeze(0)
         prompt = prompt.to(self.device)
-        return torch.cat((prompt, torch.zeros(prompt.size(0), n_steps).to(prompt)), dim=1)
+        dims = prompt.size(0), n_steps, *prompt.size()[2:]
+        return torch.cat((prompt, torch.zeros(*dims).to(prompt)), dim=1)
 
     @staticmethod
     def generate_tqdm(rng):
-        return tqdm(rng, desc="Generate", dynamic_ncols=True, leave=False, unit="step")
+        return tqdm(rng, desc="Generate", dynamic_ncols=True, leave=False, unit="step", position=0)
 
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
         raise NotImplementedError
@@ -70,3 +74,35 @@ class SequenceModel(MMKHooks,
 
     def decode_outputs(self, outputs: torch.Tensor):
         raise NotImplementedError
+
+
+class GenerateCallBack(pl.callbacks.Callback):
+
+    def __init__(self, every_n_epochs=10, n_prompts=3, n_steps=1000,
+                 plot_audios=True, play_audios=True, log_audios=False, **gen_kwargs):
+        self.every_n_epochs = every_n_epochs
+        self.n_prompts = n_prompts
+        self.n_steps = n_steps
+        self.kwargs = gen_kwargs
+        self.log_audios = log_audios
+        self.plot_audios = plot_audios
+        self.play_audios = play_audios
+
+    def on_epoch_end(self, trainer: pl.Trainer, model: SequenceModel):
+        if trainer.current_epoch % self.every_n_epochs != 0:
+            return
+        prompt = next(iter(trainer.train_dataloader))[:self.n_prompts]
+        output = model.generate(prompt, self.n_steps, decode_outputs=True, **self.kwargs)
+        for i in range(output.size(0)):
+            y = output[i].detach().cpu().numpy()
+            if self.plot_audios:
+                plt.figure(figsize=(20, 2))
+                plt.plot(y)
+                plt.show()
+            if self.play_audios:
+                audio(y, sr=model.hparams.get("sr", 22050), hop_length=model.hparams.get("hop_length", 512))
+
+        if self.log_audios:
+            for i in range(output.size(0)):
+                filename = "epoch=%i - prompt=%i" % (trainer.current_epoch, i)
+                model.log_audio(filename, output[i].unsqueeze(0), sample_rate=model.hparams.get("sr", 22050))
