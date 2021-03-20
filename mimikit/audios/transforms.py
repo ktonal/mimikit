@@ -6,7 +6,7 @@ from ..extract.segment import from_recurrence_matrix
 N_FFT = 2048
 HOP_LENGTH = 512
 SR = 22050
-MU = 255
+Q_LEVELS = 256
 
 
 class SignalTo:
@@ -22,10 +22,10 @@ class SignalTo:
         return abs(S)
 
     @staticmethod
-    def mu_law_compress(y, mu=MU):
+    def mu_law_compress(y, q_levels=Q_LEVELS):
         y = librosa.util.normalize(y)
-        qx = librosa.mu_compress(y, mu, quantize=True)
-        qx = qx + (MU + 1) // 2
+        qx = librosa.mu_compress(y, q_levels-1, quantize=True)
+        qx = qx + q_levels // 2
         return qx
 
 
@@ -36,8 +36,20 @@ class SignalFrom:
         return librosa.griffinlim(mag_spec, **kwargs)
 
     @staticmethod
-    def mu_law_compressed(qx, mu=MU):
+    def mu_law_compressed(qx, mu=Q_LEVELS):
         return librosa.mu_expand(qx, mu, quantize=True)
+
+
+def normalize(y, **kwargs):
+    return librosa.util.normalize(y, **kwargs)
+
+
+def emphasize(y, emphasis):
+    return lfilter([1, -emphasis], [1], y)
+
+
+def deemphasize(y, emphasis):
+    return lfilter([1-emphasis], [1, -emphasis], y)
 
 
 class MagSpecTo:
@@ -53,28 +65,6 @@ class FileTo:
     def signal(file_path, sr=SR):
         y, _ = librosa.load(file_path, sr=sr)
         return y
-
-    @staticmethod
-    def stft(file_path, sr=SR, n_fft=N_FFT, hop_length=HOP_LENGTH, **kwargs):
-        y = FileTo.signal(file_path, sr)
-        S = SignalTo.stft(y, n_fft, hop_length, **kwargs)
-        return S
-
-    @staticmethod
-    def mag_spec(file_path, sr=SR, n_fft=N_FFT, hop_length=HOP_LENGTH, **kwargs):
-        y = FileTo.signal(file_path, sr)
-        S = SignalTo.mag_spec(y, n_fft, hop_length, **kwargs)
-        return S
-
-    @staticmethod
-    def mu_law_compress(file_path, sr=SR, mu=MU, preemph=None):
-        y = FileTo.signal(file_path, sr)
-        if preemph is not None:
-            y = lfilter([1, -preemph], [1], y)
-        y = librosa.util.normalize(y)
-        qx = librosa.mu_compress(y, mu, quantize=True)
-        qx = qx + (MU + 1) // 2
-        return qx
 
 
 default_extract_func = FileTo.signal

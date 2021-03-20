@@ -18,7 +18,7 @@ class SampleRNNTier(nn.Module):
     is_bottom = property(lambda self: self.up_sampling == 1)
 
     def linearize(self, q_samples):
-        """ maps input samples (0 <= qx < 256) to floats (-.5 <= x < .5) """
+        """ maps input samples (0 <= qx < 256) to floats (-2. <= x < 2.) """
         return ((q_samples.float() / self.q_levels) - .5) * 4
         # return q_samples
 
@@ -31,16 +31,6 @@ class SampleRNNTier(nn.Module):
 
         if not self.is_bottom:  # top & middle tiers
             return nn.Sequential(nn.Linear(self.frame_size, self.dim), )
-            # class Bagger(nn.Module):
-            #     def __init__(self, dim):
-            #         super(Bagger, self).__init__()
-            #         self.emb = nn.EmbeddingBag(256, dim)
-            #
-            #     def forward(self, qx):
-            #         B, T, fs = qx.size()
-            #         return self.emb(qx.view(B * T, fs)).reshape(B, T, -1).contiguous()
-            #
-            # return Bagger(self.dim)
 
         else:  # bottom tier
             class BottomProjector(nn.Module):

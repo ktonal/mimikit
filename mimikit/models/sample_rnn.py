@@ -1,22 +1,17 @@
-import numpy as np
 from numpy.lib.stride_tricks import as_strided as np_as_strided
-from torchaudio.functional import biquad
-from torchaudio.functional import lfilter
 from pytorch_lightning import LightningModule
+import math
 import torch
 import torch.nn as nn
-from torchaudio.transforms import MuLawDecoding
 import matplotlib.pyplot as plt
 
 from ..kit import DBDataset
-from ..audios import transforms as A
+from ..audios.features import QuantizedSignal
 from ..kit.ds_utils import ShiftedSequences
 from ..kit import SuperAdam, SequenceModel, DataSubModule
 from ..kit.networks.sample_rnn import SampleRNNNetwork
-from ..kit.sub_models.utils import tqdm
 from ..utils import audio
 from torch.utils.data import Sampler, RandomSampler, BatchSampler
-import math
 
 
 class TBPTTSampler(Sampler):
@@ -52,11 +47,8 @@ class FramesDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=16000, mu=255, preemph=0.6):
-        signal = A.FileTo.mu_law_compress(path, sr=sr, mu=mu, preemph=preemph)
-        if preemph is not None:
-            print("using preemph %f" % preemph)
-        return dict(qx=(dict(sr=sr, mu=mu), signal.reshape(-1, 1), None))
+    def extract(path, sr=16000, q_levels=255, emphasis=None):
+        return QuantizedSignal.extract(path, sr, q_levels, emphasis)
 
     def prepare_dataset(self, model, datamodule):
         batch_size, chunk_len, batch_seq_len, frame_sizes = model.batch_info()
@@ -125,7 +117,6 @@ class SampleRNN(SequenceModel,
                  emb_dim=128,
                  mlp_dim=256,
                  n_rnn=1,
-                 q_levels=256,  # == mu + 1
                  max_lr=1e-3,
                  betas=(.9, .9),
                  div_factor=3.,
@@ -149,9 +140,13 @@ class SampleRNN(SequenceModel,
         SequenceModel.__init__(self)
         DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
-        SampleRNNNetwork.__init__(self, frame_sizes, net_dim, n_rnn, q_levels, emb_dim, mlp_dim)
+        # noinspection PyArgumentList
+        SampleRNNNetwork.__init__(self,
+                                  frame_sizes=frame_sizes,
+                                  dim=net_dim, n_rnn=n_rnn,
+                                  q_levels=self.hparams.q_levels,
+                                  embedding_dim=emb_dim, mlp_dim=mlp_dim)
         self.save_hyperparameters()
-        self.stored_grad_norms = []
 
     def batch_info(self, *args, **kwargs):
         return tuple(self.hparams[key] for key in ["batch_size", "chunk_len", "batch_seq_len", "frame_sizes"])
@@ -180,7 +175,7 @@ class SampleRNN(SequenceModel,
             plt.plot(y)
             plt.show()
 
-            audio(y, sr=16000)
+            audio(y, sr=self.hparams.sr)
 
     def warm_up(self, n_warmups=10, n_prompts=4):
         self.eval()
@@ -197,23 +192,17 @@ class SampleRNN(SequenceModel,
 
         return new
 
-    def decode_outputs(self, outputs):
-        decoder = MuLawDecoding(self.hparams.q_levels)
-        return decoder(outputs)
+    def encode_inputs(self, inputs: torch.Tensor):
+        return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
 
-    def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5, preemph=0.6):
+    def decode_outputs(self, outputs: torch.Tensor):
+        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
+
+    def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5):
         # prepare model
-        was_training = self.training
-        initial_device = self.device
-        self.eval()
-        self.to("cuda" if torch.cuda.is_available() else "cpu")
+        self.before_generate()
 
-        # prepare prompt
-        if not isinstance(prompt, torch.Tensor):
-            prompt = torch.from_numpy(prompt)
-        if len(prompt.shape) == 1:
-            prompt = prompt.unsqueeze(0)
-        new = prompt.to(self.device)
+        new = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
 
         # init variables
         fs = [*self.frame_sizes]
@@ -221,8 +210,7 @@ class SampleRNN(SequenceModel,
         hiddens = self.hidden
         tiers = self.tiers
 
-        for t in tqdm(range(new.size(1), n_steps + new.size(1)),
-                      desc="Generate", dynamic_ncols=True, leave=False, unit="step"):
+        for t in self.generate_tqdm(range(prompt.size(1), n_steps + prompt.size(1))):
             for i in range(len(tiers) - 1):
                 if t % fs[i] == 0:
                     inpt = new[:, t - fs[i]:t].unsqueeze(1)
@@ -232,31 +220,25 @@ class SampleRNN(SequenceModel,
                     else:
                         prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
 
-                    with torch.no_grad():
-                        out, h = tiers[i](inpt, prev_out, hiddens[i])
+                    out, h = tiers[i](inpt, prev_out, hiddens[i])
                     hiddens[i] = h
                     outputs[i] = out
 
             prev_out = outputs[-1]
             inpt = new[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
 
-            with torch.no_grad():
-                out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
-                if temperature is None:
-                    pred = (nn.Softmax(dim=-1)(out)).argmax(dim=-1)
-                else:
-                    # great place to implement dynamic cooling/heating !
-                    pred = torch.multinomial(nn.Softmax(dim=-1)(out / temperature).reshape(-1, out.size(-1)), 1)
-                new = torch.cat((new, pred), dim=-1)
-
-        # reset model
-        self.to(initial_device)
-        self.train() if was_training else None
+            out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
+            if temperature is None:
+                pred = (nn.Softmax(dim=-1)(out)).argmax(dim=-1)
+            else:
+                # great place to implement dynamic cooling/heating !
+                pred = torch.multinomial(nn.Softmax(dim=-1)(out / temperature).reshape(-1, out.size(-1)), 1)
+            new.data[:, t:t+1] = pred
 
         if decode_outputs:
             new = self.decode_outputs(new)
-            if preemph is not None:
-                new = biquad(new, 1 - preemph, 0, 0, 1, -preemph, 0)
+
+        self.after_generate()
 
         return new
 

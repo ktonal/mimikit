@@ -26,7 +26,10 @@ class DataSubModule(LightningModule):
             if isinstance(db, str):
                 db_ = self.db_class(db_, keep_open=keep_open)
             self.datamodule = DBDataModule(self, db_, in_mem_data, splits, **loaders_kwargs)
-            self.hparams.update(db_.attrs)
+            # cache the db params in self.hparams
+            for feat_name, params in db_.params.__dict__.items():
+                for p, val in params.items():
+                    setattr(self.hparams, p, val)
 
     def random_train_batch(self):
         return next(iter(self.datamodule.train_dataloader()))

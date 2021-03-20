@@ -1,6 +1,5 @@
 import torch
 from pytorch_lightning import LightningModule
-import numpy as np
 from abc import ABC
 
 from .utils import MMKHooks, LoggingHooks, tqdm
@@ -12,7 +11,6 @@ class SequenceModel(MMKHooks,
                     ABC):
 
     loss_fn = None
-    db_class = None
 
     def __init__(self):
         super(LightningModule, self).__init__()
@@ -37,6 +35,32 @@ class SequenceModel(MMKHooks,
 
     def batch_info(self, *args, **kwargs):
         raise NotImplementedError("subclasses of `SequenceModel` have to implement `batch_info`")
+
+    def before_generate(self, *args, **kwargs):
+        # prepare model
+        self._was_training = self.training
+        self._initial_device = self.device
+        self.eval()
+        self.to("cuda" if torch.cuda.is_available() else "cpu")
+        torch.set_grad_enabled(False)
+
+    def after_generate(self, *args, **kwargs):
+        # reset model
+        self.to(self._initial_device)
+        self.train() if self._was_training else None
+        torch.set_grad_enabled(True)
+
+    def prepare_prompt(self, prompt, n_steps, at_least_nd=2):
+        if not isinstance(prompt, torch.Tensor):
+            prompt = torch.from_numpy(prompt)
+        while len(prompt.shape) < at_least_nd:
+            prompt = prompt.unsqueeze(0)
+        prompt = prompt.to(self.device)
+        return torch.cat((prompt, torch.zeros(prompt.size(0), n_steps).to(prompt)), dim=1)
+
+    @staticmethod
+    def generate_tqdm(rng):
+        return tqdm(rng, desc="Generate", dynamic_ncols=True, leave=False, unit="step")
 
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
         raise NotImplementedError

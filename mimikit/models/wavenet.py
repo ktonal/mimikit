@@ -1,10 +1,9 @@
-import torch.nn as nn
 import torch
-from torchaudio.transforms import MuLawDecoding
+import torch.nn as nn
 import pytorch_lightning as pl
 
 from ..kit import DBDataset, ShiftedSequences
-from ..audios import transforms as A
+from ..audios.features import QuantizedSignal
 
 from ..kit import SuperAdam, SequenceModel, DataSubModule
 
@@ -15,9 +14,8 @@ class WaveNetDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, mu=256, sr=22050):
-        qx = A.FileTo.mu_law_compress(path, sr, mu - 1)
-        return dict(qx=(dict(mu=mu, sr=sr), qx.reshape(-1, 1), None))
+    def extract(path, sr=16000, q_levels=255, emphasis=None):
+        return QuantizedSignal.extract(path, sr, q_levels, emphasis)
 
     def prepare_dataset(self, model, datamodule):
         prm = model.batch_info()
@@ -48,10 +46,7 @@ class WaveNet(WNNetwork,
 
     def __init__(self,
                  n_layers=(4,),
-                 q_levels=256,
-                 n_cin_classes=None,
                  cin_dim=None,
-                 n_gin_classes=None,
                  gin_dim=None,
                  layers_dim=128,
                  kernel_size=2,
@@ -77,8 +72,20 @@ class WaveNet(WNNetwork,
         SequenceModel.__init__(self)
         DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
+        self.hparams.q_levels = db.params.qx["q_levels"]
+        self.hparams.sr = db.params.qx["sr"]
+        self.hparams.emphasis = db.params.qx["emphasis"]
+        if hasattr(db, "labels") and cin_dim is not None:
+            n_cin_classes = db.params.labels["n_classes"]
+        else:
+            n_cin_classes = None
+        if hasattr(db, "g_labels") and gin_dim is not None:
+            n_gin_classes = db.params.g_labels["n_classes"]
+        else:
+            n_gin_classes = None
         # noinspection PyArgumentList
-        WNNetwork.__init__(self, n_layers=n_layers, q_levels=q_levels, n_cin_classes=n_cin_classes, cin_dim=cin_dim,
+        WNNetwork.__init__(self, n_layers=n_layers, q_levels=self.hparams.q_levels,
+                           n_cin_classes=n_cin_classes, cin_dim=cin_dim,
                            n_gin_classes=n_gin_classes, gin_dim=gin_dim,
                            layers_dim=layers_dim, kernel_size=kernel_size, groups=groups, accum_outputs=accum_outputs,
                            pad_input=pad_input,
@@ -93,17 +100,103 @@ class WaveNet(WNNetwork,
         shifts = (0, self.shift)
         return dict(shifts=shifts, lengths=lengths)
 
-    def generation_slices(self):
-        # input is always the last receptive field
-        input_slice = slice(-self.receptive_field(), None)
-        if self.pad_input == 1:
-            # then there's only one future time-step : the last output
-            output_slice = slice(-1, None)
-        else:
-            # for all other cases, the first output has the shift of the whole network
-            output_slice = slice(None, 1)
-        return input_slice, output_slice
+    def encode_inputs(self, inputs: torch.Tensor):
+        return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
 
-    def decode_outputs(self, outputs):
-        decoder = MuLawDecoding(self.hparams.q_levels)
-        return decoder(outputs)
+    def decode_outputs(self, outputs: torch.Tensor):
+        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
+
+    def generate(self, prompt, n_steps, decode_outputs=False, temperature=None, **kwargs):
+        # prepare device, mode and turn off autograd
+        self.before_generate()
+
+        # prepare prompt
+        new = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        prior_t = prompt.size(1)
+
+        def predict(outpt, temp):
+            if temp is None:
+                return nn.Softmax(dim=-1)(outpt).argmax(dim=-1, keepdims=True)
+            else:
+                return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp), 1)
+
+        inpt = prompt[:, -self.receptive_field:]
+        z, cin, gin = self.inpt(inpt, None, None)
+        qs = [(z.clone(), None)]
+        # initialize queues with one full forward pass
+        skips = None
+        for layer in self.layers:
+            z, _, _, skips = layer((z, cin, gin, skips))
+            qs += [(z.clone(), skips.clone() if skips is not None else skips)]
+
+        outpt = self.outpt(skips if skips is not None else z)[:, -1:].squeeze()
+        outpt = predict(outpt, temperature)
+        new.data[:, prior_t:prior_t+1] = outpt
+
+        qs = {i: q for i, q in enumerate(qs)}
+
+        # disable padding and dilation
+        dilations = {}
+        for mod in self.modules():
+            if isinstance(mod, nn.Conv1d) and mod.dilation != (1,):
+                dilations[mod] = mod.dilation
+                mod.dilation = (1,)
+        for layer in self.layers:
+            layer.pad_input = 0
+
+        # cache the indices of the inputs for each layer
+        lyr_slices = {}
+        for l, layer in enumerate(self.layers):
+            d, k = layer.dilation, layer.kernel_size
+            rf = d * k
+            indices = [qs[l][0].size(2) - 1 - n for n in range(0, rf, d)][::-1]
+            lyr_slices[l] = torch.tensor(indices).long().to(self.device)
+
+        for t in self.generate_tqdm(range(prior_t + 1, prior_t + n_steps)):
+
+            x, cin, gin = self.inpt(new[:, t-1:t], None, None)
+            q, _ = qs[0]
+            q = q.roll(-1, 2)
+            q[:, :, -1:] = x
+            qs[0] = (q, None)
+
+            for l, layer in enumerate(self.layers):
+                z, skips = qs[l]
+                zi = torch.index_select(z, 2, lyr_slices[l])
+                if skips is not None:
+                    # we only need one skip : the first or the last of the kernel's indices
+                    i = lyr_slices[l][0 if layer.accum_outputs > 0 else -1].item()
+                    skips = skips[:, :, i:i + 1]
+
+                z, _, _, skips = layer((zi, cin, gin, skips))
+
+                if l < len(self.layers) - 1:
+                    q, skp = qs[l + 1]
+
+                    q = q.roll(-1, 2)
+                    q[:, :, -1:] = z
+                    if skp is not None:
+                        skp = skp.roll(-1, 2)
+                        skp[:, :, -1:] = skips
+
+                    qs[l + 1] = (q, skp)
+                else:
+                    y, skips = z, skips
+
+            outpt = self.outpt(skips if skips is not None else y).squeeze()
+            outpt = predict(outpt, temperature)
+            new.data[:, t:t+1] = outpt
+
+        if decode_outputs:
+            new = self.decode_outputs(new)
+
+        # reset the layers' parameters
+        for mod, d in dilations.items():
+            mod.dilation = d
+        for layer in self.layers:
+            layer.pad_input = self.pad_input
+
+        self.after_generate()
+
+        return new
+

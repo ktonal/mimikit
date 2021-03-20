@@ -6,7 +6,6 @@ import pytorch_lightning as pl
 from ..audios import transforms as A
 from ..kit.db_dataset import DBDataset
 from ..kit.ds_utils import ShiftedSequences
-from ..kit.sub_models.utils import tqdm
 
 from ..kit import SuperAdam, SequenceModel, DataSubModule
 
@@ -19,8 +18,9 @@ class FreqNetDB(DBDataset):
 
     @staticmethod
     def extract(path, n_fft=2048, hop_length=512, sr=22050):
+        y = A.FileTo.signal(path, sr)
+        fft = A.SignalTo.mag_spec(y, n_fft, hop_length)
         params = dict(n_fft=n_fft, hop_length=hop_length, sr=sr)
-        fft = A.FileTo.mag_spec(path, **params)
         return dict(fft=(params, fft.T, None))
 
     def prepare_dataset(self, model, datamodule):
@@ -56,10 +56,7 @@ class FreqNet(FreqNetNetwork,
 
     def __init__(self,
                  n_layers=(4,),
-                 input_dim=1025,
-                 n_cin_classes=None,
                  cin_dim=None,
-                 n_gin_classes=None,
                  gin_dim=None,
                  gate_dim=128,
                  kernel_size=2,
@@ -85,16 +82,24 @@ class FreqNet(FreqNetNetwork,
         SequenceModel.__init__(self)
         DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
+        self.hparams.n_fft = self.db.params.fft["n_fft"]
+        self.hparams.hop_length = self.db.params.fft["hop_length"]
+        if hasattr(db, "labels") and cin_dim is not None:
+            n_cin_classes = db.params.labels["n_classes"]
+        else:
+            n_cin_classes = None
+        if hasattr(db, "g_labels") and gin_dim is not None:
+            n_gin_classes = db.params.g_labels["n_classes"]
+        else:
+            n_gin_classes = None
         # noinspection PyArgumentList
         FreqNetNetwork.__init__(self,
-                                n_layers=n_layers, input_dim=input_dim,
+                                n_layers=n_layers, input_dim=self.hparams.n_fft // 2 + 1,
                                 n_cin_classes=n_cin_classes, cin_dim=cin_dim,
                                 n_gin_classes=n_gin_classes, gin_dim=gin_dim,
                                 gate_dim=gate_dim, kernel_size=kernel_size, groups=groups,
                                 accum_outputs=accum_outputs, pad_input=pad_input,
                                 skip_dim=skip_dim, residuals_dim=residuals_dim)
-        self.hparams.n_fft = self.db.fft.attrs["n_fft"]
-        self.hparams.hop_length = self.db.fft.attrs["hop_length"]
         self.save_hyperparameters()
 
     def setup(self, stage: str):
@@ -122,32 +127,19 @@ class FreqNet(FreqNetNetwork,
         return gla(outputs.transpose(-1, -2).contiguous())
 
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
-        # prepare model
-        was_training = self.training
-        initial_device = self.device
-        self.eval()
-        self.to("cuda" if torch.cuda.is_available() else "cpu")
+        self.before_generate()
 
-        # prepare prompt
-        if not isinstance(prompt, torch.Tensor):
-            prompt = torch.from_numpy(prompt)
-        if len(prompt.shape) == 2:
-            prompt = prompt.unsqueeze(0)
-        new = prompt.to(self.device)
+        new = self.prepare_prompt(prompt, n_steps, at_least_nd=3)
+        prior_t = prompt.size(1)
+        rf = self.receptive_field
+        _, out_slc = self.generation_slices()
 
-        inpt_slc, outpt_slc = self.generation_slices()
-
-        for _ in tqdm(range(n_steps),
-                      desc="Generate", dynamic_ncols=True, leave=False, unit="step"):
-            with torch.no_grad():
-                outpt = self.forward(new[:, inpt_slc])
-                new = torch.cat((new, outpt[:, outpt_slc]), dim=1)
-
-        # reset model
-        self.to(initial_device)
-        self.train() if was_training else None
+        for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
+            new.data[:, t:t+1] = self.forward(new[:, t-rf:t])[:, out_slc]
 
         if decode_outputs:
             new = self.decode_outputs(new)
+
+        self.after_generate()
 
         return new
