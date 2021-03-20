@@ -29,9 +29,9 @@ class Feature(ABC):
 class QuantizedSignal(Feature):
 
     @staticmethod
-    def extract(path, sr=16000, q_levels=255, emphasis=None):
+    def extract(path, sr=16000, q_levels=255, emphasis=0.):
         signal = A.FileTo.signal(path, sr)
-        if emphasis is not None:
+        if emphasis:
             signal = A.emphasize(signal, emphasis)
         signal = A.normalize(signal)
         signal = A.SignalTo.mu_law_compress(signal, q_levels=q_levels)
@@ -39,8 +39,8 @@ class QuantizedSignal(Feature):
                         signal.reshape(-1, 1), None))
 
     @staticmethod
-    def encode(inputs: torch.Tensor, q_levels=256, emphasis=None):
-        if emphasis is not None:
+    def encode(inputs: torch.Tensor, q_levels=256, emphasis=0.):
+        if emphasis:
             inputs = F.lfilter(inputs,
                                torch.tensor([1, 0]).to(inputs),  # a0, a1
                                torch.tensor([1, -emphasis]).to(inputs))  # b0, b1
@@ -48,9 +48,9 @@ class QuantizedSignal(Feature):
         return F.mu_law_encoding(inputs, q_levels)
 
     @staticmethod
-    def decode(outputs: torch.Tensor, q_levels=256, emphasis=None):
+    def decode(outputs: torch.Tensor, q_levels=256, emphasis=0.):
         signal = F.mu_law_decoding(outputs, q_levels)
-        if emphasis is not None:
+        if emphasis:
             signal = F.lfilter(signal,
                                torch.tensor([1, -emphasis]).to(signal),  # a0, a1
                                torch.tensor([1 - emphasis, 0]).to(signal))  # b0, b1
