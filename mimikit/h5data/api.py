@@ -172,3 +172,17 @@ class Database(object):
         return "<Database: '%s'>" % os.path.split(self.h5_file)[-1]
 
 
+def join(target_name, feature_names, databases):
+
+    with h5py.File(target_name, "w") as f:
+        for feat_name in feature_names:
+            lengths = [getattr(db, feat_name).shape[0] for db in databases]
+            dim = set([getattr(db, feat_name).shape[1] for db in databases]).pop()
+            layout = h5py.VirtualLayout(shape=(sum(lengths), dim))
+            offset = 0
+            for i, n in enumerate(lengths):
+                vsource = h5py.VirtualSource(databases[i].h5_file, feat_name, shape=(n, dim))
+                layout[offset:offset + n] = vsource
+                offset += n
+            ds = f.create_virtual_dataset(feat_name, layout)
+            ds.attrs = getattr(databases[0], feat_name).attrs
