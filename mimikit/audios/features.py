@@ -240,10 +240,10 @@ class QuantizedSignal(Feature):
         if sample_encoding == 'mu_law':
             signal = F.mu_law_decoding(outputs, q_levels)
         elif sample_encoding == 'adapted':
-            ids = torch.from_numpy(shaper[1]).float()
+            ids = torch.from_numpy(shaper[1]).float().to(outputs)
             xvals = 2 * ids / ids[-1] - 1.0
             # unfortunately Interp1d does not let you select an axis - so process columns one by one
-            signal = torch.stack([Interp1d()(xvals, torch.from_numpy(shaper[0]).float(), 2.0 * outputs[:,k] / (q_levels - 1) - 1.0) for k in range(outputs.shape[1])]).T
+            signal = torch.stack([Interp1d()(xvals, torch.from_numpy(shaper[0]).float().to(outputs), 2.0 * outputs[:,k] / (q_levels - 1) - 1.0) for k in range(outputs.shape[1])]).T
         elif sample_encoding == 'pcm':
             signal = 2.0 * outputs.float() / (q_levels - 1) - 1.0
         else:
