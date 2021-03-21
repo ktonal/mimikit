@@ -227,9 +227,13 @@ class QuantizedSignal(Feature):
             return F.mu_law_encoding(inputs, q_levels)
         elif sample_encoding == 'adapted':
             ids = torch.from_numpy(shaper[1]).float()
+            xvals = 2 * ids / ids[-1] - 1.0
             # unfortunately Interp1d does not let you select an axis - so process columns one by one
-            #signal = torch.stack([shaper_func(inputs[:,k]) for k in range(inputs.shape[1])]).T
-            return ((inputs + 1.0) * 0.5 * (q_levels - 1)).astype(np.int)
+            signal = torch.stack([Interp1d()(torch.from_numpy(shaper[0]).float().to(inputs),
+                                             xvals,
+                                             2.0 * inputs[:, k] / (q_levels - 1) - 1.0)
+                                  for k in range(inputs.shape[1])]).T
+            return ((signal + 1.0) * 0.5 * (q_levels - 1)).astype(np.int)
         elif sample_encoding == 'pcm':
             return ((inputs + 1.0) * 0.5 * (q_levels - 1)).astype(np.int)
         else:
@@ -240,10 +244,14 @@ class QuantizedSignal(Feature):
         if sample_encoding == 'mu_law':
             signal = F.mu_law_decoding(outputs, q_levels)
         elif sample_encoding == 'adapted':
+            outputs = outputs.float()
             ids = torch.from_numpy(shaper[1]).float().to(outputs)
             xvals = 2 * ids / ids[-1] - 1.0
             # unfortunately Interp1d does not let you select an axis - so process columns one by one
-            signal = torch.stack([Interp1d()(xvals, torch.from_numpy(shaper[0]).float().to(outputs), 2.0 * outputs[:,k].float() / (q_levels - 1) - 1.0) for k in range(outputs.shape[1])]).T
+            signal = torch.stack([Interp1d()(xvals,
+                                             torch.from_numpy(shaper[0]).float().to(outputs),
+                                             2.0 * outputs[:, k] / (q_levels - 1) - 1.0)
+                                  for k in range(outputs.shape[1])]).T
         elif sample_encoding == 'pcm':
             signal = 2.0 * outputs.float() / (q_levels - 1) - 1.0
         else:
