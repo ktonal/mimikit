@@ -29,35 +29,44 @@ class Feature(ABC):
 class QuantizedSignal(Feature):
 
     @staticmethod
-    def extract(path, sr=16000, q_levels=255, emphasis=0.):
+    def extract(path, sr=16000, q_levels=255, emphasis=0., sample_encoding='mu_law', normalize=True):
         signal = A.FileTo.signal(path, sr)
         if emphasis:
             signal = A.emphasize(signal, emphasis)
-        signal = A.normalize(signal)
-        signal = A.SignalTo.mu_law_compress(signal, q_levels=q_levels)
-        return dict(qx=(dict(sr=sr, q_levels=q_levels, emphasis=emphasis),
+        if sample_encoding == 'mu_law':
+            shaper = 'mu_law'
+            signal = A.SignalTo.mu_law_compress(signal, q_levels=q_levels, normalize=normalize)
+        elif sample_encoding == 'adapted':
+            signal, shaper = A.SignalTo.adapted_uniform(signal, 
+                                                        q_levels=q_levels,
+                                                        normalize=normalize)
+        elif sample_encoding == 'pcm':
+            shaper = 'pcm'
+            signal = A.SignalTo.pcm_unsigned(signal, q_levels=q_levels, normalize=normalize)
+        else:
+            raise ValueError("sample_encoding has to 'mu_law', 'adapted', or 'pcm'")
+        return dict(qx=(dict(sr=sr,
+                             q_levels=q_levels,
+                             emphasis=emphasis,
+                             shaper=shaper,
+                             sample_encoding=sample_encoding),
                         signal.reshape(-1, 1), None))
 
+    # Maybe normalize should be False by default, since this could be used on small signal snippets
     @staticmethod
-    def encode(inputs: torch.Tensor, q_levels=256, emphasis=0.):
+    def encode(inputs: torch.Tensor, q_levels=256, emphasis=0., sample_encoding='mu_law', normalize=True, shaper=None):
         if emphasis:
             inputs = F.lfilter(inputs,
                                torch.tensor([1, 0]).to(inputs),  # a0, a1
                                torch.tensor([1, -emphasis]).to(inputs))  # b0, b1
-<<<<<<< HEAD
         if normalize:
             inputs = inputs / torch.norm(inputs, p=float("inf"))
         if sample_encoding == 'mu_law':
             return F.mu_law_encoding(inputs, q_levels)
         elif sample_encoding == 'adapted':
-            indices = torch.from_numpy(shaper[1]).float()
-            xvals = 2 * indices / indices[-1] - 1.0
+            ids = torch.from_numpy(shaper[1]).float()
             # unfortunately Interp1d does not let you select an axis - so process columns one by one
-            signal = torch.stack([Interp1d()(torch.from_numpy(shaper[0]).float().to(inputs),
-                                             xvals,
-                                             2.0 * inputs[:, k] / (q_levels - 1) - 1.0)
-                                  for k in range(inputs.shape[1])]).T
-            return ((signal + 1.0) * 0.5 * (q_levels - 1)).astype(np.int)
+            return ((inputs + 1.0) * 0.5 * (q_levels - 1)).astype(np.int)
         elif sample_encoding == 'pcm':
             return ((inputs + 1.0) * 0.5 * (q_levels - 1)).astype(np.int)
         else:
@@ -69,12 +78,12 @@ class QuantizedSignal(Feature):
             signal = F.mu_law_decoding(outputs, q_levels)
         elif sample_encoding == 'adapted':
             outputs = outputs.float()
-            indices = torch.from_numpy(shaper[1]).float().to(outputs)
-            xvals = 2 * indices / indices[-1] - 1.0
+            ids = torch.from_numpy(shaper[1]).float().to(outputs)
+            xvals = 2 * ids / ids[-1] - 1.0
             # unfortunately Interp1d does not let you select an axis - so process columns one by one
-            signal = torch.stack([Interp1d()(xvals,
-                                             torch.from_numpy(shaper[0]).float().to(outputs),
-                                             2.0 * outputs[:, k] / (q_levels - 1) - 1.0)
+            signal = torch.stack([Interp1d()(xvals, 
+                                             torch.from_numpy(shaper[0]).float().to(outputs), 
+                                             2.0 * outputs[:,k] / (q_levels - 1) - 1.0) 
                                   for k in range(outputs.shape[1])]).T
         elif sample_encoding == 'pcm':
             signal = 2.0 * outputs.float() / (q_levels - 1) - 1.0
