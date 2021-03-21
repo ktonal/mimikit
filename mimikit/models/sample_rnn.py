@@ -51,8 +51,8 @@ class FramesDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=16000, q_levels=255, emphasis=0.):
-        return QuantizedSignal.extract(path, sr, q_levels, emphasis)
+    def extract(path, sr=16000, q_levels=255, emphasis=0., sample_encoding='mu_law'):
+        return QuantizedSignal.extract(path, sr, q_levels, emphasis, sample_encoding)
 
     def prepare_dataset(self, model, datamodule):
         batch_size, chunk_len, batch_seq_len, frame_sizes = model.batch_info()
