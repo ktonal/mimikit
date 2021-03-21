@@ -64,7 +64,7 @@ class SequenceModel(MMKHooks,
 
     @staticmethod
     def generate_tqdm(rng):
-        return tqdm(rng, desc="Generate", dynamic_ncols=True, leave=False, unit="step", position=0)
+        return tqdm(rng, desc="Generate", dynamic_ncols=True, leave=False, unit="step", mininterval=0.25)
 
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
         raise NotImplementedError

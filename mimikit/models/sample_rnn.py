@@ -18,10 +18,11 @@ class TBPTTSampler(Sampler):
     """
     yields batches of indices for performing Truncated Back Propagation Through Time
     """
+
     def __init__(self,
                  n_samples,
                  batch_size=64,  # nbr of "tracks" per batch
-                 chunk_length=8*16000,  # total length of a track
+                 chunk_length=8 * 16000,  # total length of a track
                  seq_len=512  # nbr of samples per backward pass
                  ):
         super().__init__(None)
@@ -29,27 +30,29 @@ class TBPTTSampler(Sampler):
         self.chunk_length = chunk_length
         self.seq_len = seq_len
         self.n_chunks = self.n_samples // self.chunk_length
+        self.remainder = self.n_samples % self.chunk_length
         self.n_per_chunk = self.chunk_length // self.seq_len
         self.batch_size = min(batch_size, self.n_chunks)
 
     def __iter__(self):
         smp = RandomSampler(torch.arange(self.n_chunks))
-        for top in BatchSampler(smp, self.batch_size, True):  # drop last!
+        for top in BatchSampler(smp, self.batch_size, False):  # don't drop last!
+            offsets = torch.randint(0, self.remainder, (self.batch_size,))
+            top = tuple(o + (t * self.chunk_length) for t, o in zip(top, offsets))
             for start in range(self.n_per_chunk):
                 # start indices of the batch
-                yield tuple((t * self.chunk_length) + (start * self.seq_len) for t in top)
+                yield tuple(t + (start * self.seq_len) for t in top)
 
     def __len__(self):
         return int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
-
 
 
 class FramesDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=16000, q_levels=255, emphasis=0., sample_encoding='mu_law'):
-        return QuantizedSignal.extract(path, sr, q_levels, emphasis, sample_encoding)
+    def extract(path, sr=16000, q_levels=255, emphasis=0.):
+        return QuantizedSignal.extract(path, sr, q_levels, emphasis)
 
     def prepare_dataset(self, model, datamodule):
         batch_size, chunk_len, batch_seq_len, frame_sizes = model.batch_info()
@@ -57,13 +60,12 @@ class FramesDB(DBDataset):
         lengths = [batch_seq_len for _ in frame_sizes[:-1]]
         lengths += [frame_sizes[0] + batch_seq_len]
         lengths += [batch_seq_len]
-
         self.slicer = ShiftedSequences(len(self.qx), list(zip(shifts, lengths)))
         self.frame_sizes = frame_sizes
         self.seq_len = batch_seq_len
 
-        # round the size of the dataset to a multiple of the chunk size :
-        batch_sampler = TBPTTSampler(chunk_len * (len(self.qx) // chunk_len),
+        # the slicer knows how many batches it can build, so we pass its length to the sampler
+        batch_sampler = TBPTTSampler(len(self.slicer),
                                      batch_size,
                                      chunk_len,
                                      batch_seq_len)
@@ -87,10 +89,13 @@ class FramesDB(DBDataset):
         slices = self.slicer(item)
         tiers_slc, bottom_slc, target_slc = slices[:-2], slices[-2], slices[-1]
         inputs = [self.qx[slc].reshape(-1, fs) for slc, fs in zip(tiers_slc, self.frame_sizes[:-1])]
-        # ugly but necessary if self.qx became a tensor...
-        with torch.no_grad():
-            inputs += [as_strided(bottom_slc, self.frame_sizes[-1])]
-
+        try:
+            # ugly but necessary if self.qx became a tensor...
+            with torch.no_grad():
+                inputs += [as_strided(bottom_slc, self.frame_sizes[-1])]
+        except RuntimeError:
+            print(bottom_slc)
+            return None
         target = self.qx[target_slc]
 
         return tuple(inputs), target
@@ -127,7 +132,8 @@ class SampleRNN(SequenceModel,
                  db=None,
                  batch_size=64,
                  batch_seq_len=512,
-                 chunk_len=8*16000,
+                 chunk_len=8 * 16000,
+                 reset_hidden=True,
                  n_test_warmups=10,
                  n_test_prompts=2,
                  n_test_steps=16000,
@@ -156,7 +162,7 @@ class SampleRNN(SequenceModel,
         SuperAdam.setup(self, stage)
 
     def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        if (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
+        if self.hparams.reset_hidden and (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
             self.reset_h0()
 
     def on_epoch_end(self):
@@ -197,7 +203,7 @@ class SampleRNN(SequenceModel,
         return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
 
     def decode_outputs(self, outputs: torch.Tensor):
-        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis, self.hparams.sample_encoding, self.hparams.shaper)
+        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
 
     def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5):
         # prepare model
@@ -234,7 +240,7 @@ class SampleRNN(SequenceModel,
             else:
                 # great place to implement dynamic cooling/heating !
                 pred = torch.multinomial(nn.Softmax(dim=-1)(out / temperature).reshape(-1, out.size(-1)), 1)
-            output.data[:, t:t+1] = pred
+            output.data[:, t:t + 1] = pred
 
         if decode_outputs:
             output = self.decode_outputs(output)
@@ -242,4 +248,3 @@ class SampleRNN(SequenceModel,
         self.after_generate()
 
         return output
-
