@@ -27,7 +27,7 @@ class MMKCheckpoint(ModelCheckpoint):
 
     def should_save(self, epoch, step):
         if type(self.epochs) is int:
-            return (epoch % self.epochs) == 0
+            return epoch > 0 and (epoch % self.epochs) == 0
         elif type(self.epochs) is float:  # Doesn't work for now...
             return (step % int(self.epochs)) == 0
         elif isinstance(self.epochs, Iterable):
