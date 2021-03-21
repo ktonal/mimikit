@@ -43,13 +43,12 @@ class TBPTTSampler(Sampler):
         return int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
 
 
-
 class FramesDB(DBDataset):
     qx = None
 
     @staticmethod
-    def extract(path, sr=16000, q_levels=255, emphasis=0., sample_encoding='mu_law'):
-        return QuantizedSignal.extract(path, sr, q_levels, emphasis, sample_encoding)
+    def extract(path, sr=16000, q_levels=255, emphasis=0.):
+        return QuantizedSignal.extract(path, sr, q_levels, emphasis)
 
     def prepare_dataset(self, model, datamodule):
         batch_size, chunk_len, batch_seq_len, frame_sizes = model.batch_info()
@@ -197,7 +196,7 @@ class SampleRNN(SequenceModel,
         return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
 
     def decode_outputs(self, outputs: torch.Tensor):
-        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis, self.hparams.sample_encoding, self.hparams.shaper)
+        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
 
     def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5):
         # prepare model
