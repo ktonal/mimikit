@@ -203,7 +203,7 @@ class SampleRNN(SequenceModel,
         return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
 
     def decode_outputs(self, outputs: torch.Tensor):
-        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
+        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis, self.hparams.sample_encoding, self.hparams.shaper)
 
     def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5):
         # prepare model
