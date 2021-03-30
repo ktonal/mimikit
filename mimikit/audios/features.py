@@ -118,6 +118,29 @@ class MagSpec(Feature):
         return gla(outputs.transpose(-1, -2).contiguous())
 
 
+
+class PolarSpec(Feature):
+
+    @staticmethod
+    def extract(path, n_fft=2048, hop_length=512, sr=22050, normalize=False):
+        y = A.FileTo.signal(path, sr)
+        fft = A.SignalTo.polar_spec(y, n_fft, hop_length, normalize)
+        params = dict(n_fft=n_fft, hop_length=hop_length, sr=sr)
+        return dict(fft=(params, fft.transpose((0,2,1)), None))
+
+    @staticmethod
+    def encode(inputs: torch.Tensor, n_fft=2048, hop_length=512):
+        stft = T.Spectrogram(n_fft=n_fft, hop_length=hop_length, power=1.,
+                             wkwargs=dict(device=inputs.device))
+        S = stft(inputs).transpose(-1, -2).contiguous()
+        return torch.stack([abs(S), torch.angle(S)], 2)
+
+    # there are multiple ways to decode.  Best might be to use gla with initial phase from the estimates
+    @staticmethod
+    def decode(outputs: torch.Tensor, n_fft=2048, hop_length=512):
+        raise NotImplementedError
+
+
 class SegmentLabels(Feature):
 
     @staticmethod

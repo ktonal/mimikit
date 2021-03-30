@@ -39,6 +39,16 @@ class SignalTo:
         return abs(S)
 
     @staticmethod
+    def polar_spec(y, n_fft=N_FFT, hop_length=HOP_LENGTH, normalize=False, **kwargs):
+        S = SignalTo.stft(y, n_fft, hop_length, **kwargs)
+        mags = abs(S)
+        if normalize:
+            max_mag = np.max(mags)
+            mags = mags / max_mag
+        angles = np.angle(S)
+        return np.stack([mags, angles], 0)
+
+    @staticmethod
     def mu_law_compress(y, q_levels=Q_LEVELS):
         y = librosa.util.normalize(y)
         qx = librosa.mu_compress(y, q_levels-1, quantize=True)
