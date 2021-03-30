@@ -116,6 +116,7 @@ class PocoNet(PocoNetNetwork,
 
     def setup(self, stage: str):
         super().setup(stage)
+        self.center_adv.to('cuda')
 
     def batch_info(self, *args, **kwargs):
         lengths = (self.hparams.batch_seq_length, self.output_shape((-1, self.hparams.batch_seq_length, -1))[1])
