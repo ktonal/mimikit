@@ -11,7 +11,6 @@ from .wavenet import WNNetwork, WaveNetLayer
 from ..modules import homs as H, ops as Ops
 
 
-
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class PhaseNetwork(nn.Module):
 
@@ -31,11 +30,11 @@ class PhaseNetwork(nn.Module):
                                             for _ in range(self.n_2x3layers)])
         self.gate_layers2x3 = nn.ModuleList([nn.Conv2d(dim2x3, dim2x3, kernel_size=(2, 3), padding=(0, 1), groups=self.groups)
                                              for _ in range(self.n_2x3layers)])
-        phs_layers1x1 = [ nn.Conv2d(dim2x3, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
-        gate_layers1x1 = [ nn.Conv2d(dim2x3, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
-        for _ in range(self.n_1x1layers-1):
-            phs_layers1x1 += [nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
-            gate_layers1x1 += [nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
+        phs_layers1x1 = [nn.Conv2d(dim2x3, dim1x1, kernel_size=(1, 1), groups=self.groups)]
+        gate_layers1x1 = [nn.Conv2d(dim2x3, dim1x1, kernel_size=(1, 1), groups=self.groups)]
+        for _ in range(self.n_1x1layers - 1):
+            phs_layers1x1 += [nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1), groups=self.groups)]
+            gate_layers1x1 += [nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1), groups=self.groups)]
         self.phs_layers1x1 = nn.ModuleList(phs_layers1x1)
         self.gate_layers1x1 = nn.ModuleList(gate_layers1x1)
         self.last_phslayer = nn.Conv2d(dim1x1, 1, kernel_size=(1, 1))
@@ -51,8 +50,8 @@ class PhaseNetwork(nn.Module):
                                     (1, 1, 0, 0), mode='reflect'))
         pgt = self.principarg(x[:, 1:, phs_net_shift - 1:-1] - x[:, 1:, phs_net_shift:])
         pgt = self.principarg(pgt - self.center_adv)  # demodulate
-        log_mags = torch.cat([self.save_log(x[:, 0:1, phs_net_shift:]),
-                              self.save_log(predicted_mags[:, -1:]).unsqueeze(1)], 2)
+        log_mags = torch.cat([self.safe_log(x[:, 0:1, phs_net_shift:]),
+                              self.safe_log(predicted_mags[:, -1:]).unsqueeze(1)], 2)
         # log magnitude gradients
         tgt = log_mags[:, :, 1:] - log_mags[:, :, :-1]
         log_mags = log_mags[:, :, 1:]
@@ -71,7 +70,7 @@ class PhaseNetwork(nn.Module):
         return x - 2.0 * np.pi * torch.round(x / (2.0 * np.pi))
 
     @staticmethod
-    def save_log(x):
+    def safe_log(x):
         return torch.log(torch.maximum(x, torch.tensor(0.00001)))
 
 
