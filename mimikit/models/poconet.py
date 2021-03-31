@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torchaudio.transforms import GriffinLim
 import pytorch_lightning as pl
+import numpy as np
 
 from ..audios import transforms as A
 from ..kit.db_dataset import DBDataset
@@ -75,6 +76,7 @@ class PocoNet(PocoNetNetwork,
                  n_2x3layers=2,
                  dim2x3=128,
                  dim1x1=128,
+                 phs_groups=1,
                  max_lr=1e-3,
                  betas=(.9, .9),
                  div_factor=3.,
@@ -110,7 +112,7 @@ class PocoNet(PocoNetNetwork,
                                 n_gin_classes=n_gin_classes, gin_dim=gin_dim,
                                 gate_dim=gate_dim, kernel_size=kernel_size, groups=groups,
                                 dim1x1=dim1x1, dim2x3=dim2x3, n_1x1layers=n_1x1layers, n_2x3layers=n_2x3layers,
-                                accum_outputs=accum_outputs, pad_input=pad_input,
+                                phs_groups=phs_groups, accum_outputs=accum_outputs, pad_input=pad_input,
                                 skip_dim=skip_dim, residuals_dim=residuals_dim)
         self.save_hyperparameters()
 
@@ -146,10 +148,16 @@ class PocoNet(PocoNetNetwork,
             output_slice = slice(None, 1)
         return input_slice, output_slice
 
+    # untested - don't expect it to work
     def decode_outputs(self, outputs: torch.Tensor):
-        gla = GriffinLim(n_fft=self.hparams.n_fft, hop_length=self.hparams.hop_length, power=1.,
-                         wkwargs=dict(device=outputs.device))
-        return gla(outputs.transpose(-1, -2).contiguous())
+        mag = outputs[:, 0]
+        phs = outputs[:, 1]
+        spec = torch.exp(phs * 1j) * mag
+        hann_window = torch.hann_window(self.hparams.n_fft)
+        signal = torch.istft(spec, self.hparams.n_fft, self.hparams.hop_length, window=hann_window)
+        # gla = GriffinLim(n_fft=self.hparams.n_fft, hop_length=self.hparams.hop_length, power=1.,
+        #                  wkwargs=dict(device=outputs.device))
+        return signal.transpose(-1, -2).contiguous()
 
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
         self.before_generate()
@@ -160,7 +168,9 @@ class PocoNet(PocoNetNetwork,
         _, out_slc = self.generation_slices()
 
         for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            output.data[:, t:t+1] = self.forward(output[:, t-rf:t])[:, out_slc]
+            new_data = self.forward(output[:, :, t - rf:t])[:, :, out_slc]
+            new_data[:, 1] = self.principarg(new_data[:, 1])
+            output.data[:, :, t:t + 1] = new_data
 
         if decode_outputs:
             output = self.decode_outputs(output)
@@ -168,3 +178,7 @@ class PocoNet(PocoNetNetwork,
         self.after_generate()
 
         return output
+
+    @staticmethod
+    def principarg(x):
+        return x - 2.0 * np.pi * torch.round(x / (2.0 * np.pi))

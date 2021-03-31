@@ -118,7 +118,6 @@ class MagSpec(Feature):
         return gla(outputs.transpose(-1, -2).contiguous())
 
 
-
 class PolarSpec(Feature):
 
     @staticmethod

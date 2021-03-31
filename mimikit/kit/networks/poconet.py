@@ -20,20 +20,24 @@ class PhaseNetwork(nn.Module):
     dim2x3: int = 64
     n_1x1layers: int = 3
     n_2x3layers: int = 2
+    groups: int = 1
 
     def __post_init__(self):
         nn.Module.__init__(self)
         dim1x1 = self.dim1x1
         dim2x3 = self.dim2x3
         self.first_phslayer = nn.Conv2d(5, dim2x3 - 5, kernel_size=(3, 3), padding=(0, 1))
-        self.phs_layers2x3 = nn.ModuleList([nn.Conv2d(dim2x3, dim2x3, kernel_size=(2, 3), padding=(0, 1))
+        self.phs_layers2x3 = nn.ModuleList([nn.Conv2d(dim2x3, dim2x3, kernel_size=(2, 3), padding=(0, 1), groups=self.groups)
                                             for _ in range(self.n_2x3layers)])
-        self.gate_layers2x3 = nn.ModuleList([nn.Conv2d(dim2x3, dim2x3, kernel_size=(2, 3), padding=(0, 1))
+        self.gate_layers2x3 = nn.ModuleList([nn.Conv2d(dim2x3, dim2x3, kernel_size=(2, 3), padding=(0, 1), groups=self.groups)
                                              for _ in range(self.n_2x3layers)])
-        self.phs_layers1x1 = nn.ModuleList([nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1))
-                                            for _ in range(self.n_1x1layers)])
-        self.gate_layers1x1 = nn.ModuleList([nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1))
-                                             for _ in range(self.n_1x1layers)])
+        phs_layers1x1 = [ nn.Conv2d(dim2x3, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
+        gate_layers1x1 = [ nn.Conv2d(dim2x3, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
+        for _ in range(self.n_1x1layers-1):
+            phs_layers1x1 += [nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
+            gate_layers1x1 += [nn.Conv2d(dim1x1, dim1x1, kernel_size=(1, 1), groups=self.groups) ]
+        self.phs_layers1x1 = nn.ModuleList(phs_layers1x1)
+        self.gate_layers1x1 = nn.ModuleList(gate_layers1x1)
         self.last_phslayer = nn.Conv2d(dim1x1, 1, kernel_size=(1, 1))
         self.center_adv = Variable(self.principarg(torch.from_numpy(np.arange(self.input_dim) * 2 * np.pi * 0.25)),
                                    requires_grad=False).float()
@@ -62,13 +66,13 @@ class PhaseNetwork(nn.Module):
         dphs = self.last_phslayer(dphs)
         return self.principarg(phs[:, :, shift:] + self.center_adv + dphs)
 
-  @staticmethod
-  def principarg(x):
-      return x - 2.0 * np.pi * torch.round(x / (2.0 * np.pi))
+    @staticmethod
+    def principarg(x):
+        return x - 2.0 * np.pi * torch.round(x / (2.0 * np.pi))
 
-  @staticmethod
-  def save_log(x):
-      return torch.log(torch.maximum(x, torch.tensor(0.00001)))
+    @staticmethod
+    def save_log(x):
+        return torch.log(torch.maximum(x, torch.tensor(0.00001)))
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
@@ -91,6 +95,7 @@ class PocoNetNetwork(WNNetwork, nn.Module):
     dim2x3: int = 64
     n_1x1layers: int = 3
     n_2x3layers: int = 2
+    phs_groups: int = 1
 
     def inpt_(self):
         return H.Paths(
@@ -128,7 +133,7 @@ class PocoNetNetwork(WNNetwork, nn.Module):
     def __post_init__(self):
         WNNetwork.__post_init__(self)
         self.phs_network = PhaseNetwork(input_dim=self.input_dim, dim1x1=self.dim1x1, dim2x3=self.dim2x3,
-                                        n_1x1layers=self.n_1x1layers, n_2x3layers=self.n_2x3layers)
+                                        n_1x1layers=self.n_1x1layers, n_2x3layers=self.n_2x3layers, groups=self.phs_groups)
 
     def forward(self, xi, cin=None, gin=None):
         x, cin, gin = self.inpt(xi[:, 0], cin, gin)
@@ -136,3 +141,13 @@ class PocoNetNetwork(WNNetwork, nn.Module):
         predicted_mags = self.outpt(skips if skips is not None else y)
         phs = self.phs_network(xi, predicted_mags)
         return torch.cat([predicted_mags.unsqueeze(1), phs], 1)
+
+    def cuda(self, device=None):
+        self = super().cuda(device)
+        self.phs_network.center_adv = self.phs_network.center_adv.cuda(device)
+        return self 
+
+    def to(self, *args, **kwargs):
+        self = super().to(*args, **kwargs) 
+        self.phs_network.center_adv = self.phs_network.center_adv.to(*args, **kwargs)
+        return self
