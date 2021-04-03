@@ -51,6 +51,8 @@ class SampleRNNTier(nn.Module):
         # no rnn for bottom tier
         if self.is_bottom:
             return None
+        self.h0 = nn.Parameter(torch.zeros(self.n_rnn, 1, self.dim))
+        self.c0 = nn.Parameter(torch.zeros(self.n_rnn, 1, self.dim))
         return nn.LSTM(self.dim, self.dim, self.n_rnn, batch_first=True)
 
     def up_sampling_net_(self):
@@ -89,6 +91,11 @@ class SampleRNNTier(nn.Module):
             nn.Linear(self.mlp_dim, self.q_levels if self.is_bottom else self.dim),
         )
 
+    def reset_hidden(self, batch_size, device):
+        self.h0 = nn.Parameter(torch.zeros(self.n_rnn, batch_size, self.dim).to(device))
+        self.c0 = nn.Parameter(torch.zeros(self.n_rnn, batch_size, self.dim).to(device))
+        return self.h0, self.c0
+
     def __post_init__(self):
         nn.Module.__init__(self)
         self.embeddings = self.embeddings_()
@@ -114,13 +121,10 @@ class SampleRNNTier(nn.Module):
 
         if self.rnn is not None:
             if hidden is None or x.size(0) != hidden[0].size(1):
-                h0 = torch.zeros(self.n_rnn, x.size(0), self.dim).to(x)
-                c0 = torch.zeros(self.n_rnn, x.size(0), self.dim).to(x)
-                hidden = (h0, c0)
+                hidden = self.reset_hidden(x.size(0), x.device)
             else:
                 # TRUNCATED back propagation through time == detach()!
                 hidden = tuple(h.detach() for h in hidden)
-
             x, hidden = self.rnn(x, hidden)
 
         if self.up_net is not None:

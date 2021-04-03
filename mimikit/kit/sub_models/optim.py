@@ -72,7 +72,12 @@ class SuperAdam(LightningModule):
 
 class RMS(LightningModule):
     def __init__(self,
-                 lr=1e-2, alpha=0.99, eps=1e-8, weight_decay=0, momentum=0, centered=False
+                 lr=1e-2,
+                 alpha=0.99,
+                 eps=1e-8,
+                 weight_decay=0,
+                 momentum=0,
+                 centered=False
                  ):
         super(LightningModule, self).__init__()
         self.args = dict(lr=lr, alpha=alpha, eps=eps, weight_decay=weight_decay, momentum=momentum, centered=centered)

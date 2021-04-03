@@ -35,9 +35,9 @@ class MMKCheckpoint(ModelCheckpoint):
         return False
 
     def save_checkpoint(self, trainer, pl_module):
-        epoch, global_step = trainer.current_epoch, trainer.global_step
+        epoch, global_step = trainer.current_epoch + 1, trainer.global_step
         if trainer.state == TrainerState.INTERRUPTED or \
-                epoch == (trainer.max_epochs - 1) or self.should_save(epoch, global_step):
+                epoch == trainer.max_epochs or self.should_save(epoch, global_step):
             # hacks the code from github
             self._add_backward_monitor_support(trainer)
             self._validate_monitor_key(trainer)

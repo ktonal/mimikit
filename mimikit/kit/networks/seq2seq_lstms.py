@@ -74,6 +74,7 @@ class Seq2SeqLSTM(nn.Module):
         self.enc = EncoderLSTM(input_dim, model_dim, num_layers, bottleneck, n_fc)
         self.dec = DecoderLSTM(model_dim, num_layers, bottleneck)
         self.sampler = ParametrizedGaussian(model_dim, model_dim)
+        self.fc_out = nn.Linear(model_dim, input_dim)
 
     def forward(self, x, output_length=None):
         coded, (h_enc, c_enc) = self.enc(x)
@@ -83,4 +84,4 @@ class Seq2SeqLSTM(nn.Module):
         residuals, _, _ = self.sampler(coded)
         coded = coded + residuals
         output, (_, _) = self.dec(coded, h_enc, c_enc)
-        return output
+        return self.fc_out(output).abs()

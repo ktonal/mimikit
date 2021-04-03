@@ -23,14 +23,13 @@ class SequenceModel(MMKHooks,
     def training_step(self, batch, batch_idx):
         batch, target = batch
         output = self.forward(batch)
-        L = self.loss_fn(output, target)
-        return {"loss": L}
+        return self.loss_fn(output, target)
 
     def validation_step(self, batch, batch_idx):
         batch, target = batch
         output = self.forward(batch)
         L = self.loss_fn(output, target)
-        return {"val_loss": L}
+        return {"val_loss" if k == "loss" else k: v for k, v in L.items()}
 
     def setup(self, stage: str):
         if stage == "fit" and getattr(self, "logger", None) is not None:
@@ -38,6 +37,9 @@ class SequenceModel(MMKHooks,
 
     def batch_info(self, *args, **kwargs):
         raise NotImplementedError("subclasses of `SequenceModel` have to implement `batch_info`")
+
+    def get_prompts(self, n_prompts, prompt_length=None):
+        raise NotImplementedError
 
     def before_generate(self, *args, **kwargs):
         # prepare model
@@ -89,9 +91,9 @@ class GenerateCallBack(pl.callbacks.Callback):
         self.play_audios = play_audios
 
     def on_epoch_end(self, trainer: pl.Trainer, model: SequenceModel):
-        if trainer.current_epoch % self.every_n_epochs != 0:
+        if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
             return
-        prompt = next(iter(trainer.train_dataloader))[:self.n_prompts]
+        prompt = model.get_prompts(self.n_prompts)
         output = model.generate(prompt, self.n_steps, decode_outputs=True, **self.kwargs)
         for i in range(output.size(0)):
             y = output[i].detach().cpu().numpy()

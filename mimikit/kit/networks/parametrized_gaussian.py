@@ -18,7 +18,7 @@ class ParametrizedGaussian(nn.Module):
     def forward(self, h):
         mu, logvar = self.fc1(self.pre_act(h)), self.fc2(self.pre_act(h))
         std = logvar.mul(0.5).exp_()
-        eps = torch.randn(*mu.size(), device=self.device)
+        eps = torch.randn(*mu.size()).to(h.device)
         z = mu + std * eps
         if self.return_params:
             return z, mu, std

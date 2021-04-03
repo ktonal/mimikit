@@ -248,3 +248,6 @@ class SampleRNN(SequenceModel,
         self.after_generate()
 
         return output
+
+    def load_state_dict(self, state_dict, strict=True):
+        return super(SampleRNN, self).load_state_dict(state_dict, strict=False)

@@ -34,3 +34,10 @@ class EpochProgressBarCallback(Callback):
         self.epoch_bar.update()
 
 
+class GradNormCallback(Callback):
+
+    def __init__(self):
+        self.gradnorms = []
+
+    def on_after_backward(self, trainer, pl_module: 'LightningModule') -> None:
+        self.gradnorms += [pl_module.grad_norm(1.)]
