@@ -62,6 +62,7 @@ class MagSpec(Feature):
     @staticmethod
     def extract(path, n_fft=2048, hop_length=512, sr=22050):
         y = A.FileTo.signal(path, sr)
+        y = A.normalize(y)
         fft = A.SignalTo.mag_spec(y, n_fft, hop_length)
         params = dict(n_fft=n_fft, hop_length=hop_length, sr=sr)
         return dict(fft=(params, fft.T, None))
