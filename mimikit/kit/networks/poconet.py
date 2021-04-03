@@ -11,6 +11,7 @@ from .wavenet import WNNetwork, WaveNetLayer
 from ..modules import homs as H, ops as Ops
 
 
+
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class PhaseNetwork(nn.Module):
 
@@ -46,10 +47,10 @@ class PhaseNetwork(nn.Module):
         shift = x.shape[2] - predicted_mags.shape[1]
         phs_net_shift = shift - 2 - self.n_2x3layers
         # phase gradients in frequency and time
-        pgf = self.principarg(F.pad(x[:, 1:, phs_net_shift:, 2:] - x[:, 1:, phs_net_shift:, :-2],
-                                    (1, 1, 0, 0), mode='reflect'))
-        pgt = self.principarg(x[:, 1:, phs_net_shift - 1:-1] - x[:, 1:, phs_net_shift:])
-        pgt = self.principarg(pgt - self.center_adv)  # demodulate
+        pgf = torch_principarg(F.pad(x[:, 1:, phs_net_shift:, 2:] - x[:, 1:, phs_net_shift:, :-2],
+                                     (1, 1, 0, 0), mode='reflect'))
+        pgt = torch_principarg(x[:, 1:, phs_net_shift - 1:-1] - x[:, 1:, phs_net_shift:])
+        pgt = torch_principarg(pgt - self.center_adv)  # demodulate
         log_mags = torch.cat([self.safe_log(x[:, 0:1, phs_net_shift:]),
                               self.safe_log(predicted_mags[:, -1:]).unsqueeze(1)], 2)
         # log magnitude gradients
@@ -60,10 +61,12 @@ class PhaseNetwork(nn.Module):
         dphs = torch.cat([dphs[:, :, 2:], F.tanh(self.first_phslayer(dphs))], 1)
         for l, g in zip(self.phs_layers2x3, self.gate_layers2x3):
             dphs = torch.tanh(l(dphs)) * F.relu(g(dphs)) + dphs[:, :, 1:]
-        for l, g in zip(self.phs_layers1x1, self.gate_layers1x1):
+        dphs = torch.tanh(self.phs_layers1x1[0](dphs)) * F.relu(self.gate_layers1x1[0](dphs))
+        dphs[:, :self.dim2x3] += dphs[:, :self.dim2x3]
+        for l, g in zip(self.phs_layers1x1[1:], self.gate_layers1x1[1:]):
             dphs = torch.tanh(l(dphs)) * F.relu(g(dphs)) + dphs
         dphs = self.last_phslayer(dphs)
-        return self.principarg(phs[:, :, shift:] + self.center_adv + dphs)
+        return torch_principarg(phs[:, :, shift:] + self.center_adv + dphs)
 
     @staticmethod
     def principarg(x):
@@ -95,6 +98,9 @@ class PocoNetNetwork(WNNetwork, nn.Module):
     n_1x1layers: int = 3
     n_2x3layers: int = 2
     phs_groups: int = 1
+    amp_env_dim: int = 32
+    amp_gate_dim: int = 256
+    amp_env_layers: int = 1
 
     def inpt_(self):
         return H.Paths(
@@ -123,6 +129,21 @@ class PocoNetNetwork(WNNetwork, nn.Module):
             for block in self.n_layers for i in range(block)
         ])
 
+    def amp_env_(self):
+        # amp env input to get an additive and a multiplicative tensor to modify the input to the net
+        mul_net = [nn.Linear(2, self.amp_env_dim)]
+        add_net = [nn.Linear(2, self.amp_env_dim)]
+        for _ in range(self.amp_env_layers):
+            mul_net += [nn.Linear(self.amp_env_dim, self.amp_env_dim), nn.ReLU()]
+            add_net += [nn.Linear(self.amp_env_dim, self.amp_env_dim), nn.ReLU()]
+        mul_net += [nn.Linear(self.amp_env_dim, self.amp_gate_dim), nn.ReLU(), Ops.Transpose(1, 2)]
+        add_net += [nn.Linear(self.amp_env_dim, self.amp_gate_dim), nn.ReLU(), Ops.Transpose(1, 2)]
+
+        return H.Paths(
+            nn.Sequential(*mul_net),
+            nn.Sequential(*add_net)
+        )
+
     def outpt_(self):
         return nn.Sequential(
             Ops.Transpose(1, 2),
@@ -133,10 +154,13 @@ class PocoNetNetwork(WNNetwork, nn.Module):
         WNNetwork.__post_init__(self)
         self.phs_network = PhaseNetwork(input_dim=self.input_dim, dim1x1=self.dim1x1, dim2x3=self.dim2x3,
                                         n_1x1layers=self.n_1x1layers, n_2x3layers=self.n_2x3layers, groups=self.phs_groups)
+        self.amp_env = self.amp_env_()
 
-    def forward(self, xi, cin=None, gin=None):
+    def forward(self, xi, env, cin=None, gin=None):
         x, cin, gin = self.inpt(xi[:, 0], cin, gin)
-        y, _, _, skips = self.layers((x, cin, gin, None))
+        aa, am = self.amp_env(env, env)
+        xm = torch.cat([am * x[:, :self.amp_gate_dim] + aa, x[:, self.amp_gate_dim:]], 1)
+        y, _, _, skips = self.layers((xm, cin, gin, None))
         predicted_mags = self.outpt(skips if skips is not None else y)
         phs = self.phs_network(xi, predicted_mags)
         return torch.cat([predicted_mags.unsqueeze(1), phs], 1)

@@ -7,10 +7,9 @@ import numpy as np
 from ..audios import transforms as A
 from ..kit.db_dataset import DBDataset
 from ..kit.ds_utils import ShiftedSequences
-
 from ..kit import SuperAdam, SequenceModel, DataSubModule
-
 from ..kit.networks.poconet import PocoNetNetwork
+from ..audios/utils import peakdetector
 
 
 class PocoNetDB(DBDataset):
@@ -20,19 +19,27 @@ class PocoNetDB(DBDataset):
     @staticmethod
     def extract(path, n_fft=2048, hop_length=512, sr=22050):
         y = A.FileTo.signal(path, sr)
-        fft = SignalTo.polar_spec(y, n_fft, hop_length)
+        S = SignalTo.stft(y, n_fft, hop_length)
+        mags = abs(S)
+        angles = np.angle(S)
+        env = 0.1 * peakdetector(np.sum(mags, 0), 0.75, 0.1)
+        env_deriv = lfilter([3, 0, -3], [1], env)[2:]
+        env = np.stack([env[1: -1], env_deriv])
+        fft = np.stack([mags[:, :-2], angles[:, :-2]])
         params = dict(n_fft=n_fft, hop_length=hop_length, sr=sr)
-        return dict(fft=(params, fft.transpose((0, 2, 1)), None))
+        return dict(fft=(params, fft.transpose((0, 2, 1)), None), 
+                    env=(dict(att=0.75, dec=0.1), env.T.astype(np.float32), None))
 
     def prepare_dataset(self, model, datamodule):
         prm = model.batch_info()
         self.slicer = ShiftedSequences(self.fft.shape[1], list(zip(prm["shifts"], prm["lengths"])))
+        print('shifts', prm['shifts'], 'length', prm['lengths'], 'len', len(self.slicer))
         datamodule.loader_kwargs.setdefault("drop_last", False)
         datamodule.loader_kwargs.setdefault("shuffle", True)
 
     def __getitem__(self, item):
         slices = self.slicer(item)
-        return tuple(self.fft[:, sl] for sl in slices)
+        return self.fft[:, slices[0]], self.env[slices[0]], self.fft[:, slices[1]]
 
     def __len__(self):
         return len(self.slicer)
@@ -45,6 +52,7 @@ def l1_loss_with_phs(output, target):
     cd = (torch.cos(y[:, 1]) - torch.cos(x[:, 1]))
     sd = (torch.sin(y[:, 1]) - torch.sin(x[:, 1]))
     phserr = torch.mean(torch.norm(torch.stack((sd, cd)) * torch.sqrt((y[:, 0] / norm + 0.01)), dim=0))
+    # phserr = torch.mean(cd*cd + sd*sd + 0.00001))
     L = nn.L1Loss(reduction="none")(output[:, 0], target[:, 0]).sum(dim=(0, -1), keepdim=True)
     return 100 * (L / norm).mean(), 100 * phserr
 
@@ -77,6 +85,9 @@ class PocoNet(PocoNetNetwork,
                  dim2x3=128,
                  dim1x1=128,
                  phs_groups=1,
+                 amp_env_dim=32,
+                 amp_gate_dim=256,
+                 amp_env_layers=1,
                  max_lr=1e-3,
                  betas=(.9, .9),
                  div_factor=3.,
@@ -111,14 +122,14 @@ class PocoNet(PocoNetNetwork,
                                 n_cin_classes=n_cin_classes, cin_dim=cin_dim,
                                 n_gin_classes=n_gin_classes, gin_dim=gin_dim,
                                 gate_dim=gate_dim, kernel_size=kernel_size, groups=groups,
-                                dim1x1=dim1x1, dim2x3=dim2x3, n_1x1layers=n_1x1layers, n_2x3layers=n_2x3layers,
-                                phs_groups=phs_groups, accum_outputs=accum_outputs, pad_input=pad_input,
+                                dim1x1=dim1x1, dim2x3=dim2x3, n_1x1layers=n_1x1layers, n_2x3layers=n_2x3layers, 
+                                amp_gate_dim=amp_gate_dim, phs_groups=phs_groups, amp_env_layers=amp_env_layers,
+                                amp_env_dim=amp_env_dim, accum_outputs=accum_outputs, pad_input=pad_input,
                                 skip_dim=skip_dim, residuals_dim=residuals_dim)
         self.save_hyperparameters()
 
     def setup(self, stage: str):
         super().setup(stage)
-        self.center_adv.to('cuda')
 
     def batch_info(self, *args, **kwargs):
         lengths = (self.hparams.batch_seq_length, self.output_shape((-1, self.hparams.batch_seq_length, -1))[1])
@@ -126,14 +137,14 @@ class PocoNet(PocoNetNetwork,
         return dict(shifts=shifts, lengths=lengths)
 
     def training_step(self, batch, batch_idx):
-        batch, target = batch
-        output = self.forward(batch)
+        batch, env, target = batch
+        output = self.forward(batch, env)
         mag_loss, phs_loss = self.loss_fn(output, target)
         return {"loss": mag_loss+phs_loss, "mag_loss": mag_loss, "phs_loss": phs_loss}
 
     def validation_step(self, batch, batch_idx):
-        batch, target = batch
-        output = self.forward(batch)
+        batch, env, target = batch
+        output = self.forward(batch, env)
         mag_loss, phs_loss = self.loss_fn(output, target)
         return {"val_loss":  mag_loss+phs_loss, "val_mag_loss": mag_loss, "val_phs_loss": phs_loss}
 
@@ -148,16 +159,10 @@ class PocoNet(PocoNetNetwork,
             output_slice = slice(None, 1)
         return input_slice, output_slice
 
-    # untested - don't expect it to work
     def decode_outputs(self, outputs: torch.Tensor):
-        mag = outputs[:, 0]
-        phs = outputs[:, 1]
-        spec = torch.exp(phs * 1j) * mag
-        hann_window = torch.hann_window(self.hparams.n_fft)
-        signal = torch.istft(spec, self.hparams.n_fft, self.hparams.hop_length, window=hann_window)
-        # gla = GriffinLim(n_fft=self.hparams.n_fft, hop_length=self.hparams.hop_length, power=1.,
-        #                  wkwargs=dict(device=outputs.device))
-        return signal.transpose(-1, -2).contiguous()
+        gla = GriffinLim(n_fft=self.hparams.n_fft, hop_length=self.hparams.hop_length, power=1.,
+                         wkwargs=dict(device=outputs.device))
+        return gla(outputs.transpose(-1, -2).contiguous())
 
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
         self.before_generate()
@@ -168,9 +173,7 @@ class PocoNet(PocoNetNetwork,
         _, out_slc = self.generation_slices()
 
         for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            new_data = self.forward(output[:, :, t - rf:t])[:, :, out_slc]
-            new_data[:, 1] = self.principarg(new_data[:, 1])
-            output.data[:, :, t:t + 1] = new_data
+            output.data[:, t:t+1] = self.forward(output[:, t-rf:t])[:, out_slc]
 
         if decode_outputs:
             output = self.decode_outputs(output)
@@ -178,7 +181,3 @@ class PocoNet(PocoNetNetwork,
         self.after_generate()
 
         return output
-
-    @staticmethod
-    def principarg(x):
-        return x - 2.0 * np.pi * torch.round(x / (2.0 * np.pi))
