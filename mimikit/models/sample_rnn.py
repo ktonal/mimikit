@@ -3,14 +3,14 @@ from pytorch_lightning import LightningModule
 import math
 import torch
 import torch.nn as nn
-import matplotlib.pyplot as plt
+import numpy as np
+from random import randint
 
 from ..kit import DBDataset
 from ..audios.features import QuantizedSignal
 from ..kit.ds_utils import ShiftedSequences
 from ..kit import SuperAdam, SequenceModel, DataSubModule
 from ..kit.networks.sample_rnn import SampleRNNNetwork
-from ..utils import audio
 from torch.utils.data import Sampler, RandomSampler, BatchSampler
 
 
@@ -113,7 +113,7 @@ class SampleRNN(SequenceModel,
     @staticmethod
     def loss_fn(output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
-        return criterion(output.view(-1, output.size(-1)), target.view(-1))
+        return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
 
     db_class = FramesDB
 
@@ -134,11 +134,6 @@ class SampleRNN(SequenceModel,
                  batch_seq_len=512,
                  chunk_len=8 * 16000,
                  reset_hidden=True,
-                 n_test_warmups=10,
-                 n_test_prompts=2,
-                 n_test_steps=16000,
-                 test_temp=0.5,
-                 test_every_n_epochs=3,
                  in_mem_data=True,
                  splits=None,  # tbptt should implement the splits...
                  **loaders_kwargs
@@ -165,59 +160,36 @@ class SampleRNN(SequenceModel,
         if self.hparams.reset_hidden and (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
             self.reset_h0()
 
-    def on_epoch_end(self):
-        super().on_epoch_end()
-        if (1 + self.current_epoch) % self.hparams.test_every_n_epochs != 0:
-            return
-        new = self.warm_up(self.hparams.n_test_warmups, self.hparams.n_test_prompts)
-        new = self.generate(new,
-                            self.hparams.n_test_steps,
-                            decode_outputs=True,
-                            temperature=self.hparams.test_temp)
-        self.train()
-        for i in range(new.size(0)):
-            y = new[i].squeeze().cpu().numpy()
-            print("prompt number", i)
-            plt.figure(figsize=(20, 2))
-            plt.plot(y)
-            plt.show()
-
-            audio(y, sr=self.hparams.sr)
-
-    def warm_up(self, n_warmups=10, n_prompts=4):
-        self.eval()
-        self.to("cuda")
-        self.reset_h0()
-
-        dl = iter(self.datamodule.train_dataloader())
-
-        for _ in range(n_warmups):
-            inpt, trgt = next(dl)
-            inpt = tuple(x[:n_prompts].to("cuda") for x in inpt)
-            with torch.no_grad():
-                new = nn.Softmax(dim=-1)(self(inpt)).argmax(dim=-1)
-
-        return new
-
     def encode_inputs(self, inputs: torch.Tensor):
         return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
 
     def decode_outputs(self, outputs: torch.Tensor):
         return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
 
+    def get_prompts(self, n_prompts, prompt_length=None):
+        if prompt_length is None:
+            prompt_length = self.hparams.batch_seq_len
+        N = len(self.db.qx) - prompt_length
+        idx = sorted([randint(0, N) for _ in range(n_prompts)])
+        stack = lambda t: torch.stack(t, dim=0) if isinstance(self.db.qx, torch.Tensor) else lambda t: np.stack(t, axis=0)
+        return stack(tuple(self.db.qx[i:i+prompt_length].squeeze() for i in idx))
+
     def generate(self, prompt, n_steps=16000, decode_outputs=False, temperature=.5):
         # prepare model
         self.before_generate()
-
         output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        # trim to start with a whole number of top frames
+        output = output[:, prompt.size(1) % self.frame_sizes[0]:]
+        prior_t = prompt.size(1) - (prompt.size(1) % self.frame_sizes[0])
 
         # init variables
         fs = [*self.frame_sizes]
         outputs = [None] * (len(fs) - 1)
+        # hidden are reset if prompt.size(0) != self.hidden.size(0)
         hiddens = self.hidden
         tiers = self.tiers
 
-        for t in self.generate_tqdm(range(prompt.size(1), n_steps + prompt.size(1))):
+        for t in self.generate_tqdm(range(fs[0], n_steps + prior_t)):
             for i in range(len(tiers) - 1):
                 if t % fs[i] == 0:
                     inpt = output[:, t - fs[i]:t].unsqueeze(1)
@@ -230,7 +202,8 @@ class SampleRNN(SequenceModel,
                     out, h = tiers[i](inpt, prev_out, hiddens[i])
                     hiddens[i] = h
                     outputs[i] = out
-
+            if t < prior_t:  # only used for warming-up
+                continue
             prev_out = outputs[-1]
             inpt = output[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
 

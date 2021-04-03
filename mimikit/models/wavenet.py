@@ -40,7 +40,7 @@ class WaveNet(WNNetwork,
     @staticmethod
     def loss_fn(output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
-        return criterion(output.view(-1, output.size(-1)), target.view(-1))
+        return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
 
     db_class = WaveNetDB
 
@@ -105,6 +105,9 @@ class WaveNet(WNNetwork,
 
     def decode_outputs(self, outputs: torch.Tensor):
         return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
+
+    def get_prompts(self, n_prompts, prompt_length=None):
+        return next(iter(self.datamodule.train_dataloader()))[0][:n_prompts, :prompt_length]
 
     def generate(self, prompt, n_steps, decode_outputs=False, temperature=None, **kwargs):
         # prepare device, mode and turn off autograd

@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from ..audios import transforms as A
 from ..kit.db_dataset import DBDataset
 from ..kit.ds_utils import ShiftedSequences
-
+from ..kit.loss_functions import mean_L1_prop
 from ..kit import SuperAdam, SequenceModel, DataSubModule
 
 from ..kit.networks.freqnet import FreqNetNetwork
@@ -37,11 +37,6 @@ class FreqNetDB(DBDataset):
         return len(self.slicer)
 
 
-def mean_L1_prop(output, target):
-    L = nn.L1Loss(reduction="none")(output, target).sum(dim=(0, -1), keepdim=True)
-    return 100 * (L / target.abs().sum(dim=(0, -1), keepdim=True)).mean()
-
-
 class FreqNet(FreqNetNetwork,
               DataSubModule,
               SuperAdam,
@@ -50,7 +45,7 @@ class FreqNet(FreqNetNetwork,
 
     @staticmethod
     def loss_fn(output, target):
-        return mean_L1_prop(output, target)
+        return {"loss": mean_L1_prop(output, target)}
 
     db_class = FreqNetDB
 
@@ -94,7 +89,7 @@ class FreqNet(FreqNetNetwork,
             n_gin_classes = None
         # noinspection PyArgumentList
         FreqNetNetwork.__init__(self,
-                                n_layers=n_layers, input_dim=self.hparams.n_fft // 2 + 1,
+                                n_layers=n_layers, input_dim=self.db.fft.shape[1],
                                 n_cin_classes=n_cin_classes, cin_dim=cin_dim,
                                 n_gin_classes=n_gin_classes, gin_dim=gin_dim,
                                 gate_dim=gate_dim, kernel_size=kernel_size, groups=groups,
@@ -125,6 +120,9 @@ class FreqNet(FreqNetNetwork,
         gla = GriffinLim(n_fft=self.hparams.n_fft, hop_length=self.hparams.hop_length, power=1.,
                          wkwargs=dict(device=outputs.device))
         return gla(outputs.transpose(-1, -2).contiguous())
+
+    def get_prompts(self, n_prompts, prompt_length=None):
+        return next(iter(self.datamodule.train_dataloader()))[0][:n_prompts, :prompt_length]
 
     def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
         self.before_generate()
