@@ -245,24 +245,6 @@ class FilterPattern(Pattern):
         self.pattern = pattern
 
 
-class Pfin(FilterPattern):
-    def __init__(self, pattern, n):
-        FilterPattern.__init__(self, pattern)
-        self.n = n
-
-    def embedInStream(self, rout):
-        stream = patify(self.pattern).asStream()
-        inval = rout.inval
-        n = patvalue(self.n, inval)
-        counter = 0
-        while counter < n:
-            val = stream.next(inval)
-            if val is EOP:
-                yield EOP
-            yield val
-            counter = counter + 1
-
-
 class Pstutter(FilterPattern):
     def __init__(self, n, pattern):
         FilterPattern.__init__(self, pattern)
@@ -294,6 +276,40 @@ class Pcollect(FilterPattern):
             if val is EOP:
                 yield EOP
             yield self.func(val)
+
+
+class Preject(FilterPattern):
+    def __init__(self, func, pattern):
+        FilterPattern.__init__(self, pattern)
+        self.func = func
+
+    def embedInStream(self, rout):
+        stream = patify(self.pattern).asStream()
+
+        while True:
+            val = stream.next(rout.inval)
+            if val is EOP:
+                yield EOP
+            out = self.func(val)
+            if not out:
+                yield val
+
+
+class Pselect(FilterPattern):
+    def __init__(self, func, pattern):
+        FilterPattern.__init__(self, pattern)
+        self.func = func
+
+    def embedInStream(self, rout):
+        stream = patify(self.pattern).asStream()
+
+        while True:
+            val = stream.next(rout.inval)
+            if val is EOP:
+                yield EOP
+            out = self.func(val)
+            if out:
+                yield val
 
 
 class Pwhite(Pattern):
@@ -813,28 +829,4 @@ class Ppar(Pattern):
         yield EOP
 
 
-class Pfsm(Pattern):
-
-    def __init__(self, lst, repeats=1, offset=0):
-        Pattern.__init__(self)
-        self.lst = lst
-        self.offset = offset
-        self.repeats = repeats
-
-    def embedInStream {  arg inval;
-        index=0;
-        maxState = ((len(self.lst) - 1) // 2) - 1
-        counter = 0
-
-        while counter < reps:
-            inval = rout.inval
-            index = 0
-            while True:
-                index = clip(choose(self.lst[index]), 0, maxState) * 2 + 2;
-                item = self.lst[index - 1]
-                if item is EOP:
-                    break
-                inval = item.embedInStream(inval);
-            counter += 1
-        yield EOP
 

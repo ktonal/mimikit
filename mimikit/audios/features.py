@@ -6,6 +6,7 @@ from abc import ABC
 
 from ..audios import transforms as A
 from ..h5data.write import write_feature
+from ..kit.modules.interpolate import Interp1d
 
 
 class Feature(ABC):

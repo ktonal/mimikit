@@ -192,6 +192,65 @@ class Pattern:
     def __float__(self, operand):
         return Punop('__float__', self)
 
+    def integrate(self):
+        return Pintegrate(self)
+
+    def differentiate(self):
+        return Pdifferentiate(self)
+
+    def fin(self, val):
+        return Pfin(self, val)
+
+    def finDur(self, val, tol=0.001):
+        return Pfindur(self, val, tol)
+
+
+class Pfin(Pattern):
+    def __init__(self, pattern, n):
+        Pattern.__init__(self)
+        self.n = n
+        self.pattern = pattern
+
+    def embedInStream(self, rout):
+        stream = patify(self.pattern).asStream()
+        inval = rout.inval
+        n = patvalue(self.n, inval)
+        counter = 0
+        while counter < n:
+            val = stream.next(inval)
+            if val is EOP:
+                yield EOP
+            yield val
+            counter = counter + 1
+
+
+class Pfindur(Pattern):
+
+    def __init__(self, pattern, dur, tolerance=0.001):
+        self.pattern = pattern
+        self.dur = dur
+        self.tolerance = tolerance
+
+    def embedInStream(self, rout):
+        elapsed = 0.0
+        localdur = patvalue(dur, rout.inval)
+        stream = patify(pattern).asStream()
+
+        while True:
+            inevent = stream.next(rout.inval)
+            if inevent is EOP:
+                yield EOP
+            delta = inevent.delta
+            nextElapsed = elapsed + delta
+            if (nextElapsed + self.tolerance) >= localdur:
+                # must always copy an event before altering it.
+                # fix delta time and yield to play the event.
+                inevent = copy.copy(inevent)
+                inevent['delta'] = localdur - elapsed
+                yield inevent
+            elapsed = nextElapsed
+            yield inevent
+
 
 def patify(val):
     if issubclass(type(val), Pattern):
@@ -213,11 +272,82 @@ def patvalue(val, inval=None):
             return val()
 
 
-def embedInStream(rout, obj, val=None):
+def embedInStream(rout, obj):
     if isinstance(obj, Pattern):
         return (EMBED, obj, obj.embedInStream(rout))
     else:
         return obj
+
+
+class Pintegrate(Pattern):
+
+    def __init__(self, pattern, start_val=0):
+        Pattern.__init__(self)
+        self.start_val = start_val
+        self.pattern = pattern
+
+    def embedInStream(self, rout):
+        val = patvalue(self.start_val)
+        stream = patify(self.pattern).asStream()
+
+        while True:
+            item = stream.next(rout.inval)
+            if item is EOP:
+                yield EOP
+            val += item
+            yield val
+
+
+class Pdifferentiate(Pattern):
+
+    def __init__(self, pattern):
+        Pattern.__init__(self)
+        self.pattern = pattern
+
+    def embedInStream(self, rout):
+        stream = patify(self.pattern).asStream()
+        prev = stream.next(rout.inval)
+        if prev is EOP:
+            yield EOP
+
+        while True:
+            item = stream.next(rout.inval)
+            if item is EOP:
+                yield EOP
+            yield item - prev
+            prev = item
+
+
+class Pmin(Pattern):
+    def __init__(self, *vals):
+        Pattern.__init__(self)
+        self.vals = vals
+
+    # this is equivalent to the embedInStream function
+    def embedInStream(self, rout):
+        streams = list([patify(x) for x in self.vals])
+
+        while True:
+            vals = list([x.next(rout.inval) for x in streams])
+            if EOP in vals:
+                yield EOP
+            yield min(vals)
+
+
+class Pmax(Pattern):
+    def __init__(self, *vals):
+        Pattern.__init__(self)
+        self.vals = vals
+
+    # this is equivalent to the embedInStream function
+    def embedInStream(self, rout):
+        streams = list([patify(x) for x in self.vals])
+
+        while True:
+            vals = list([x.next(rout.inval) for x in streams])
+            if EOP in vals:
+                yield EOP
+            yield max(vals)
 
 
 class Pconst(Pattern):
@@ -235,7 +365,7 @@ class Punop(Pattern):
 
     def __init__(self, op, a):
         Pattern.__init__(self)
-        self.op = a
+        self.op = op
         self.op1 = a
 
     def embedInStream(self, rout):
@@ -257,7 +387,7 @@ class Pbinop(Pattern):
 
     def __init__(self, op, a, b):
         Pattern.__init__(self)
-        self.op = a
+        self.op = op
         self.op1 = a
         self.op2 = b
 
@@ -385,7 +515,6 @@ class SCRoutine:
         self.inval = val
         res = next(self.gen)
         if res == EOP:
-            self.inval = val
             if self.stack != []:
                 r, g = self.stack.pop()
                 self.rout = r

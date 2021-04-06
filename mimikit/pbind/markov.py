@@ -4,18 +4,21 @@ from .pbind import patify, patvalue, Pattern, embedInStream, EOP, inf
 
 class MSM:
 
-    def __init__(self):
+    def __init__(self, definition=None):
         self.nodes = dict()
-        # edges are tuples of lists (targets, weights)
+        # edges are of form: [targets, weights]
         self.edges = dict()
+        if definition:
+            self.add_nodes_with_edges(definition)
 
     def add_node(self, node, node_data):
         self.nodes[node] = node_data
 
     def add_edge(self, origin, target, weight=1.0):
-        edges = self.edges.get(origin, None) or ([], np.array([]))
+        edges = self.edges.get(origin, None) or [[], np.array([])]
         edges[0].append(target)
-        np.append(edges[1], [weight])
+        edges[1] = np.append(edges[1], [weight])
+        self.edges[origin] = edges
 
     def add_nodes_with_edges(self, nodes):
         for n in nodes:
@@ -34,11 +37,12 @@ class MSM:
         edges = self.edges.get(current_state, None)
         if not edges:
             return None
-        return np.random_choice(edges[0], p=edges[1])
+        return np.random.choice(edges[0], p=edges[1])
 
     def normalize_weights(self):
         for k, v in self.edges.items():
             v[1] = np.asarray(v[1]) / np.sum(v[1])
+        return self
 
 
 class Pmsm(Pattern):
@@ -55,11 +59,13 @@ class Pmsm(Pattern):
 
         while counter < steps:
             pat = self.msm.nodes.get(state, None)
-            if not pat:
+            print(pat)
+            if pat is None:
                 yield EOP
             yield embedInStream(rout, pat)
             state = self.msm.next_state(state)
-            if not state:
+            print('state', state)
+            if state is None:
                 yield EOP
             counter += 1
         yield EOP
