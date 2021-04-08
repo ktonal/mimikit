@@ -89,13 +89,9 @@ class FramesDB(DBDataset):
         slices = self.slicer(item)
         tiers_slc, bottom_slc, target_slc = slices[:-2], slices[-2], slices[-1]
         inputs = [self.qx[slc].reshape(-1, fs) for slc, fs in zip(tiers_slc, self.frame_sizes[:-1])]
-        try:
-            # ugly but necessary if self.qx became a tensor...
-            with torch.no_grad():
-                inputs += [as_strided(bottom_slc, self.frame_sizes[-1])]
-        except RuntimeError:
-            print(bottom_slc)
-            return None
+        # ugly but necessary if self.qx became a tensor...
+        with torch.no_grad():
+            inputs += [as_strided(bottom_slc, self.frame_sizes[-1])]
         target = self.qx[target_slc]
 
         return tuple(inputs), target
@@ -112,7 +108,7 @@ class SampleRNN(SequenceModel,
 
     @staticmethod
     def loss_fn(output, target):
-        criterion = nn.CrossEntropyLoss(reduction="mean")
+        criterion = nn.CrossEntropyLoss(reduction="none")
         return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
 
     db_class = FramesDB

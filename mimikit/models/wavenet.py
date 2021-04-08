@@ -48,7 +48,7 @@ class WaveNet(WNNetwork,
                  n_layers=(4,),
                  cin_dim=None,
                  gin_dim=None,
-                 layers_dim=128,
+                 gate_dim=128,
                  kernel_size=2,
                  groups=1,
                  accum_outputs=0,
@@ -87,7 +87,7 @@ class WaveNet(WNNetwork,
         WNNetwork.__init__(self, n_layers=n_layers, q_levels=self.hparams.q_levels,
                            n_cin_classes=n_cin_classes, cin_dim=cin_dim,
                            n_gin_classes=n_gin_classes, gin_dim=gin_dim,
-                           layers_dim=layers_dim, kernel_size=kernel_size, groups=groups, accum_outputs=accum_outputs,
+                           gate_dim=gate_dim, kernel_size=kernel_size, groups=groups, accum_outputs=accum_outputs,
                            pad_input=pad_input,
                            skip_dim=skip_dim, residuals_dim=residuals_dim)
         self.save_hyperparameters()
@@ -122,7 +122,7 @@ class WaveNet(WNNetwork,
             else:
                 return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp), 1)
 
-        inpt = prompt[:, -self.receptive_field:]
+        inpt = output[:, prior_t-self.receptive_field:prior_t]
         z, cin, gin = self.inpt(inpt, None, None)
         qs = [(z.clone(), None)]
         # initialize queues with one full forward pass

@@ -220,5 +220,5 @@ class MMKHooks(LightningModule):
         return epochs
 
     @classmethod
-    def load_epoch_checkpoint(cls, root_dir, epoch):
-        return cls.load_from_checkpoint(os.path.join(root_dir, "states", "epoch=%i.ckpt" % epoch))
+    def load_epoch_checkpoint(cls, root_dir, epoch, **kwargs):
+        return cls.load_from_checkpoint(os.path.join(root_dir, "states", "epoch=%i.ckpt" % epoch), **kwargs)
