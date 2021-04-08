@@ -209,11 +209,11 @@ class SampleRNN(SequenceModel,
 
             out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
             if temperature is None:
-                pred = (nn.Softmax(dim=-1)(out)).argmax(dim=-1)
+                pred = (nn.Softmax(dim=-1)(out.squeeze(1))).argmax(dim=-1)
             else:
                 # great place to implement dynamic cooling/heating !
-                pred = torch.multinomial(nn.Softmax(dim=-1)(out / temperature).reshape(-1, out.size(-1)), 1)
-            output.data[:, t:t + 1] = pred
+                pred = torch.multinomial(nn.Softmax(dim=-1)(out.squeeze(1) / temperature), 1)
+            output.data[:, t] = pred.squeeze()
 
         if decode_outputs:
             output = self.decode_outputs(output)
@@ -223,4 +223,7 @@ class SampleRNN(SequenceModel,
         return output
 
     def load_state_dict(self, state_dict, strict=True):
+        to_pop = [k for k in state_dict.keys() if "h0" in k or "c0" in k]
+        for k in to_pop:
+            state_dict.pop(k)
         return super(SampleRNN, self).load_state_dict(state_dict, strict=False)
