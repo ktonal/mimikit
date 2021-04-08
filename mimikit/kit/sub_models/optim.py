@@ -39,7 +39,9 @@ class SuperAdam(LightningModule):
                  div_factor=3.,
                  final_div_factor=1.,
                  pct_start=.25,
-                 cycle_momentum=False):
+                 cycle_momentum=False,
+                 total_steps=None,
+                ):
         super(LightningModule, self).__init__()
         self.max_lr = max_lr
         self.betas = betas
@@ -49,14 +51,15 @@ class SuperAdam(LightningModule):
         self.cycle_momentum = cycle_momentum
         # those are set in setup when we know what the trainer and datamodule got
         self.steps_per_epoch = None
+        self.total_steps = total_steps
         self.max_epochs = None
         self.opt, self.sched = None, None
 
     def configure_optimizers(self):
         self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
+        steps = dict(total_steps=self.total_steps) if self.total_steps is not None else dict(steps_per_epoch=self.steps_per_epoch, epochs=self.max_epochs)
         self.sched = ManyOneCycleLR(self.opt,
-                                    steps_per_epoch=self.steps_per_epoch,
-                                    epochs=self.max_epochs,
+                                    **steps,
                                     max_lr=self.max_lr, div_factor=self.div_factor,
                                     final_div_factor=self.final_div_factor,
                                     pct_start=self.pct_start,

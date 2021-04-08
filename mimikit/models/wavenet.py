@@ -61,6 +61,7 @@ class WaveNet(WNNetwork,
                  final_div_factor=1.,
                  pct_start=.25,
                  cycle_momentum=False,
+                 sched_total_steps=None,
                  batch_seq_length=64,
                  db=None,
                  batch_size=64,
@@ -71,7 +72,7 @@ class WaveNet(WNNetwork,
         super(pl.LightningModule, self).__init__()
         SequenceModel.__init__(self)
         DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
-        SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
+        SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum, sched_total_steps)
         self.hparams.q_levels = db.params.qx["q_levels"]
         self.hparams.sr = db.params.qx["sr"]
         self.hparams.emphasis = db.params.qx["emphasis"]

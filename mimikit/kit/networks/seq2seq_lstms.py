@@ -8,12 +8,15 @@ class EncoderLSTM(nn.Module):
         super(EncoderLSTM, self).__init__()
         self.bottleneck = bottleneck
         self.dim = model_dim
-        self.lstm = nn.LSTM(input_d, self.dim if bottleneck == "add" else self.dim // 2,
+        self.lstm = nn.LSTM(input_d, self.dim if bottleneck == "add" else self.dim // 2, bias=False,
                             num_layers=num_layers, batch_first=True, bidirectional=True)
         self.fc = nn.Sequential(
             *[nn.Sequential(nn.Linear(self.dim, self.dim), nn.Tanh()) for _ in range(n_fc - 1)],
-            nn.Linear(self.dim, self.dim),  # NO ACTIVATION !
+            nn.Linear(self.dim, self.dim, bias=False),  # NO ACTIVATION !
         )
+#         for name, p in dict(self.lstm.named_parameters()).items():
+#             if "weight" in name:
+#                 torch.nn.utils.weight_norm(self.lstm, name)
 
     def forward(self, x, hiddens=None, cells=None):
         if hiddens is None or cells is None:
@@ -37,10 +40,16 @@ class DecoderLSTM(nn.Module):
     def __init__(self, model_dim, num_layers, bottleneck="add"):
         super(DecoderLSTM, self).__init__()
         self.dim = model_dim
-        self.lstm1 = nn.LSTM(self.dim, self.dim if bottleneck == "add" else self.dim // 2,
+        self.lstm1 = nn.LSTM(self.dim, self.dim if bottleneck == "add" else self.dim // 2, bias=False,
                              num_layers=num_layers, batch_first=True, bidirectional=True)
-        self.lstm2 = nn.LSTM(self.dim, self.dim if bottleneck == "add" else self.dim // 2,
+        self.lstm2 = nn.LSTM(self.dim, self.dim if bottleneck == "add" else self.dim // 2, bias=False,
                              num_layers=num_layers, batch_first=True, bidirectional=True)
+        for name, p in dict(self.lstm1.named_parameters()).items():
+            if "weight" in name:
+                torch.nn.utils.weight_norm(self.lstm1, name)
+#         for name, p in dict(self.lstm2.named_parameters()).items():
+#             if "weight" in name:
+#                 torch.nn.utils.weight_norm(self.lstm2, name)
 
     def forward(self, x, hiddens, cells):
         if hiddens is None or cells is None:
@@ -74,7 +83,7 @@ class Seq2SeqLSTM(nn.Module):
         self.enc = EncoderLSTM(input_dim, model_dim, num_layers, bottleneck, n_fc)
         self.dec = DecoderLSTM(model_dim, num_layers, bottleneck)
         self.sampler = ParametrizedGaussian(model_dim, model_dim)
-        self.fc_out = nn.Linear(model_dim, input_dim)
+        self.fc_out = nn.Linear(model_dim, input_dim, bias=False)
 
     def forward(self, x, output_length=None):
         coded, (h_enc, c_enc) = self.enc(x)

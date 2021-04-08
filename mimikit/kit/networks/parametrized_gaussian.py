@@ -7,10 +7,10 @@ class ParametrizedGaussian(nn.Module):
     Parametrized Gaussian (often found in variational auto-encoders)
     """
 
-    def __init__(self, input_dim: int, z_dim: int, pre_activation=nn.Identity(), return_params=True):
+    def __init__(self, input_dim: int, z_dim: int, pre_activation=nn.Identity(), return_params=True, bias=False):
         super(ParametrizedGaussian, self).__init__()
-        self.fc1 = nn.Linear(input_dim, z_dim)
-        self.fc2 = nn.Linear(input_dim, z_dim)
+        self.fc1 = nn.Linear(input_dim, z_dim, bias=bias)
+        self.fc2 = nn.Linear(input_dim, z_dim, bias=bias)
         self.z_dim = z_dim
         self.pre_act = pre_activation if pre_activation is not None else lambda x: x
         self.return_params = return_params
