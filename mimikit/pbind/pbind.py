@@ -9,6 +9,10 @@ import numbers
 import numpy as np
 import heapq
 from itertools import cycle
+from contextvars import ContextVar, copy_context
+
+_rout = ContextVar('rout')
+_rout.set(None)
 
 from .event import Event
 
@@ -217,12 +221,13 @@ class Pfin(Pattern):
         n = patvalue(self.n, inval)
         counter = 0
         while counter < n:
+            inval = rout.inval
             val = stream.next(inval)
             if val is EOP:
                 yield EOP
             yield val
             counter = counter + 1
-
+        yield EOP
 
 class Pfindur(Pattern):
 
@@ -233,8 +238,8 @@ class Pfindur(Pattern):
 
     def embedInStream(self, rout):
         elapsed = 0.0
-        localdur = patvalue(dur, rout.inval)
-        stream = patify(pattern).asStream()
+        localdur = patvalue(self.dur, rout.inval)
+        stream = patify(self.pattern).asStream()
 
         while True:
             inevent = stream.next(rout.inval)
@@ -248,6 +253,7 @@ class Pfindur(Pattern):
                 inevent = copy.copy(inevent)
                 inevent['delta'] = localdur - elapsed
                 yield inevent
+                yield EOP
             elapsed = nextElapsed
             yield inevent
 
@@ -287,7 +293,7 @@ class Pintegrate(Pattern):
         self.pattern = pattern
 
     def embedInStream(self, rout):
-        val = patvalue(self.start_val)
+        val = patvalue(self.start_val, rout.inval)
         stream = patify(self.pattern).asStream()
 
         while True:
@@ -479,29 +485,42 @@ class Pwrap(Pattern):
 
 
 class SCRoutine:
-    def __init__(self, rout, override_inval=None):
-        if isinstance(rout, numbers.Number):
-            rout = Pconst(rout)
+
+    def __init__(self, pat, override_inval=None):
+        if isinstance(pat, numbers.Number):
+            pat = Pconst(pat)
         self.stack = []
-        self.rout = rout
-        self.inval = None
+        self.time = 0.0
+        rout = _rout.get()
+        if rout:
+            self.ctx = rout.ctx
+            self.gen = pat.embedInStream(rout)
+        else:
+            def set_rout():
+                _rout.set(self)
+            self.ctx = copy_context()
+            self.ctx.run(set_rout)
+            self.gen = pat.embedInStream(self)
+        self.stack = []
         self.override_inval = override_inval
-        self.gen = rout.embedInStream(self)
+        self.inval = override_inval
+        self.time = 0.0
 
     def __iter__(self):
         def iterfunc():
             while True:
                 elt = self.next(self.override_inval.copy())
-                if elt == EOP:
+                if elt is EOP:
                     return
                 yield elt
         return iterfunc()
 
     def push(self):
-        self.stack.append((self.rout, self.gen))
+        self.stack.append(self.gen)
 
     def all(self, val=None):
         res = []
+        val = val or self.override_inval
         item = self.next(val)
         while item is not None:
             res.append(item)
@@ -512,22 +531,25 @@ class SCRoutine:
         return self.next(self.override_inval)
 
     def next(self, val=None):
-        self.inval = val
-        res = next(self.gen)
-        if res == EOP:
+        rout = _rout.get()
+        if not rout:
+            self.inval = val
+            res = self.ctx.run(next, self.gen)
+        else:
+            rout.inval = val
+            res = next(self.gen)
+        if res is EOP:
             if self.stack != []:
-                r, g = self.stack.pop()
-                self.rout = r
-                self.gen = g
+                self.gen = self.stack.pop()
                 return self.next(val)
             else:
                 return EOP
-        elif isinstance(res, tuple) and (res[0] == EMBED):
+        elif isinstance(res, tuple) and (res[0] is EMBED):
             self.push()
-            self.rout = res[1]
             self.gen = res[2]
             return self.next(val)
         else:
+            self.time += getattr(res, 'delta', None) or 0.0
             return res
 
 
@@ -552,14 +574,13 @@ class Pbind(Pattern):
                 name = streampairs[i]
                 stream = streampairs[i + 1]
                 streamout = stream.next(event)
-                if streamout == EOP:
+                if streamout is EOP:
                     yield streamout
                 # support tupled
                 if isinstance(name, (list, tuple)):
                     if len(name) > len(streamout):
                         print("the pattern is not providing enough values to assign to the key set:" + name)
                         return
-                    # here we would iterate over the name
                     for i, key in enumerate(name):
                         event[key] = streamout[i]
                 else:

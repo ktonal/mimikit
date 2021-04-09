@@ -10,60 +10,37 @@ class classproperty(object):
 
 
 # base class for event - subtype for special purpose
-class Event:
+class Event(dict):
     default_parent = {}
 
-    def __init__(self, dict=None, parent=None):
+    def __init__(self, dictionary=None, parent=None):
+        dict.__init__(self, **(dictionary or {}))
         self.parent = parent or self.default_parent
-        self.map = dict or {}
-
-    def __repr__(self):
-        return str(self.map)
 
     def __missing__(self, key):
         raise KeyError(key)
 
     def __getitem__(self, key):
-        res = self.map.get(key)
-        if res is None:
-            return self.parent.get(key)
-        else:
-            return res
+        res = dict.get(self, key)
+        return res if res is not None else dict.get(self.parent, key)
 
     def get(self, key, default=None):
-        res = self.map.get(key)
-        if res is None:
-            return self.parent.get(key, default)
-        else:
-            return res
-
-    def __setitem__(self, key, value):
-        self.map[key] = value
+        res = dict.get(self, key)
+        return res if res is not None else dict.get(self.parent, key)
 
     def value(self, key):
-        res = self.map.get(key)
-        if res is None:
-            res = self.parent.get(key)
+        res = self.get(key)
         if callable(res):
             return res(self)
         else:
             return res
 
-    def keys(self):
-        return self.map.keys()
-
-    def update(self, event):
-        self.map.update(event)
-
     @property
     def delta(self):
-        delta = self.get('delta')
-        return delta or self.get('dur')
+        return self.get('delta') or self.get('dur')
 
     def copy(self):
-        cp = copy.copy(self)
-        cp.map = copy.copy(self.map)
-        return cp
+        return copy.copy(self)
 
     @classproperty
     def default(cls):
@@ -76,3 +53,4 @@ class Event:
             inval.update(vals)
             return Event(inval)
         return Event(vals)
+

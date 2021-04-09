@@ -11,6 +11,7 @@ import heapq
 from dataclasses import dataclass, field
 from typing import Any
 
+from .event import Event
 from .pbind import EOP, inf, EMBED, Pattern, SCRoutine, patvalue, embedInStream, patify
 from .pbind import wchoice, fold, wrap, clip, choose, windex
 
@@ -22,7 +23,6 @@ class Pseq(Pattern):
         self.offset = offset
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         reps = patvalue(self.repeats)
         offsetValue = patvalue(self.offset)
@@ -67,7 +67,7 @@ class Plazy(Pattern):
 
 
 class Pkey(Pattern):
-    def __init__(self, key, repeats=1, default=None):
+    def __init__(self, key, repeats=inf, default=None):
         Pattern.__init__(self)
         self.key = key
         self.default = default
@@ -83,7 +83,7 @@ class Pkey(Pattern):
 
 
 class Pinsteps(Pattern):
-    def __init__(self, pattern, steps):
+    def __init__(self, steps, pattern):
         Pattern.__init__(self)
         self.pattern = pattern
         self.steps = steps
@@ -147,7 +147,6 @@ class Pn(Pattern):
         self.val = val
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         reps = patvalue(self.repeats)
         for _ in range(reps):
@@ -162,7 +161,6 @@ class Pser(Pattern):
         self.offset = offset
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         reps = patvalue(self.repeats)
@@ -181,7 +179,6 @@ class Prand(Pattern):
         self.lst = lst
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         inval = rout.inval
@@ -201,7 +198,6 @@ class Pxrand(Pattern):
         self.lst = lst
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         prev = None
@@ -226,7 +222,6 @@ class Pwrand(Pattern):
         self.weights = weights
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         inval = rout.inval
@@ -319,7 +314,6 @@ class Pwhite(Pattern):
         self.hi = hi
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         reps = patvalue(self.repeats)
@@ -346,7 +340,6 @@ class Pgauss(Pattern):
         self.sigma = sigma
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         reps = patvalue(self.repeats)
@@ -370,7 +363,6 @@ class Pgamma(Pattern):
         self.scale = scale
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         reps = patvalue(self.repeats)
@@ -393,7 +385,6 @@ class Ppoisson(Pattern):
         self.lam = lam
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         reps = patvalue(self.repeats)
@@ -401,7 +392,7 @@ class Ppoisson(Pattern):
 
         while counter < reps:
             inval = rout.inval
-            lam = shape_str.next(inval)
+            lam = lam_str.next(inval)
             if lam is EOP:
                 yield EOP
             yield np.random.poisson(lam)
@@ -443,7 +434,6 @@ class Pbrown(Pattern):
         self.step = step
         self.repeats = repeats
 
-    # this is equivalent to the embedInStream function
     def embedInStream(self, rout):
         counter = 0
         reps = patvalue(self.repeats)
@@ -460,7 +450,7 @@ class Pbrown(Pattern):
             curval = random.randint(loval, hival)
         else:
             curval = random.uniform(loval, hival)
-        yield curval
+
         while counter < reps:
             inval = rout.inval
             loval = lostr.next(inval)
@@ -528,13 +518,16 @@ class Pseries(Pattern):
         cur = patvalue(self.start, inval)
         stepstr = patify(self.step).asStream()
         leng = patvalue(self.length, inval)
-        for _ in range(leng):
+        counter = 0
+
+        while counter < leng:
             yield cur
             inval = rout.inval
             stp = stepstr.next(inval)
             if stp is EOP:
                 yield EOP
             cur = cur + stp
+            counter += 1
         yield EOP
 
 
@@ -617,7 +610,7 @@ class Ppatlace(Pseq):
             item = item.next(inval)
             if item is not EOP:
                 consecutiveNils = 0
-                inval = embedInStream(rout, item)
+                yield item
             else:
                 consecutiveNils = consecutiveNils + 1
             index = index + 1
@@ -829,4 +822,16 @@ class Ppar(Pattern):
         yield EOP
 
 
+class Ptime(Pattern):
 
+    def __init__(self, repeats=inf):
+        self.repeats = repeats
+
+    def embedInStream(self, rout):
+        start = rout.time
+        reps = patvalue(self.repeats, rout)
+        counter = 0
+        while counter < reps:
+            yield rout.time - start
+            counter += 1
+        yield EOP
