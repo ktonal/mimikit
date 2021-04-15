@@ -31,6 +31,12 @@ class DataSubModule(LightningModule):
                 for p, val in params.items():
                     setattr(self.hparams, p, val)
 
+    def _set_hparams(self, hp):
+        # break the link in the hparams so as to not include data in checkpoints :
+        if "db" in hp:
+            hp["db"] = f"<{str(self.db_class.__name__)} : {hp['db'].h5_file}>"
+        super(DataSubModule, self)._set_hparams(hp)
+
     def random_train_batch(self):
         return next(iter(self.datamodule.train_dataloader()))
 
