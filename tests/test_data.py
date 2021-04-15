@@ -4,9 +4,10 @@ import pandas as pd
 import soundfile
 import h5py
 
-from mimikit.h5data.factory import file_to_h5, make_root_db
+from mimikit.h5data.write import file_to_h5, make_root_db
 from mimikit.audios.file_walker import AudioFileWalker
-from mimikit.h5data import default_extract_func, Database
+from mimikit.h5data.api import Database
+import mimikit.audios.transforms as A
 
 
 @pytest.fixture
@@ -37,42 +38,20 @@ def test_audio_file_walker(audio_tree):
     assert len(list(walker)) == 1
 
 
-def test_default_extract_func(audio_tree):
-    dic = default_extract_func(audio_tree + "/dir2/test1.wav")
-    # we must have regions
-    assert "regions" in dic and isinstance(dic["regions"][1], pd.DataFrame), dic["regions"]
-    # regions + feature
-    assert len(dic) == 2
+class TestDB(Database):
+    y = None
+    features = ["y"]
 
-
-def test_file_to_db(audio_tree):
-
-    file_path = audio_tree + "/dir2/test1.wav"
-
-    def faulty_extract_func(path):
-        dic = default_extract_func(path)
-        dic.pop("regions")
-        return dic
-
-    with pytest.raises(ValueError, match=r".*regions.*"):
-        file_to_h5(file_path, faulty_extract_func)
-
-    file_to_h5(file_path)
-    with h5py.File(file_path.split(".")[0] + ".h5", "r") as f:
-        assert f["regions"] is not None
+    @staticmethod
+    def extract(path, **kwargs):
+        return dict(y=({}, A.FileTo.signal(path), None))
 
 
 def test_make_root_db_and_Database(audio_tree):
-    make_root_db(audio_tree + "/test_db.h5", roots=audio_tree, extract_func=default_extract_func, n_cores=1)
 
-    db = Database(audio_tree + "/test_db.h5")
-    assert db.regions is not pd.DataFrame()
-    assert len(db.regions) == 4, len(db.regions)
-    assert np.any(db.fft[:4] != 0), db.fft[:4]
-    assert isinstance(db.fft.get(db.regions.iloc[:1]), np.ndarray), db.fft.get(db.regions.iloc[:1])
+    TestDB.make(audio_tree + "/test_db.h5", roots=audio_tree)
 
-    # # test Dataset Integration
-    # ds = DataObject(db.fft)
-    # assert ds is not None, ds
-    # assert len(ds) == len(db.fft), (len(ds), len(db.fft))
-    # assert np.all(ds[:10] == db.fft[:10])
+    db = TestDB(audio_tree + "/test_db.h5")
+    assert isinstance(db.y.files, pd.DataFrame)
+    assert len(db.y.files) == 4, len(db.y.files)
+    assert np.any(db.y[:40] != 0), db.y[:40]
