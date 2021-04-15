@@ -91,4 +91,3 @@ def test_model(tmp_path):
     assert new_trainer.global_step > trainer.global_step, (new_trainer.global_step, trainer.global_step)
 
     shutil.rmtree(root)
-    shutil.rmtree("./lightning_logs/")
