@@ -51,8 +51,11 @@ class SampleRNNTier(nn.Module):
         # no rnn for bottom tier
         if self.is_bottom:
             return None
-        self.h0 = nn.Parameter(torch.zeros(self.n_rnn, 1, self.dim))
-        self.c0 = nn.Parameter(torch.zeros(self.n_rnn, 1, self.dim))
+        # we do not learn hidden for practical reasons : storing them as params in the state dict
+        # would force the network to always generate with the train batch_size or to implement some logic
+        # to handle this shape change. We choose the simpler solution : hidden are initialized to zeros
+        # whenever we need fresh ones.
+        self.h0, self.c0 = None, None
         return nn.LSTM(self.dim, self.dim, self.n_rnn, batch_first=True)
 
     def up_sampling_net_(self):
@@ -92,8 +95,8 @@ class SampleRNNTier(nn.Module):
         )
 
     def reset_hidden(self, batch_size, device):
-        self.h0 = nn.Parameter(torch.zeros(self.n_rnn, batch_size, self.dim).to(device))
-        self.c0 = nn.Parameter(torch.zeros(self.n_rnn, batch_size, self.dim).to(device))
+        self.h0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
+        self.c0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
         return self.h0, self.c0
 
     def __post_init__(self):

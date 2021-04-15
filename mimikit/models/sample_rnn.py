@@ -108,7 +108,7 @@ class SampleRNN(SequenceModel,
 
     @staticmethod
     def loss_fn(output, target):
-        criterion = nn.CrossEntropyLoss(reduction="none")
+        criterion = nn.CrossEntropyLoss(reduction="mean")
         return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
 
     db_class = FramesDB
