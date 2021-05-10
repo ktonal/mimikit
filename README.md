@@ -16,3 +16,5 @@ Check out the [mimikit-notebooks](https://github.com/ktonal/mimikit-notebooks) f
 ## License
 
 mimikit is distributed under the terms of the [GNU General Public License v3.0](https://choosealicense.com/licenses/gpl-3.0/)
+
+
