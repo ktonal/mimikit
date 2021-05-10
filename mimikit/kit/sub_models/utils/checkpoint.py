@@ -20,7 +20,6 @@ class MMKCheckpoint(ModelCheckpoint):
             save_weights_only=False, # we just save optimizers separately
             mode="auto",
             period=1,
-            prefix="",
             dirpath=os.path.join(dirpath, "states"),
             filename=filename
         )
