@@ -141,8 +141,8 @@ class Database(object):
         raise NotImplementedError
 
     @classmethod
-    def make(cls, db_name, roots=None, files=None, **kwargs):
-        make_root_db(db_name, roots, files, partial(cls.extract, **kwargs))
+    def make(cls, db_name, files_ext='audio', items=tuple(), **kwargs):
+        make_root_db(db_name, files_ext, items, partial(cls.extract, **kwargs))
         return cls(db_name)
 
     @classmethod

@@ -1,13 +1,11 @@
-import pytest
 import numpy as np
 import pandas as pd
+import pytest
 import soundfile
-import h5py
 
-from mimikit.h5data.write import file_to_h5, make_root_db
-from mimikit.audios.file_walker import AudioFileWalker
-from mimikit.h5data.api import Database
 import mimikit.audios.transforms as A
+from mimikit.file_walker import FileWalker
+from mimikit.h5data.api import Database
 
 
 @pytest.fixture
@@ -31,10 +29,10 @@ def audio_tree(tmp_path):
 
 
 def test_audio_file_walker(audio_tree):
-    walker = AudioFileWalker(roots=audio_tree)
+    walker = FileWalker('audio', items=audio_tree)
     assert len(list(walker)) == 4
-    walker = AudioFileWalker(files=[audio_tree + "/dir2/test1.wav",
-                                    audio_tree + "/dir1/test4.notaudio"])
+    walker = FileWalker('audio', items=[audio_tree + "/dir2/test1.wav",
+                                        audio_tree + "/dir1/test4.notaudio"])
     assert len(list(walker)) == 1
 
 
@@ -49,7 +47,7 @@ class TestDB(Database):
 
 def test_make_root_db_and_Database(audio_tree):
 
-    TestDB.make(audio_tree + "/test_db.h5", roots=audio_tree)
+    TestDB.make(audio_tree + "/test_db.h5", items=audio_tree)
 
     db = TestDB(audio_tree + "/test_db.h5")
     assert isinstance(db.y.files, pd.DataFrame)
