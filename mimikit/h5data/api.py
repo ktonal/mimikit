@@ -5,7 +5,7 @@ import pandas as pd
 import os
 from argparse import Namespace
 
-from .write import make_root_db
+from .write import make_root_db, write_feature
 from .regions import Regions
 
 
@@ -143,6 +143,20 @@ class Database(object):
     @classmethod
     def make(cls, db_name, files_ext='audio', items=tuple(), **kwargs):
         make_root_db(db_name, files_ext, items, partial(cls.extract, **kwargs))
+        return cls(db_name)
+
+    @staticmethod
+    def _load(path, features_dict={}):
+        return {f_name: (getattr(f, 'params', {}), f.load(path), None) for f_name, f in features_dict.items()
+                if getattr(f, 'load', False)}
+
+    @classmethod
+    def build(cls, db_name, files_ext='audio', items=tuple(), features_dict={}):
+        make_root_db(db_name, files_ext, items, partial(cls._load, features_dict=features_dict))
+        db = cls(db_name)
+        for f_name, f in features_dict.items():
+            if getattr(f, "after_build", False):
+                write_feature(db_name, f_name, getattr(f, 'params', {}), f.after_build(db))
         return cls(db_name)
 
     @classmethod
