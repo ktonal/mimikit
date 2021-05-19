@@ -11,12 +11,12 @@ class FileWalker:
 
     def __init__(self, files_ext, items=None):
         """
-        recursively find audio files from `roots` and/or collect audio files passed in `files`
+        recursively find files from `items` whose extensions match the ones implied in `files_ext`
 
         Parameters
         ----------
         files_ext : str or list of str
-            type(s) of files to be matched. Must be either 'audio' or 'midi'.
+            type(s) of files' extensions to be matched. Must be either 'audio' or 'midi'.
         items : str or iterable of str
             a single path (string, os.Path) or an iterable of paths. Each item can either be the root of
             a directory which will be searched recursively or a single file.
