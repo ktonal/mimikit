@@ -6,6 +6,7 @@ import soundfile
 import mimikit.audios.transforms as A
 from mimikit.file_walker import FileWalker
 from mimikit.h5data.api import Database
+import mimikit.audios.features as F
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ def audio_tree(tmp_path):
     return str(root)
 
 
-def test_audio_file_walker(audio_tree):
+def test_file_walker(audio_tree):
     walker = FileWalker('audio', items=audio_tree)
     assert len(list(walker)) == 4
     walker = FileWalker('audio', items=[audio_tree + "/dir2/test1.wav",
@@ -45,9 +46,19 @@ class TestDB(Database):
         return dict(y=({}, A.FileTo.signal(path), None))
 
 
-def test_make_root_db_and_Database(audio_tree):
+def test_Database_make(audio_tree):
 
     TestDB.make(audio_tree + "/test_db.h5", items=audio_tree)
+
+    db = TestDB(audio_tree + "/test_db.h5")
+    assert isinstance(db.y.files, pd.DataFrame)
+    assert len(db.y.files) == 4, len(db.y.files)
+    assert np.any(db.y[:40] != 0), db.y[:40]
+
+
+def test_Database_build(audio_tree):
+    fdict = dict(y=F.AudioSignal())
+    TestDB.build(audio_tree + "/test_db.h5", items=audio_tree, features_dict=fdict)
 
     db = TestDB(audio_tree + "/test_db.h5")
     assert isinstance(db.y.files, pd.DataFrame)
