@@ -1,11 +1,13 @@
 import os
 from typing import Iterable
 
+AUDIO_EXTENSIONS = {"wav", "aif", "aiff", "mp3", "m4a", "mp4"}
+MIDI_EXTENSIONS = {"mid"}
+
+EXTENSIONS = dict(audio=AUDIO_EXTENSIONS, midi=MIDI_EXTENSIONS)
+
 
 class FileWalker:
-
-    AUDIO_EXTENSIONS = {"wav", "aif", "aiff", "mp3", "m4a", "mp4"}
-    MIDI_EXTENSIONS = {"mid"}
 
     def __init__(self, files_ext, items=None):
         """
@@ -14,9 +16,9 @@ class FileWalker:
         Parameters
         ----------
         files_ext : str or list of str
-            type(s) of files to be filtered. Must be either 'audio' or 'midi'.
-        items : str or list of str
-            a single path (string, os.Path) or an Iterable of paths. Each item can be the root of
+            type(s) of files to be matched. Must be either 'audio' or 'midi'.
+        items : str or iterable of str
+            a single path (string, os.Path) or an iterable of paths. Each item can either be the root of
             a directory which will be searched recursively or a single file.
 
         Examples
@@ -24,12 +26,11 @@ class FileWalker:
         >>> files = list(FileWalker(files_ext='midi', items=["my-root-dir", 'piece.mid']))
 
         """
-        extensions = dict(audio=self.AUDIO_EXTENSIONS, midi=self.MIDI_EXTENSIONS)
         if isinstance(files_ext, str):
             files_ext = [files_ext]
-        if not all(ext in ("audio", "midi") for ext in files_ext):
+        if not all(ext in EXTENSIONS.keys() for ext in files_ext):
             raise ValueError("Expected all files_ext to be one of 'audio' or 'midi'.")
-        self._valid_ext = {ext for file_type in files_ext for ext in extensions[file_type]}
+        self._matching_ext = {ext for file_type in files_ext for ext in EXTENSIONS[file_type]}
 
         generators = []
 
@@ -68,4 +69,4 @@ class FileWalker:
         # filter out hidden files
         if os.path.split(filename.strip("/"))[-1].startswith("."):
             return False
-        return os.path.splitext(filename)[-1].strip(".") in self._valid_ext
+        return os.path.splitext(filename)[-1].strip(".") in self._matching_ext
