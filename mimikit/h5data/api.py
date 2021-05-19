@@ -7,6 +7,7 @@ from argparse import Namespace
 
 from .write import make_root_db, write_feature
 from .regions import Regions
+from ..file_walker import FileWalker
 
 
 class FeatureProxy(object):
@@ -142,7 +143,8 @@ class Database(object):
 
     @classmethod
     def make(cls, db_name, files_ext='audio', items=tuple(), **kwargs):
-        make_root_db(db_name, files_ext, items, partial(cls.extract, **kwargs))
+        walker = FileWalker(files_ext, items)
+        make_root_db(db_name, walker, partial(cls.extract, **kwargs))
         return cls(db_name)
 
     @staticmethod
