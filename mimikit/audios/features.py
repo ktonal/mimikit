@@ -3,6 +3,10 @@ import torchaudio.transforms as T
 import torch
 import numpy as np
 from abc import ABC
+import librosa
+import dataclasses as dtc
+import IPython.display as ipd
+import soundfile as sf
 
 from ..audios import transforms as A
 from ..h5data.write import write_feature
@@ -100,3 +104,50 @@ class SegmentLabels(Feature):
                                  for tp in db.fft.files.itertuples()])
         write_feature(db.h5_file,
                       "files_labels", dict(n_classes=len(db.fft.files)), files_labels)
+
+
+@dtc.dataclass
+class AudioSignal:
+
+    __ext__ = 'audio'
+
+    sr: int = 22050
+    normalize: bool = True
+    emphasis: float = 0.
+
+    @property
+    def params(self):
+        return dtc.asdict(self)
+
+    @staticmethod
+    def _to_numpy(obj):
+        if isinstance(obj, torch.Tensor):
+            obj = obj.detach().cpu().numpy()
+        return obj
+
+    def load(self, path):
+        y = A.FileTo.signal(path, self.sr)
+        if self.normalize:
+            y = A.normalize(y)
+        if self.emphasis:
+            y = A.emphasize(y, self.emphasis)
+        return y
+
+    def display(self, y, **waveplot_kwargs):
+        y = self._to_numpy(y)
+        waveplot_kwargs.setdefault('sr', self.sr)
+        librosa.display.waveplot(y, **waveplot_kwargs)
+
+    def play(self, y):
+        y = self._to_numpy(y)
+        ipd.display(ipd.Audio(y, rate=self.sr))
+
+    def write(self, filename, y):
+        y = self._to_numpy(y)
+        sf.write(filename, y, self.sr, 'PCM_24')
+
+    def encode(self, inputs):
+        return inputs
+
+    def decode(self, outputs):
+        return outputs
