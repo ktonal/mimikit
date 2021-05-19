@@ -7,7 +7,7 @@ from argparse import Namespace
 
 from .write import make_root_db, write_feature
 from .regions import Regions
-from ..file_walker import FileWalker
+from ..file_walker import FileWalker, EXTENSIONS
 
 
 class FeatureProxy(object):
@@ -147,14 +147,50 @@ class Database(object):
         make_root_db(db_name, walker, partial(cls.extract, **kwargs))
         return cls(db_name)
 
-    @staticmethod
-    def _load(path, features_dict={}):
-        return {f_name: (getattr(f, 'params', {}), f.load(path), None) for f_name, f in features_dict.items()
-                if getattr(f, 'load', False)}
+    @classmethod
+    def _load(cls, path, features_dict={}):
+        """
+        default extract_func for Database.build. Roughly eq.
+            ``{feat_name: feat.load(path) for feat_name, feat in features_dict.items()}``
+
+        """
+        out = {}
+        for f_name, f in features_dict.items():
+            # check that f has `load` and that `path` is of the right type
+            if hasattr(f, 'load') and os.path.splitext(path)[-1].strip('.') in EXTENSIONS[f.__ext__]:
+                obj = f.load(path)
+                if isinstance(obj, Regions):
+                    out[f_name] = getattr(f, 'params', {}), None, obj
+                else:
+                    out[f_name] = getattr(f, 'params', {}), obj, None
+        return out
 
     @classmethod
-    def build(cls, db_name, files_ext='audio', items=tuple(), features_dict={}):
-        make_root_db(db_name, files_ext, items, partial(cls._load, features_dict=features_dict))
+    def build(cls, db_name, items=tuple(), features_dict={}):
+        """
+        creates a db from the schema provided in `features_dict` and the files or root directories found in `items`
+
+        Parameters
+        ----------
+        db_name : str
+            the name of the file to be created
+        items : str or iterable of str
+            the items to be passed to `FileWalker`
+        features_dict : dict
+            keys (`str`) are the names of the features, values are `Feature` objects
+
+        Returns
+        -------
+        db : Database
+            an instance of the created db
+
+        """
+        # get the set of file extensions from the features and instantiate a walker
+        exts = {f.__ext__ for f in features_dict.values()}
+        walker = FileWalker(exts, items)
+        # run the extraction job
+        make_root_db(db_name, walker, partial(cls._load, features_dict=features_dict))
+        # add post-build features
         db = cls(db_name)
         for f_name, f in features_dict.items():
             if getattr(f, "after_build", False):
