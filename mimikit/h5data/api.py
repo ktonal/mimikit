@@ -186,7 +186,7 @@ class Database(object):
 
         """
         # get the set of file extensions from the features and instantiate a walker
-        exts = {f.__ext__ for f in features_dict.values()}
+        exts = {f.__ext__ for f in features_dict.values() if getattr(f, '__ext__', False)}
         walker = FileWalker(exts, items)
         # run the extraction job
         make_root_db(db_name, walker, partial(cls._load, features_dict=features_dict))
