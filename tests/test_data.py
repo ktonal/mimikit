@@ -29,10 +29,10 @@ def audio_tree(tmp_path):
 
 
 def test_audio_file_walker(audio_tree):
-    walker = FileWalker('audio', items=audio_tree)
+    walker = FileWalker('audio', sources=audio_tree)
     assert len(list(walker)) == 4
-    walker = FileWalker('audio', items=[audio_tree + "/dir2/test1.wav",
-                                        audio_tree + "/dir1/test4.notaudio"])
+    walker = FileWalker('audio', sources=[audio_tree + "/dir2/test1.wav",
+                                          audio_tree + "/dir1/test4.notaudio"])
     assert len(list(walker)) == 1
 
 
