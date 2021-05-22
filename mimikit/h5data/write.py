@@ -4,7 +4,7 @@ from multiprocessing import cpu_count, Pool
 import os
 import warnings
 
-from mimikit.audios.file_walker import AudioFileWalker
+from mimikit.file_walker import FileWalker
 
 from .regions import Regions
 
@@ -216,9 +216,12 @@ def _aggregate_dbs(target, tmp_dbs_infos, mode="w"):
             os.remove(src)
 
 
-def make_root_db(db_name, roots='./', files=None, extract_func=None,
+def make_root_db(db_name,
+                 files_iterable=tuple(),
+                 extract_func=None,
                  tmp_destination="/tmp/",
-                 n_cores=cpu_count()):
+                 n_cores=cpu_count()
+                 ):
     """
     extract and aggregate several files into a single .h5 Database
 
@@ -226,12 +229,8 @@ def make_root_db(db_name, roots='./', files=None, extract_func=None,
     ----------
     db_name : str
         the name of the db to be created
-    roots : str or list of str, optional
-        directories from which to search recursively for audio files.
-        default is "./"
-    files : str or list of str, optional
-        single file(s) to include in the db.
-        default is `None`
+    files_iterable : iterable of str, optional
+        the files to be extracted
     extract_func : function, optional
         the function to use for the extraction - should take exactly one argument.
         the default transforms the file to the stft with n_fft=2048 and hop_length=512.
@@ -245,6 +244,5 @@ def make_root_db(db_name, roots='./', files=None, extract_func=None,
     db : Database
         the created db
     """
-    walker = AudioFileWalker(roots, files)
-    tmp_dbs_infos = _make_db_for_each_file(walker, extract_func, tmp_destination, n_cores)
+    tmp_dbs_infos = _make_db_for_each_file(files_iterable, extract_func, tmp_destination, n_cores)
     _aggregate_dbs(db_name, tmp_dbs_infos, "w")

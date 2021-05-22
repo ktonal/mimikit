@@ -11,6 +11,7 @@ import pytorch_lightning as pl
 
 from .write import make_root_db
 from .regions import Regions
+from ..file_walker import FileWalker
 
 
 class FeatureProxy(object):
@@ -145,8 +146,9 @@ class Database(object):
         raise NotImplementedError
 
     @classmethod
-    def make(cls, db_name, roots=None, files=None, **kwargs):
-        make_root_db(db_name, roots, files, partial(cls.extract, **kwargs))
+    def make(cls, db_name, files_ext='audio', items=tuple(), **kwargs):
+        walker = FileWalker(files_ext, items)
+        make_root_db(db_name, walker, partial(cls.extract, **kwargs))
         return cls(db_name)
 
     @classmethod
