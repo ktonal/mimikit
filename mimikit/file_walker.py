@@ -9,7 +9,7 @@ EXTENSIONS = dict(audio=AUDIO_EXTENSIONS, midi=MIDI_EXTENSIONS)
 
 class FileWalker:
 
-    def __init__(self, files_ext, items=None):
+    def __init__(self, files_ext, sources=None):
         """
         recursively find files from `items` whose extensions match the ones implied in `files_ext`
 
@@ -17,13 +17,13 @@ class FileWalker:
         ----------
         files_ext : str or list of str
             type(s) of files' extensions to be matched. Must be either 'audio' or 'midi'.
-        items : str or iterable of str
+        sources : str or iterable of str
             a single path (string, os.Path) or an iterable of paths. Each item can either be the root of
             a directory which will be searched recursively or a single file.
 
         Examples
         --------
-        >>> files = list(FileWalker(files_ext='midi', items=["my-root-dir", 'piece.mid']))
+        >>> files = list(FileWalker(files_ext='midi', sources=["my-root-dir", 'piece.mid']))
 
         """
         if isinstance(files_ext, str):
@@ -34,17 +34,17 @@ class FileWalker:
 
         generators = []
 
-        if items is not None and isinstance(items, Iterable):
-            if isinstance(items, str):
-                if not os.path.exists(items):
-                    raise FileNotFoundError("%s does not exist." % items)
-                if os.path.isdir(items):
-                    generators += [self.walk_root(items)]
+        if sources is not None and isinstance(sources, Iterable):
+            if isinstance(sources, str):
+                if not os.path.exists(sources):
+                    raise FileNotFoundError("%s does not exist." % sources)
+                if os.path.isdir(sources):
+                    generators += [self.walk_root(sources)]
                 else:
-                    if self.is_matching_file(items):
-                        generators += [[items]]
+                    if self.is_matching_file(sources):
+                        generators += [[sources]]
             else:
-                for item in items:
+                for item in sources:
                     if not os.path.exists(item):
                         raise FileNotFoundError("%s does not exist." % item)
                     if os.path.isdir(item):
