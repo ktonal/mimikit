@@ -58,7 +58,7 @@ def test_Database_make(audio_tree):
 
 def test_Database_build(audio_tree):
     fdict = dict(y=F.AudioSignal())
-    TestDB.build(audio_tree + "/test_db.h5", items=audio_tree, features_dict=fdict)
+    TestDB.build(audio_tree + "/test_db.h5", sources=audio_tree, schema=fdict)
 
     db = TestDB(audio_tree + "/test_db.h5")
     assert isinstance(db.y.files, pd.DataFrame)
