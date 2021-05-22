@@ -142,7 +142,7 @@ class SampleRNNTier(nn.Module):
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class SampleRNNNetwork(nn.Module):
 
-    frame_sizes: tuple  # from top to bottom!
+    frame_sizes: tuple = (16, 8, 8)  # from top to bottom!
     dim: int = 512
     n_rnn: int = 2
     q_levels: int = 256

@@ -36,8 +36,8 @@ class SignalFrom:
         return librosa.griffinlim(mag_spec, **kwargs)
 
     @staticmethod
-    def mu_law_compressed(qx, mu=Q_LEVELS):
-        return librosa.mu_expand(qx, mu, quantize=True)
+    def mu_law_compressed(qx, q_levels=Q_LEVELS):
+        return librosa.mu_expand(qx - q_levels // 2, q_levels - 1, quantize=True)
 
 
 def normalize(y, **kwargs):
