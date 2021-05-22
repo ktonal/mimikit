@@ -2,9 +2,9 @@ import os
 import torch
 from pytorch_lightning.loggers import NeptuneLogger
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from .sub_models.utils.loggers import MMKDefaultLogger
-from .sub_models.utils.checkpoint import MMKCheckpoint
-from .sub_models.utils.callbacks import EpochProgressBarCallback
+from .model_parts.loggers import MMKDefaultLogger
+from .model_parts.checkpoint import MMKCheckpoint
+from .model_parts.callbacks import EpochProgressBarCallback
 from pytorch_lightning.trainer import Trainer
 import warnings
 

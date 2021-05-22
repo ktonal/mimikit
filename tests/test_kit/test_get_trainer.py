@@ -6,10 +6,10 @@ from pytorch_lightning.loggers.base import LoggerCollection
 import os
 import shutil
 
-from mimikit.kit.get_trainer import get_trainer
-from mimikit.kit.sub_models.utils.loggers import MMKDefaultLogger
-from mimikit.kit.sub_models.utils.checkpoint import MMKCheckpoint
-from mimikit.kit.connectors.neptune import NeptuneConnector
+from mimikit.get_trainer import get_trainer
+from mimikit.model_parts.loggers import MMKDefaultLogger
+from mimikit.model_parts.checkpoint import MMKCheckpoint
+from mimikit.connectors.neptune import NeptuneConnector
 
 
 class DummyModel:

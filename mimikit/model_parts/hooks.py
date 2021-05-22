@@ -16,7 +16,7 @@ except ImportError:
     warnings.warn("It seems neptune and/or neptunecontrib are not installed. "
                   "You won't be able to log checkpoints and data to neptune.")
 
-from .... import __version__ as version
+from .. import __version__ as version
 
 
 class LoggingHooks(LightningModule):

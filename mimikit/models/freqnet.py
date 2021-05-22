@@ -4,15 +4,15 @@ from torchaudio.transforms import GriffinLim
 import pytorch_lightning as pl
 
 from ..audios import transforms as A
-from ..kit.db_dataset import DBDataset
-from ..kit.ds_utils import ShiftedSequences
-from ..kit.loss_functions import mean_L1_prop
-from ..kit import SuperAdam, SequenceModel, DataSubModule
+from ..h5data import Database
+from ..ds_utils import ShiftedSequences
+from ..loss_functions import mean_L1_prop
+from ..model_parts import SuperAdam, SequenceModel, DataPart
 
-from ..kit.networks.freqnet import FreqNetNetwork
+from ..networks.freqnet import FreqNetNetwork
 
 
-class FreqNetDB(DBDataset):
+class FreqNetDB(Database):
     features = ["fft"]
     fft = None
 
@@ -38,7 +38,7 @@ class FreqNetDB(DBDataset):
 
 
 class FreqNet(FreqNetNetwork,
-              DataSubModule,
+              DataPart,
               SuperAdam,
               SequenceModel,
               pl.LightningModule):
@@ -75,7 +75,7 @@ class FreqNet(FreqNetNetwork,
                  ):
         super(pl.LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
+        DataPart.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
         self.hparams.n_fft = self.db.params.fft["n_fft"]
         self.hparams.hop_length = self.db.params.fft["hop_length"]

@@ -3,7 +3,7 @@ import torch.nn as nn
 from typing import Optional
 from dataclasses import dataclass
 
-from mimikit.kit.networks.parametrized_gaussian import ParametrizedGaussian
+from ..networks.parametrized_gaussian import ParametrizedGaussian
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)

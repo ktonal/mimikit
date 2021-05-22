@@ -175,23 +175,17 @@ class Database(object):
     def __repr__(self):
         return "<Database: '%s'>" % os.path.split(self.h5_file)[-1]
 
-    def prepare_dataset(self, model: pl.LightningModule, datamodule: DBDataModule):
+    def prepare_dataset(self, model: pl.LightningModule, loader_kwargs: dict):
         """
-        placeholder for implementing what need to be done before serving data.
-
-        If this class was just a ``Dataset``, this would be its constructor.
-        This method is best called in ``prepare_data()`` as shown in ``DBDataModule``.
-        Getting the model as argument allows to use its hparams or any of its computed properties
-        to configure ``self.__len__`` and ``self.__getitem__``.
-        Getting the datamodule allows to overwrite some of its ``loader_kwargs``.
+        placeholder for implementing what need to be done before serving data
 
         Parameters
         ----------
         model : pl.LightningModule
             The model that will consume this dataset.
-        datamodule : DBDataModule
-            The datamodule where this db lives.
-            It exposes a ``loader_kwargs`` attribute for the train, val and test loaders
+        loader_kwargs : dict
+            keywords arguments to be passed to the train, val and test loaders
+
         Returns
         -------
         None

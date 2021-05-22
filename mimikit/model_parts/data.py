@@ -1,36 +1,12 @@
-from __future__ import annotations
-
-from inspect import getfullargspec
-
-import torch
-from pytorch_lightning import LightningDataModule
-from torch.utils.data import Dataset, random_split, DataLoader
 import pytorch_lightning as pl
+import torch
+from pytorch_lightning import LightningModule
+from torch.utils.data import DataLoader
 
-from ..h5data import Database
-
-
-class DBDataset(Database, Dataset):
-    """
-    extends ``Database`` so that it can also be used in place of a ``Dataset``
-    """
-
-    def __init__(self, h5_file: str, keep_open: bool = False):
-        """
-        "first" init instantiates a ``Database``
-
-        Parameters
-        ----------
-        h5_file : str
-            path to the .h5 file containing the data
-        keep_open : bool, optional
-            whether to keep the h5 file open or close it after each query.
-            Default is ``False``.
-        """
-        Database.__init__(self, h5_file, keep_open)
+from ..h5data.api import Database
 
 
-class DBDataModule(LightningDataModule):
+class DataModule(pl.LightningDataModule):
     """
     boilerplate subclass of ``pytorch_lightning.LightningDataModule`` to handle standard "data-tasks" :
         - give a Database a chance to prepare itself for serving data once the model has been instantiated
@@ -40,21 +16,21 @@ class DBDataModule(LightningDataModule):
     """
     def __init__(self,
                  model=None,
-                 db: DBDataset = None,
+                 db: Database = None,
                  in_mem_data=True,
                  splits=None,
-                 **loader_kwargs,
+                 loader_kwargs={},
                  ):
-        super(DBDataModule, self).__init__()
+        super(DataModule, self).__init__()
         self.model = model
         self.db = db
         self.in_mem_data = in_mem_data
         self.splits = splits
-        self.loader_kwargs = self._filter_loader_kwargs(loader_kwargs)
+        self.loader_kwargs = loader_kwargs
         self.train_ds, self.val_ds, self.test_ds = None, None, None
 
     def prepare_data(self, *args, **kwargs):
-        self.db.prepare_dataset(model=self.model, datamodule=self)
+        self.db.prepare_dataset(model=self.model, loader_kwargs=self.loader_kwargs)
 
     def setup(self, stage=None):
         if stage == "fit":
@@ -99,7 +75,32 @@ class DBDataModule(LightningDataModule):
         kwargs["shuffle"] = shuffle
         return DataLoader(self.test_ds, **kwargs)
 
-    @staticmethod
-    def _filter_loader_kwargs(kwargs):
-        valids = getfullargspec(DataLoader.__init__).annotations.keys()
-        return {k: v for k, v in kwargs.items() if k in valids}
+
+class DataPart(LightningModule):
+
+    db_class = None
+
+    def __init__(self,
+                 db: [Database, str] = None,
+                 in_mem_data: bool = True,
+                 splits: [list, None] = [.8, .2],
+                 keep_open=False,
+                 loaders_kwargs={},
+                 ):
+        super(LightningModule, self).__init__()
+        if db is not None:
+            db_ = db
+            if isinstance(db, str):
+                db_ = self.db_class(db_, keep_open=keep_open)
+            self.datamodule = DataModule(self, db_, in_mem_data, splits, loaders_kwargs)
+            # cache the db params in self.hparams
+            for feat_name, params in db_.params.__dict__.items():
+                for p, val in params.items():
+                    setattr(self.hparams, p, val)
+            self.db = db_
+
+    def _set_hparams(self, hp):
+        # break the link in the hparams so as to not include data in checkpoints :
+        if "db" in hp and hasattr(hp['db'], 'h5_file'):
+            hp["db"] = f"<{str(self.db_class.__name__)} : {hp['db'].h5_file}>"
+        super(DataPart, self)._set_hparams(hp)

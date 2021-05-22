@@ -6,11 +6,11 @@ import torch.nn as nn
 import numpy as np
 from random import randint
 
-from ..kit import DBDataset
+from ..h5data import Database
 from ..audios.features import QuantizedSignal
-from ..kit.ds_utils import ShiftedSequences
-from ..kit import SuperAdam, SequenceModel, DataSubModule
-from ..kit.networks.sample_rnn import SampleRNNNetwork
+from ..ds_utils import ShiftedSequences
+from ..model_parts import SuperAdam, SequenceModel, DataPart
+from ..networks.sample_rnn import SampleRNNNetwork
 from torch.utils.data import Sampler, RandomSampler, BatchSampler
 
 
@@ -47,7 +47,7 @@ class TBPTTSampler(Sampler):
         return int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
 
 
-class FramesDB(DBDataset):
+class FramesDB(Database):
     qx = None
 
     @staticmethod
@@ -101,7 +101,7 @@ class FramesDB(DBDataset):
 
 
 class SampleRNN(SequenceModel,
-                DataSubModule,
+                DataPart,
                 SuperAdam,
                 SampleRNNNetwork,
                 LightningModule):
@@ -136,7 +136,7 @@ class SampleRNN(SequenceModel,
                  ):
         super(LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
+        DataPart.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
         # noinspection PyArgumentList
         SampleRNNNetwork.__init__(self,

@@ -2,15 +2,14 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from ..kit import DBDataset, ShiftedSequences
+from ..h5data import Database
+from ..ds_utils import ShiftedSequences
 from ..audios.features import QuantizedSignal
-
-from ..kit import SuperAdam, SequenceModel, DataSubModule
-
-from ..kit.networks.wavenet import WNNetwork
+from ..model_parts import SuperAdam, SequenceModel, DataPart
+from ..networks.wavenet import WNNetwork
 
 
-class WaveNetDB(DBDataset):
+class WaveNetDB(Database):
     qx = None
 
     @staticmethod
@@ -32,7 +31,7 @@ class WaveNetDB(DBDataset):
 
 
 class WaveNet(WNNetwork,
-              DataSubModule,
+              DataPart,
               SuperAdam,
               SequenceModel,
               pl.LightningModule):
@@ -71,7 +70,7 @@ class WaveNet(WNNetwork,
                  ):
         super(pl.LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataSubModule.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
+        DataPart.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum, sched_total_steps)
         self.hparams.q_levels = db.params.qx["q_levels"]
         self.hparams.sr = db.params.qx["sr"]

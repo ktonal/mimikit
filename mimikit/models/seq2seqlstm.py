@@ -4,14 +4,14 @@ import torch
 import torch.nn as nn
 
 from ..audios.features import MagSpec
-from ..kit.db_dataset import DBDataset
-from ..kit import SequenceModel, RMS, SuperAdam, DataSubModule
-from ..kit.ds_utils import ShiftedSequences
-from ..kit.networks.seq2seq_lstms import Seq2SeqLSTM
-from ..kit.loss_functions import mean_L1_prop
+from ..h5data import Database
+from ..model_parts import SuperAdam, SequenceModel, DataPart
+from ..ds_utils import ShiftedSequences
+from ..networks.seq2seq_lstms import Seq2SeqLSTM
+from ..loss_functions import mean_L1_prop
 
 
-class MagSpecDB(DBDataset):
+class MagSpecDB(Database):
     fft = None
 
     @staticmethod
@@ -33,7 +33,7 @@ class MagSpecDB(DBDataset):
 
 
 class Seq2SeqLSTMModel(Seq2SeqLSTM,
-                       DataSubModule,
+                       DataPart,
                        SuperAdam,
                        SequenceModel,
                        pl.LightningModule):
@@ -56,7 +56,7 @@ class Seq2SeqLSTMModel(Seq2SeqLSTM,
                  final_div_factor=1.,
                  pct_start=.25,
                  cycle_momentum=False,
-                 db: [DBDataset, str] = None,
+                 db: [Database, str] = None,
                  batch_size=64,
                  in_mem_data: bool = True,
                  splits: [list, None] = [.8, .2],
@@ -65,7 +65,7 @@ class Seq2SeqLSTMModel(Seq2SeqLSTM,
                  ):
         super(pl.LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataSubModule.__init__(self, db, in_mem_data, splits, keep_open, batch_size=batch_size, **loaders_kwargs)
+        DataPart.__init__(self, db, in_mem_data, splits, keep_open, batch_size=batch_size, **loaders_kwargs)
         # SuperAdam.__init__(self, lr, alpha, eps, weight_decay, momentum, centered)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
         input_dim = self.hparams.n_fft // 2 + 1

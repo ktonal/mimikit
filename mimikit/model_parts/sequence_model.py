@@ -4,8 +4,9 @@ from abc import ABC
 import matplotlib.pyplot as plt
 import os
 
-from .utils import MMKHooks, LoggingHooks, tqdm
-from ...utils import audio
+from .hooks import MMKHooks, LoggingHooks
+from .callbacks import tqdm
+from ..utils import audio
 
 
 class SequenceModel(MMKHooks,
