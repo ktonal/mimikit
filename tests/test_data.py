@@ -29,11 +29,11 @@ def audio_tree(tmp_path):
     return str(root)
 
 
-def test_file_walker(audio_tree):
-    walker = FileWalker('audio', items=audio_tree)
+def test_audio_file_walker(audio_tree):
+    walker = FileWalker('audio', sources=audio_tree)
     assert len(list(walker)) == 4
-    walker = FileWalker('audio', items=[audio_tree + "/dir2/test1.wav",
-                                        audio_tree + "/dir1/test4.notaudio"])
+    walker = FileWalker('audio', sources=[audio_tree + "/dir2/test1.wav",
+                                          audio_tree + "/dir1/test4.notaudio"])
     assert len(list(walker)) == 1
 
 
@@ -58,7 +58,7 @@ def test_Database_make(audio_tree):
 
 def test_Database_build(audio_tree):
     fdict = dict(y=F.AudioSignal())
-    TestDB.build(audio_tree + "/test_db.h5", items=audio_tree, features_dict=fdict)
+    TestDB.build(audio_tree + "/test_db.h5", sources=audio_tree, schema=fdict)
 
     db = TestDB(audio_tree + "/test_db.h5")
     assert isinstance(db.y.files, pd.DataFrame)
