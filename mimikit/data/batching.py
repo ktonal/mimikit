@@ -81,11 +81,6 @@ class Input:
         return len(self.getter)
 
 
-@dtc.dataclass
-class Target:
-    db_key: str = ''
-    getter: Getter = Getter()
-    transform: Callable = lambda x: x
-
-    def __len__(self):
-        return len(self.getter)
+class Target(Input):
+    """exactly equivalent to Input, just makes code simpler to read."""
+    pass
