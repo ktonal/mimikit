@@ -1,12 +1,11 @@
 import dataclasses as dtc
 import os
-
 import pytorch_lightning as pl
 import torch
-from mimikit import Database
-from mimikit.data.batching import Input, Target
 from torch.utils.data import Dataset, DataLoader
 from typing import Iterable
+
+from . import Database, Input, Target
 
 __all__ = [
     'DefaultDataset',

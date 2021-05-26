@@ -6,7 +6,7 @@ import IPython.display as ipd
 import soundfile as sf
 
 from ..data import Feature
-from ..audios import transforms as T
+from . import fmodules as T
 
 
 @dtc.dataclass

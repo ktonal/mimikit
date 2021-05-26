@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import soundfile
 
-import mimikit.audios.transforms as A
+import mimikit.audios.fmodules as A
 from mimikit.file_walker import FileWalker
 from mimikit.data import Database
 import mimikit.audios.features as F
@@ -43,7 +43,7 @@ class TestDB(Database):
 
     @staticmethod
     def extract(path, **kwargs):
-        return dict(y=({}, A.FileTo.signal(path), None))
+        return dict(y=({}, A.FileToSignal(sr=16000)(path), None))
 
 
 def test_Database_make(audio_tree):
