@@ -4,6 +4,8 @@ import pytorch_lightning as pl
 import torch
 from torch.utils.data import Dataset, DataLoader
 from typing import Iterable
+import re
+from torch._six import container_abcs, string_classes, int_classes
 
 from . import Database, Input, Target
 
@@ -13,29 +15,62 @@ __all__ = [
 ]
 
 
+np_str_obj_array_pattern = re.compile(r'[SaUO]')
+
+
+def _apply_recursively(data, test=lambda x: False, func=lambda x: x):
+    """
+    recursively apply func to the elements of data if test(element) is True.
+    This is used in DefaultDataset to process elements (Input or Target) packed in tuples, list, dict etc...
+    """
+    elem_type = type(data)
+    if test(data):
+        return func(data)
+    elif isinstance(data, container_abcs.Mapping):
+        return {key: _apply_recursively(data[key], test, func) for key in data}
+    elif isinstance(data, tuple) and hasattr(data, '_fields'):  # namedtuple
+        return elem_type(*(_apply_recursively(d, test, func) for d in data))
+    elif isinstance(data, container_abcs.Sequence) and not isinstance(data, string_classes):
+        return [_apply_recursively(d, test, func) for d in data]
+    else:
+        return data
+
+
 class DefaultDataset(Dataset):
 
     def prepare_dataset(self, model=None):
         super(DefaultDataset, self).__init__()
         self.batch = model.batch_signature()
+
         # pass the lengths to the getters
-        for feat in self.batch:
+        def cache_lengths(feat):
             if feat.getter.n_examples is None:
                 feat.getter.n_examples = len(getattr(self, feat.db_key))
-        self.N = min(len(feature) for feature in self.batch)
+            return feat
+        _apply_recursively(self.batch, self._is_batchitem, cache_lengths)
+
+        # get the minimum length of all batchitems
+        self.N = float('inf')
+
+        def set_n_to_min(feat):
+            self.N = min(len(feat), self.N)
+            return self.N
+        self.N = _apply_recursively(self.batch, self._is_batchitem, set_n_to_min)
 
     def __getitem__(self, item):
-        inputs = tuple(feat.transform(feat.getter(getattr(self, feat.db_key), item))
-                       for feat in self.batch if isinstance(feat, Input))
-        targets = tuple(feat.transform(feat.getter(getattr(self, feat.db_key), item))
-                        for feat in self.batch if isinstance(feat, Target))
-        return inputs, targets
+        def get_data(feat):
+            return feat.transform(feat.getter(getattr(self, feat.db_key)), item)
+        return _apply_recursively(self.batch, self._is_batchitem, get_data)
 
     def __len__(self):
         return self.N
 
+    @staticmethod
+    def _is_batchitem(obj):
+        return isinstance(obj, (Input, Target))
 
-def implements_mapstyle(obj):
+
+def _implements_mapstyle(obj):
     if isinstance(obj, type):
         getitem, flen = getattr(obj, '__getitem__', False), getattr(obj, '__len__', False)
     else:
@@ -46,6 +81,9 @@ def implements_mapstyle(obj):
 
 @dtc.dataclass
 class DataModule(pl.LightningDataModule):
+    """
+    encapsulate the logic for creating, initializing and serving databases & datasets
+    """
 
     model: pl.LightningModule = None
     db: [Database, Dataset, str] = None
@@ -78,7 +116,7 @@ class DataModule(pl.LightningDataModule):
         # upgrade db to a Dataset if it isn't one already
 
         # db implements Dataset interface
-        if implements_mapstyle(db):
+        if _implements_mapstyle(db):
             pass
         # user provided Dataset class
         elif self.dataset_cls is not None:
