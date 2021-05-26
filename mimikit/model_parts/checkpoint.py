@@ -17,8 +17,8 @@ class MMKCheckpoint(ModelCheckpoint):
             verbose=False,
             save_last=None,
             save_top_k=None,
-            save_weights_only=False, # we just save optimizers separately
-            mode="auto",
+            save_weights_only=False,  # we just save optimizers separately
+            mode="min",
             period=1,
             dirpath=os.path.join(dirpath, "states"),
             filename=filename
@@ -48,7 +48,7 @@ class MMKCheckpoint(ModelCheckpoint):
 
             self._save_model(filepath, trainer, pl_module)
 
-    def on_save_checkpoint(self, trainer, model):
+    def on_save_checkpoint(self, trainer, model, checkpoint):
         """returns the state to be saved in the checkpoint"""
         return {"epochs": self.epochs}
 
