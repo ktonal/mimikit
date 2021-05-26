@@ -3,6 +3,7 @@ import pytorch_lightning as pl
 from abc import ABC
 import matplotlib.pyplot as plt
 import os
+from typing import Callable
 
 from .utils import MMKHooks, LoggingHooks, tqdm
 from ...utils import audio
@@ -97,7 +98,8 @@ class GenerateCallBack(pl.callbacks.Callback):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
             return
         prompt = model.get_prompts(self.n_prompts)
-        output = model.generate(prompt, self.n_steps, decode_outputs=True, **self.kwargs)
+        kwargs = {k: v() if isinstance(v, Callable) else v for k, v in self.kwargs.items()}
+        output = model.generate(prompt, self.n_steps, decode_outputs=True, **kwargs)
         for i in range(output.size(0)):
             y = output[i].detach().cpu().numpy()
             if self.plot_audios:

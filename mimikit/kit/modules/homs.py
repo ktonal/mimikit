@@ -113,12 +113,16 @@ class FPaths(Paths):
     def forward(self, *inputs):
         # flatten ((x, x, ....), ) to (x, x, ...)
         inputs = self.flat_inputs(*inputs)
+#         print("SELF", self, [x.size() if isinstance(x, torch.Tensor) else len(x) for x in inputs])
+        if len(inputs) == 1 and len(self) > 1:
+            inputs = inputs * len(self)
         inputs = (x for x in inputs)
         modules = (m for m in self)
         out = None
         # if the firsts modules were Nones
         while out is None:
-            out = self.output_or_none(next(modules), (next(inputs)))
+            mod = next(modules)
+            out = self.output_or_none(mod, (next(inputs)))
         # now accum the outputs
         for mod, x in zip(modules, inputs):
             output = self.output_or_none(mod, x)
@@ -183,6 +187,9 @@ class GatedUnit(MulPaths):
     def __new__(cls, module):
         return MulPaths(nn.Sequential(module, nn.Tanh()),
                         nn.Sequential(deepcopy(module), nn.Sigmoid()))
+    
+    def forward(self, x):
+        return super().forward(x, x)
 
 
 def propped(*bases):

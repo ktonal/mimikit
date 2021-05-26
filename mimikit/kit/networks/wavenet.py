@@ -57,8 +57,8 @@ class WaveNetLayer(nn.Module):
                 # core
                 nn.Conv1d(self.gate_dim, self.residuals_dim, **self.conv_kwargs),
                 # conditioning parameters :
-                nn.Conv1d(self.cin_dim, self.residuals_dim, **self.kwargs_1x1) if self.cin_dim else None,
-                nn.Conv1d(self.gin_dim, self.residuals_dim, **self.kwargs_1x1) if self.gin_dim else None
+                nn.Conv1d(self.cin_dim, self.residuals_dim, **self.conv_kwargs) if self.cin_dim else None,
+                nn.Conv1d(self.gin_dim, self.residuals_dim, **self.conv_kwargs) if self.gin_dim else None
             ))
 
     def residuals_(self):
@@ -105,12 +105,12 @@ class WaveNetLayer(nn.Module):
         else:
             slc = slice(None)
             padder = Ops.CausalPad((0, 0, self.input_padding))
-        y = self.gcu(padder(x), cin, gin)
+        y = self.gcu(((padder(x), cin, gin), ))
         if skips is not None and y.size(-1) != skips.size(-1):
             skips = skips[:, :, slc]
         skips = self.skips(y, skips)
         y = self.accum(self.residuals(y), x[:, :, slc])
-        return y, cin, gin, skips
+        return y, cin[:, :, slc] if cin is not None else cin, gin[:, :, slc] if gin is not None else gin, skips
 
     def output_length(self, input_length):
         if bool(self.pad_input):
@@ -150,7 +150,7 @@ class WNNetwork(nn.Module):
 
     def layers_(self):
         return nn.Sequential(*[
-            WaveNetLayer(i,
+            WaveNetLayer(block-1-i,
                          gate_dim=self.gate_dim,
                          skip_dim=self.skip_dim,
                          residuals_dim=self.residuals_dim,

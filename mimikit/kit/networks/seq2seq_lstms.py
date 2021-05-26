@@ -41,12 +41,12 @@ class DecoderLSTM(nn.Module):
         super(DecoderLSTM, self).__init__()
         self.dim = model_dim
         self.lstm1 = nn.LSTM(self.dim, self.dim if bottleneck == "add" else self.dim // 2, bias=False,
-                             num_layers=num_layers, batch_first=True, bidirectional=True)
+                             num_layers=num_layers, batch_first=True, bidirectional=True, dropout=0.5)
         self.lstm2 = nn.LSTM(self.dim, self.dim if bottleneck == "add" else self.dim // 2, bias=False,
                              num_layers=num_layers, batch_first=True, bidirectional=True)
-        for name, p in dict(self.lstm1.named_parameters()).items():
-            if "weight" in name:
-                torch.nn.utils.weight_norm(self.lstm1, name)
+#         for name, p in dict(self.lstm1.named_parameters()).items():
+#             if "weight" in name:
+#                 torch.nn.utils.weight_norm(self.lstm1, name)
 #         for name, p in dict(self.lstm2.named_parameters()).items():
 #             if "weight" in name:
 #                 torch.nn.utils.weight_norm(self.lstm2, name)

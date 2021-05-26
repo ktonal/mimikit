@@ -54,7 +54,6 @@ def file_to_h5(abs_path, extract_func=None, output_path=None, mode="w"):
     created_file, infos : str, dict
         the name of the created .h5 file and a ``dict`` with the keys ``"dtype"`` and ``"shape"``
     """
-    print("making .h5 for %s" % abs_path)
     if output_path is None:
         output_path = os.path.splitext(abs_path)[0] + ".h5"
     else:

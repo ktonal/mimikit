@@ -26,7 +26,7 @@ class FreqNetNetwork(WNNetwork, nn.Module):
     def inpt_(self):
         return H.Paths(
             nn.Sequential(
-                H.GatedUnit(nn.Linear(self.input_dim, self.gate_dim)), Ops.Transpose(1, 2)),
+                nn.Linear(self.input_dim, self.gate_dim), Ops.Transpose(1, 2)),
             # conditioning parameters :
             nn.Sequential(
                 nn.Embedding(self.n_cin_classes, self.cin_dim), Ops.Transpose(1, 2)) if self.cin_dim else None,
