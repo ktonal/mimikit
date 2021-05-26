@@ -36,10 +36,14 @@ def _apply_recursively(data, test=lambda x: False, func=lambda x: x):
         return data
 
 
+def _is_batchitem(obj):
+    return isinstance(obj, (Input, Target))
+
+
 class DefaultDataset(Dataset):
 
     def prepare_dataset(self, model=None):
-        super(DefaultDataset, self).__init__()
+        super(Dataset, self).__init__()
         self.batch = model.batch_signature()
 
         # pass the lengths to the getters
@@ -47,7 +51,7 @@ class DefaultDataset(Dataset):
             if feat.getter.n_examples is None:
                 feat.getter.n_examples = len(getattr(self, feat.db_key))
             return feat
-        _apply_recursively(self.batch, self._is_batchitem, cache_lengths)
+        _apply_recursively(self.batch, _is_batchitem, cache_lengths)
 
         # get the minimum length of all batchitems
         self.N = float('inf')
@@ -55,19 +59,15 @@ class DefaultDataset(Dataset):
         def set_n_to_min(feat):
             self.N = min(len(feat), self.N)
             return self.N
-        self.N = _apply_recursively(self.batch, self._is_batchitem, set_n_to_min)
+        _apply_recursively(self.batch, _is_batchitem, set_n_to_min)
 
     def __getitem__(self, item):
         def get_data(feat):
-            return feat.transform(feat.getter(getattr(self, feat.db_key)), item)
-        return _apply_recursively(self.batch, self._is_batchitem, get_data)
+            return feat.transform(feat.getter(getattr(self, feat.db_key), item))
+        return _apply_recursively(self.batch, _is_batchitem, get_data)
 
     def __len__(self):
         return self.N
-
-    @staticmethod
-    def _is_batchitem(obj):
-        return isinstance(obj, (Input, Target))
 
 
 def _implements_mapstyle(obj):

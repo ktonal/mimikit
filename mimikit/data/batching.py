@@ -75,7 +75,7 @@ class AsFramedSlice(Getter):
 class Input:
     db_key: str = ''
     getter: Getter = Getter()
-    transform: Callable = lambda self, x: x
+    transform: Callable = lambda x: x
 
     def __len__(self):
         return len(self.getter)
@@ -85,7 +85,7 @@ class Input:
 class Target:
     db_key: str = ''
     getter: Getter = Getter()
-    transform: Callable = lambda self, x: x
+    transform: Callable = lambda x: x
 
     def __len__(self):
         return len(self.getter)

@@ -2,7 +2,7 @@ from functools import partial
 import h5py
 import torch
 from torch.utils.data._utils.collate import default_convert
-from torch.utils.data import random_split
+from torch.utils.data import random_split, Dataset
 import numpy as np
 import pandas as pd
 import os
@@ -116,7 +116,7 @@ class FeatureProxy(object):
         return "<FeatureProxy: '%s/%s'>" % (self.h5_file, self.name)
 
 
-class Database(object):
+class Database(Dataset):
     """
     interface to .h5 databases created by mimikit
 
@@ -236,25 +236,44 @@ class Database(object):
         return "<Database: '%s'>" % os.path.split(self.h5_file)[-1]
 
     def bind(self, dataset_cls):
-        def _bind(instance, func, as_name=None):
+        """
+        extends and if necessary overwrites the class of this instance with `dataset_cls`
+
+        if `dataset_cls` contains a `__init__` method, it must take 2 arguments (self, model=None)
+        and will be renamed to `prepare_dataset`.
+
+        for example usage of this method, see `mimikit.data.DataModule.prepare_data()`
+
+        Parameters
+        ----------
+        dataset_cls: type
+            the interface to be added to the class of self
+
+        Returns
+        -------
+        self
+            the extended instance
+        """
+        def _bind(func, as_name=None):
             """
-            Bind the function *func* to *instance*, with either provided name *as_name*
-            or the existing name of *func*. The provided *func* should accept the
-            instance as the first argument, i.e. "self".
+            Bind the function *func* to the class of *self*
             """
             if as_name is None:
                 as_name = func.__name__
-            bound_method = func.__get__(instance, instance.__class__)
-            setattr(instance, as_name, bound_method)
-            return bound_method
-        for k, v in dataset_cls.__dict__:
-            if k == '__init__':
+            setattr(type(self), as_name, func)
+
+        for k, v in dataset_cls.__dict__.items():
+            if k in ('__init__', 'prepare_dataset'):
                 assert v.__code__.co_argcount == 2, \
                     "__init__ method of dataset_cls should take 2 arguments: self, model=None"
                 # rename init
-                _bind(self, v, 'prepare_dataset')
-            if k in ('__len__', '__getitem__') or k not in self.__class__.__dict__:
-                _bind(self, v)
+                _bind(v, 'prepare_dataset')
+            elif k in ('__len__', '__getitem__') or k not in type(self).__dict__:
+                if '__call__' in dir(v):
+                    _bind(v, k)
+                else:
+                    # class attributes are likewise attached to type(self)
+                    setattr(type(self), k, v)
 
         return self
 
