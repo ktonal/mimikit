@@ -4,7 +4,7 @@ from torchaudio.transforms import GriffinLim
 import pytorch_lightning as pl
 
 from ..audios import transforms as A
-from ..h5data import Database
+from ..data import Database
 from ..ds_utils import ShiftedSequences
 from ..loss_functions import mean_L1_prop
 from ..model_parts import SuperAdam, SequenceModel, DataPart

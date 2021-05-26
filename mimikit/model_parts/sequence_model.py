@@ -62,8 +62,8 @@ class SequenceModel(MMKHooks,
         while len(prompt.shape) < at_least_nd:
             prompt = prompt.unsqueeze(0)
         prompt = prompt.to(self.device)
-        dims = prompt.size(0), n_steps, *prompt.size()[2:]
-        return torch.cat((prompt, torch.zeros(*dims).to(prompt)), dim=1)
+        blank_shapes = prompt.size(0), n_steps, *prompt.size()[2:]
+        return torch.cat((prompt, torch.zeros(*blank_shapes).to(prompt)), dim=1)
 
     @staticmethod
     def generate_tqdm(rng):

@@ -19,7 +19,7 @@ def model(cls):
     -------
 
     """
-    bases = cls.__parts__
+    bases = cls.__bases__
 
     # get the __init__ signatures of the bases
     sigs = [dict(signature(d.__init__).parameters) for d in bases
@@ -60,3 +60,10 @@ def model(cls):
                               namespace=ns,
                               init=True, repr=False, eq=False, frozen=False, unsafe_hash=True
                               )
+
+
+class Model(type):
+    def __new__(mcs, name, bases, namespace):
+        cls = super(Model, mcs).__new__(mcs, name, bases, namespace)
+        return model(cls)
+

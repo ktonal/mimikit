@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 from ..audios.features import MagSpec
-from ..h5data import Database
+from ..data import Database
 from ..model_parts import SuperAdam, SequenceModel, DataPart
 from ..ds_utils import ShiftedSequences
 from ..networks.seq2seq_lstms import Seq2SeqLSTM

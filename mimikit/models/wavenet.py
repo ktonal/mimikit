@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import pytorch_lightning as pl
 
-from ..h5data import Database
+from ..data import Database
 from ..ds_utils import ShiftedSequences
 from ..audios.features import QuantizedSignal
 from ..model_parts import SuperAdam, SequenceModel, DataPart

@@ -5,7 +5,7 @@ import soundfile
 
 import mimikit.audios.transforms as A
 from mimikit.file_walker import FileWalker
-from mimikit.h5data.api import Database
+from mimikit.data import Database
 import mimikit.audios.features as F
 
 

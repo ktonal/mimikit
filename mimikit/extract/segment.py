@@ -2,7 +2,7 @@ import numpy as np
 from librosa.segment import recurrence_matrix
 from librosa.util import localmax
 from scipy.ndimage import convolve
-from ..h5data.regions import Regions
+from ..data.regions import Regions
 
 
 def checker(N):

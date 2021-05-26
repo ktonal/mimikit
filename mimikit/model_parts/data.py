@@ -1,106 +1,55 @@
-import pytorch_lightning as pl
-import torch
 from pytorch_lightning import LightningModule
-from torch.utils.data import DataLoader
+from typing import Iterable
+import dataclasses as dtc
+from torch.utils.data import Dataset
 
-from ..h5data.api import Database
 
-
-class DataModule(pl.LightningDataModule):
-    """
-    boilerplate subclass of ``pytorch_lightning.LightningDataModule`` to handle standard "data-tasks" :
-        - give a Database a chance to prepare itself for serving data once the model has been instantiated
-        - move small datasets to the RAM of the gpu if desired
-            (TODO: Otherwise, more workers are used in the DataLoaders for better performance)
-        - split data into train, val and test sets and serve corresponding DataLoaders
-    """
-    def __init__(self,
-                 model=None,
-                 db: Database = None,
-                 in_mem_data=True,
-                 splits=None,
-                 loader_kwargs={},
-                 ):
-        super(DataModule, self).__init__()
-        self.model = model
-        self.db = db
-        self.in_mem_data = in_mem_data
-        self.splits = splits
-        self.loader_kwargs = loader_kwargs
-        self.train_ds, self.val_ds, self.test_ds = None, None, None
-
-    def prepare_data(self, *args, **kwargs):
-        self.db.prepare_dataset(model=self.model, loader_kwargs=self.loader_kwargs)
-
-    def setup(self, stage=None):
-        if stage == "fit":
-            if self.in_mem_data and torch.cuda.is_available():
-                self.db.to_tensor()
-                self.db.to("cuda")
-            if not self.splits:
-                sets = (self.db, )
-            else:
-                sets = self.db.split(self.splits)
-            for ds, attr in zip(sets, ["train_ds", "val_ds", "test_ds"]):
-                setattr(self, attr, ds)
-
-    def train_dataloader(self):
-        if not self.has_prepared_data:
-            self.prepare_data()
-        if not self.has_setup_fit:
-            self.setup("fit")
-        return DataLoader(self.train_ds, **self.loader_kwargs)
-
-    def val_dataloader(self, shuffle=False):
-        has_val = self.splits is not None and len(self.splits) >= 2 and self.splits[1] is not None
-        if not has_val:
-            return None
-        if not self.has_prepared_data:
-            self.prepare_data()
-        if not self.has_setup_fit:
-            self.setup("fit")
-        kwargs = self.loader_kwargs.copy()
-        kwargs["shuffle"] = shuffle
-        return DataLoader(self.val_ds, **kwargs)
-
-    def test_dataloader(self, shuffle=False):
-        has_test = self.splits is not None and len(self.splits) >= 3 and self.splits[2] is not None
-        if not has_test:
-            return None
-        if not self.has_prepared_data:
-            self.prepare_data()
-        if not self.has_setup_test:
-            self.setup("test")
-        kwargs = self.loader_kwargs.copy()
-        kwargs["shuffle"] = shuffle
-        return DataLoader(self.test_ds, **kwargs)
+from ..data import Database, DataModule
 
 
 class DataPart(LightningModule):
+    """
+    creates and attaches a DataModule to a Model.
 
-    db_class = None
+    Note that this part has no argument in its constructor but a **kwargs placeholder,
+    thus allowing you to add explicit data-hyperparameters to your model and to control how they
+    affect db-creation (e.g. schema) and/or serving the db (e.g. dataset_cls, batch_signature)
 
-    def __init__(self,
-                 db: [Database, str] = None,
-                 in_mem_data: bool = True,
-                 splits: [list, None] = [.8, .2],
-                 keep_open=False,
-                 loaders_kwargs={},
-                 ):
+    Examples
+    --------
+
+    import mimikit as K
+
+    class MyDataPart(K.models.DataPart):
+        def __init__(self, sr=16000, q_levels=256):
+
+            # override the class attribute in this instance :
+            self.schema = {"qx": K.audios.MuLawSignal(sr=sr, q_levels=q_levels)
+
+            # call DataPart's init for building the DataModule :
+            K.models.DataPart.__init__(self)
+
+
+    """
+
+    db: [Database, Dataset, str] = None
+    keep_open: bool = False
+    sources: [str, Iterable[str]] = ''
+    schema: dict = dtc.field(default_factory=dict)
+    dataset_cls: type = None
+    in_mem_data: bool = True
+    splits: tuple = tuple()
+    loader_kwargs: dict = dtc.field(default_factory=dict)
+
+    def __init__(self, **kwargs):
         super(LightningModule, self).__init__()
-        if db is not None:
-            db_ = db
-            if isinstance(db, str):
-                db_ = self.db_class(db_, keep_open=keep_open)
-            self.datamodule = DataModule(self, db_, in_mem_data, splits, loaders_kwargs)
-            # cache the db params in self.hparams
-            for feat_name, params in db_.params.__dict__.items():
-                for p, val in params.items():
-                    setattr(self.hparams, p, val)
-            self.db = db_
-
-    def _set_hparams(self, hp):
-        # break the link in the hparams so as to not include data in checkpoints :
-        if "db" in hp and hasattr(hp['db'], 'h5_file'):
-            hp["db"] = f"<{str(self.db_class.__name__)} : {hp['db'].h5_file}>"
-        super(DataPart, self)._set_hparams(hp)
+        self.datamodule = DataModule(self,
+                                     self.db,
+                                     self.keep_open,
+                                     self.sources,
+                                     self.schema,
+                                     self.dataset_cls,
+                                     self.in_mem_data,
+                                     self.splits,
+                                     self.loader_kwargs
+                                     )

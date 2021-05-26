@@ -1,6 +1,10 @@
 import pandas as pd
 import numpy as np
 
+__all__ = [
+    'Regions'
+]
+
 
 def ssts(item, axis=0):
     arr = np.atleast_2d(item[['start', 'stop']].values)

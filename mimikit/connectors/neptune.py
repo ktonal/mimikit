@@ -15,7 +15,7 @@ except ModuleNotFoundError:
     class pytorch_lightning:
         LightningModule = object()
 
-from mimikit.h5data import Database
+from mimikit.data import Database
 
 
 class NeptuneConnector:

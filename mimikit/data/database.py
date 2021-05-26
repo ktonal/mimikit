@@ -9,9 +9,13 @@ import os
 from argparse import Namespace
 import pytorch_lightning as pl
 
-from .write import make_root_db, write_feature
+from .create import make_root_db, write_feature
 from .regions import Regions
 from ..file_walker import FileWalker, EXTENSIONS
+
+__all__ = [
+    "Database"
+]
 
 
 class FeatureProxy(object):
@@ -132,6 +136,10 @@ class Database(object):
         by the name ``"fft"``, the attribute ``fft`` of type ``FeatureProxy`` will be automatically
         added when the file is loaded and you will be able to access it through ``db.fft``.
     """
+
+    schema = {}
+    get_controller = None
+
     def __init__(self, h5_file: str, keep_open=False):
         self.h5_file = h5_file
         with h5py.File(h5_file, "r") as f:
@@ -227,7 +235,30 @@ class Database(object):
     def __repr__(self):
         return "<Database: '%s'>" % os.path.split(self.h5_file)[-1]
 
-    def prepare_dataset(self, model: pl.LightningModule, loader_kwargs: dict):
+    def bind(self, dataset_cls):
+        def _bind(instance, func, as_name=None):
+            """
+            Bind the function *func* to *instance*, with either provided name *as_name*
+            or the existing name of *func*. The provided *func* should accept the
+            instance as the first argument, i.e. "self".
+            """
+            if as_name is None:
+                as_name = func.__name__
+            bound_method = func.__get__(instance, instance.__class__)
+            setattr(instance, as_name, bound_method)
+            return bound_method
+        for k, v in dataset_cls.__dict__:
+            if k == '__init__':
+                assert v.__code__.co_argcount == 2, \
+                    "__init__ method of dataset_cls should take 2 arguments: self, model=None"
+                # rename init
+                _bind(self, v, 'prepare_dataset')
+            if k in ('__len__', '__getitem__') or k not in self.__class__.__dict__:
+                _bind(self, v)
+
+        return self
+
+    def prepare_dataset(self, model: pl.LightningModule):
         """
         placeholder for implementing what need to be done before serving data
 
@@ -235,8 +266,6 @@ class Database(object):
         ----------
         model : pl.LightningModule
             The model that will consume this dataset.
-        loader_kwargs : dict
-            keywords arguments to be passed to the train, val and test loaders
 
         Returns
         -------
