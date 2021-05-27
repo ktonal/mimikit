@@ -98,11 +98,13 @@ class FeatureProxy(object):
 
         Examples
         --------
-        >>>from mimikit import Database
-        >>>X = Database("my-db.h5").fft
-        # only get files 0, 3 & 7
-        >>>X.get_regions(X.regions.iloc[[0, 3, 7]])
 
+            .. code-block::
+
+                from mimikit import Database
+                X = Database("my-db.h5").fft
+                # only get files 0, 3 & 7
+                X.get_regions(X.regions.iloc[[0, 3, 7]])
         """
         slices = regions.slices(0)
         return np.concatenate(tuple(self[slice_i] for slice_i in slices), axis=0)
@@ -300,6 +302,8 @@ class Database(Dataset):
 
     def split(self, splits):
         """
+        performs random splits on self
+
         Parameters
         ----------
         splits: Sequence of floats or ints possibly containing None.

@@ -16,6 +16,9 @@ __all__ = [
 
 @dtc.dataclass
 class AudioSignal(Feature):
+    """
+    audio signal managers
+    """
     __ext__ = 'audio'
 
     sr: int = 22050

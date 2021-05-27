@@ -12,7 +12,39 @@ __all__ = [
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class FreqNetNetwork(WNNetwork, nn.Module):
+    """
+    adapts Wavenet to the frequency-domain
 
+    Parameters
+    ----------
+    n_layers: tuple
+
+    input_dim: int
+
+    n_cin_classes: Optional[int]
+
+    cin_dim: Optional[int]
+
+    n_gin_classes: Optional[int]
+
+    gin_dim: Optional[int]
+
+    gate_dim: int
+
+    kernel_size: int
+
+    groups: int
+
+    accum_outputs: int
+
+    pad_input: int
+
+    skip_dim: Optional[int]
+
+    residuals_dim: Optional[int]
+
+
+    """
     n_layers: tuple = (4,)
     input_dim: int = 256
     n_cin_classes: Optional[int] = None

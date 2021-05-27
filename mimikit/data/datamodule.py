@@ -22,17 +22,76 @@ __all__ = [
 
 @dtc.dataclass
 class Getter:
+    """
+    base class for implementing data getter
+
+    Parameters
+    ----------
+
+    Attributes
+    ----------
+    n : int or None
+        the length of the underlying data
+    """
     n: Optional[int] = dtc.field(default=None, init=False)
 
     def __call__(self, feat_data, item):
+        """
+        apply this instance's logic to get data from ``feat_data`` for a given ``item``
+
+        Parameters
+        ----------
+        feat_data: [np.ndarray, torch.Tensor, mimikit.FeatureProxy]
+
+        item: int
+            the index emitted from a sampler
+
+        Returns
+        -------
+        data: Any
+            the examples corresponding to this item
+        """
         return feat_data[item]
 
     def __len__(self):
         return self.n
 
 
-@dtc.dataclass
+@dtc.dataclass()
 class AsSlice(Getter):
+    """
+    maps an ``item`` to a slice of data
+
+    Parameters
+    ----------
+    shift : int
+        the slice will start at the index `item + shift`
+    length : int
+        the length of the slice
+    stride : int
+        sub-sampling factor. Every `stride` datapoints `item` increases of `1`
+
+    Examples
+    --------
+
+    .. testcode::
+
+       import mimikit as mmk
+
+       slicer = mmk.AsSlice(shift=2, length=3)
+       data, item = list(range(10)), 2
+
+       # now use it like a function :
+       sliced = slicer(data, item)
+
+       print(sliced)
+
+    will output:
+
+    .. testoutput::
+
+       [4, 5, 6]
+    """
     shift: int = 0
     length: int = 1
     stride: int = 1
@@ -170,6 +229,9 @@ class DataModule(pl.LightningDataModule):
         self.full_ds, self.train_ds, self.val_ds, self.test_ds = None, None, None, None
 
     def prepare_data(self, *args, **kwargs):
+        """
+        creates a db if necessary, instantiates a dataset and performs splits
+        """
         # get a db object (create it if necessary)
         if isinstance(self.db, (str, os.PathLike)):
             if not os.path.exists(self.db):

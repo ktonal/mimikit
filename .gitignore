@@ -3,5 +3,6 @@
 *.ipynb_checkpoints*
 dist/*
 build/*
+docs/_build/
 *egg-info*
 .idea
