@@ -16,3 +16,4 @@ neptune-contrib==0.24.9
 test-tube>=0.7.5
 ipython>=7.12.0
 muspy==0.3.0
+PyYAML!=5.4.*,>=5.1
