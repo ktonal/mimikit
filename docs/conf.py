@@ -66,7 +66,7 @@ html_static_path = ['_static']
 autoclass_content = "class"
 
 # autodoc_default_options = ['no-undoc-members', 'no-inherited-members']
-
+autodoc_mock_imports = ['sndfile']
 autodoc_typehints = 'description'
 autodoc_class_signature = 'separated'
 autodoc_typehints_description_target = 'documented'
