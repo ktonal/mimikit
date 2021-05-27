@@ -4,9 +4,12 @@ from multiprocessing import cpu_count, Pool
 import os
 import warnings
 
-from mimikit.file_walker import FileWalker
-
 from .regions import Regions
+
+__all__ = [
+    'make_root_db',
+    'write_feature'
+]
 
 warnings.filterwarnings("ignore", message="PySoundFile failed.")
 

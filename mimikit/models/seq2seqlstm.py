@@ -3,12 +3,15 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 
-from ..audios.features import MagSpec
+from ..audios import MagSpec
 from ..data import Database
-from ..model_parts import SuperAdam, SequenceModel, DataPart
-from ..ds_utils import ShiftedSequences
-from ..networks.seq2seq_lstms import Seq2SeqLSTM
+from .parts import SuperAdam, SequenceModel
+from ..networks import Seq2SeqLSTM
 from ..loss_functions import mean_L1_prop
+
+__all__ = [
+    'Seq2SeqLSTMModel'
+]
 
 
 class MagSpecDB(Database):
@@ -20,7 +23,7 @@ class MagSpecDB(Database):
 
     def prepare_dataset(self, model, datamodule):
         prm = model.batch_info()
-        self.slicer = ShiftedSequences(len(self.fft), list(zip(prm["shifts"], prm["lengths"])))
+        # self.slicer = ShiftedSequences(len(self.fft), list(zip(prm["shifts"], prm["lengths"])))
         datamodule.loader_kwargs.setdefault("drop_last", False)
         datamodule.loader_kwargs.setdefault("shuffle", True)
 
@@ -33,7 +36,6 @@ class MagSpecDB(Database):
 
 
 class Seq2SeqLSTMModel(Seq2SeqLSTM,
-                       DataPart,
                        SuperAdam,
                        SequenceModel,
                        pl.LightningModule):
@@ -65,7 +67,6 @@ class Seq2SeqLSTMModel(Seq2SeqLSTM,
                  ):
         super(pl.LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataPart.__init__(self, db, in_mem_data, splits, keep_open, batch_size=batch_size, **loaders_kwargs)
         # SuperAdam.__init__(self, lr, alpha, eps, weight_decay, momentum, centered)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
         input_dim = self.hparams.n_fft // 2 + 1

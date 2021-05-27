@@ -3,6 +3,11 @@ import torch.nn as nn
 from typing import Optional
 from dataclasses import dataclass
 
+__all__ = [
+    "SampleRNNTier",
+    "SampleRNNNetwork"
+]
+
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class SampleRNNTier(nn.Module):
@@ -16,11 +21,6 @@ class SampleRNNTier(nn.Module):
     mlp_dim: Optional[int] = None
 
     is_bottom = property(lambda self: self.up_sampling == 1)
-
-    def linearize(self, q_samples):
-        """ maps input samples (0 <= qx < 256) to floats (-2. <= x < 2.) """
-        return ((q_samples.float() / self.q_levels) - .5) * 4
-        # return q_samples
 
     def embeddings_(self):
         if self.embedding_dim is not None:
@@ -94,11 +94,6 @@ class SampleRNNTier(nn.Module):
             nn.Linear(self.mlp_dim, self.q_levels if self.is_bottom else self.dim),
         )
 
-    def reset_hidden(self, batch_size, device):
-        self.h0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
-        self.c0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
-        return self.h0, self.c0
-
     def __post_init__(self):
         nn.Module.__init__(self)
         self.embeddings = self.embeddings_()
@@ -107,15 +102,22 @@ class SampleRNNTier(nn.Module):
         self.up_net = self.up_sampling_net_()
         self.mlp = self.mlp_()
 
-    def forward(self, input_samples, prev_tier_output=None, hidden=None):
+    def reset_hidden(self, batch_size, device):
+        self.h0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
+        self.c0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
+        return self.h0, self.c0
 
+    def linearize(self, q_samples):
+        """ maps input samples (0 <= qx < 256) to floats (-2. <= x < 2.) """
+        return ((q_samples.float() / self.q_levels) - .5) * 4
+
+    def forward(self, input_samples, prev_tier_output=None, hidden=None):
         if self.embeddings is None:
             x = self.linearize(input_samples)
         else:
             x = self.embeddings(input_samples)
 
         if self.inpt_proj is not None:
-            # print(self.tier_index, x.size())
             p = self.inpt_proj(x)
             if prev_tier_output is not None:
                 x = p + prev_tier_output
@@ -135,7 +137,6 @@ class SampleRNNTier(nn.Module):
 
         if self.mlp is not None:
             x = self.mlp(x)
-
         return x, hidden
 
 

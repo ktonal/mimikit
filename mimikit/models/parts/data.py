@@ -4,7 +4,9 @@ import dataclasses as dtc
 from torch.utils.data import Dataset
 
 
-from ..data import Database, DataModule
+from ...data import Database, DataModule
+
+__all__ = []
 
 
 class DataPart(LightningModule):
@@ -41,7 +43,7 @@ class DataPart(LightningModule):
     splits: tuple = tuple()
     loader_kwargs: dict = dtc.field(default_factory=dict)
 
-    def __init__(self, **kwargs):
+    def __init__(self):
         super(LightningModule, self).__init__()
         self.datamodule = DataModule(self,
                                      self.db,

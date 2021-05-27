@@ -5,6 +5,10 @@ from pytorch_lightning.loggers.base import rank_zero_experiment
 from typing import Optional
 import os
 
+__all__ = [
+    'MMKDefaultLogger'
+]
+
 
 class MMKExperiment(Experiment):
     """

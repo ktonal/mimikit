@@ -8,6 +8,11 @@ import soundfile as sf
 from ..data import Feature
 from . import fmodules as T
 
+__all__ = [
+    'AudioSignal',
+    'MuLawSignal'
+]
+
 
 @dtc.dataclass
 class AudioSignal(Feature):

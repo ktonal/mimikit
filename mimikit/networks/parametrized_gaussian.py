@@ -3,6 +3,10 @@ from torch import nn as nn
 from typing import Optional
 from dataclasses import dataclass
 
+__all__ = [
+    'ParametrizedGaussian'
+]
+
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class ParametrizedGaussian(nn.Module):

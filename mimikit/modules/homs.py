@@ -6,9 +6,26 @@ import torch
 from copy import deepcopy
 
 
+__all__ = [
+    'HOM',
+    'HOMSequential',
+    'SequentialAdd',
+    'SequentialMul',
+    'SequentialCollect',
+    'Paths',
+    'FPaths',
+    'AddPaths',
+    'MulPaths',
+    'block',
+    'Tiers',
+    'Skips',
+    'GatedUnit'
+]
+
 # *******************************************************************
 # ************************ HOM **************************************
 # *******************************************************************
+
 
 class NotAModule(nn.Module):
     """

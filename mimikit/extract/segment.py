@@ -4,6 +4,10 @@ from librosa.util import localmax
 from scipy.ndimage import convolve
 from ..data.regions import Regions
 
+__all__ = [
+    'from_recurrence_matrix'
+]
+
 
 def checker(N):
     block = np.zeros((N * 2 + 1, N * 2 + 1), dtype=np.int32)

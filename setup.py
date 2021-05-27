@@ -60,7 +60,7 @@ kwargs = {
     'packages': PACKAGES,
     "entry_points": {
         'console_scripts': [
-            'freqnet-db=mimikit.data.freqnet_db:main'
+            'samplernn=mimikit.models.sample_rnn:main'
         ]}
 
 }

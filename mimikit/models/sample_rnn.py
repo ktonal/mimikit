@@ -1,5 +1,5 @@
-from numpy.lib.stride_tricks import as_strided as np_as_strided
-from pytorch_lightning import LightningModule
+import inspect
+import click
 import torch
 import torch.nn as nn
 import numpy as np
@@ -7,62 +7,65 @@ from random import randint
 import dataclasses as dtc
 
 from ..audios.features import MuLawSignal
-from ..data import Database, TBPTTSampler, Input, Target, AsSlice, AsFramedSlice
-from ..model_parts import SuperAdam, SequenceModel, DataPart
+from ..data import Database, DataModule, TBPTTSampler
+from mimikit.data.datamodule import AsSlice, AsFramedSlice, Input, Target
+from .parts import SuperAdam, SequenceModel
 from ..networks.sample_rnn import SampleRNNNetwork
 
-from . import model
+from mimikit.models.model import model
+
+__all__ = [
+    'SampleRNN',
+    'main'
+]
 
 
 @model
+@dtc.dataclass(repr=False)
 class SampleRNN(SequenceModel,
-                DataPart,
                 SuperAdam,
-                SampleRNNNetwork,
-                LightningModule):
-
-    db_schema = {"qx": MuLawSignal(sr=16000, q_levels=256)}
+                SampleRNNNetwork):
+    sr: int = 16000
+    batch_size: int = 16
+    chunk_len: int = 16000 * 8
+    batch_seq_len: int = 512
 
     @staticmethod
     def loss_fn(output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
         return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
 
-    def batch_info(self, *args, **kwargs):
-        return tuple(self.hparams[key] for key in ["batch_size", "chunk_len", "batch_seq_len", "frame_sizes"])
+    @property
+    def db_schema(self):
+        return {'qx': MuLawSignal(sr=self.sr, q_levels=self.q_levels)}
 
     def batch_signature(self):
-
-        batch_size, chunk_len, batch_seq_len, frame_sizes = self.batch_info()
-        N = len(self.db.qx)
+        batch_seq_len, frame_sizes = tuple(getattr(self, key) for key in ["batch_seq_len", "frame_sizes"])
         shifts = [frame_sizes[0] - size for size in frame_sizes]
-        lengths = [batch_seq_len for _ in frame_sizes[:-1]]
-        lengths += [frame_sizes[0] + batch_seq_len]
-        batch = []
-        for fs, shift, length in zip(frame_sizes, shifts, lengths):
-            batch.append(
-                Input('qx', AsFramedSlice(N, shift, length, frame_size=fs,
-                                          as_strided=shift is shifts[-1])
-                      ))
-        batch += [Target('qx', AsSlice(N, shift=frame_sizes[0], length=batch_seq_len))]
-        return batch, min(len(f) for f in batch)
+        inputs = []
+        for fs, shift in zip(frame_sizes[:-1], shifts[:-1]):
+            inputs.append(
+                Input('qx', AsFramedSlice(shift, batch_seq_len, frame_size=fs,
+                                          as_strided=False)))
+        inputs.append(
+            Input('qx', AsFramedSlice(shifts[-1], batch_seq_len, frame_size=frame_sizes[-1],
+                                      as_strided=True)))
+        targets = Target('qx', AsSlice(shift=frame_sizes[0], length=batch_seq_len))
+        return inputs, targets
 
-    def update_loader_kwargs(self, loader_kwargs):
-        batch_sampler = TBPTTSampler(self.batch_signature()[1],
+    def loader_kwargs(self, datamodule):
+        batch_sampler = TBPTTSampler(len(datamodule.train_ds),
                                      self.batch_size,
                                      self.chunk_len,
                                      self.batch_seq_len)
-        loader_kwargs.update(dict(batch_sampler=batch_sampler))
-        for k in ["batch_size", "shuffle", "drop_last"]:
-            if k in loader_kwargs:
-                loader_kwargs.pop(k)
-        loader_kwargs["sampler"] = None
+        return dict(batch_sampler=batch_sampler)
 
     def setup(self, stage: str):
+        SequenceModel.setup(self, stage)
         SuperAdam.setup(self, stage)
 
     def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        if self.hparams.reset_hidden and (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
+        if (batch_idx * self.hparams.batch_seq_len) % self.hparams.chunk_len == 0:
             self.reset_h0()
 
     def encode_inputs(self, inputs: torch.Tensor):
@@ -131,8 +134,31 @@ class SampleRNN(SequenceModel,
 
         return output
 
-    def load_state_dict(self, state_dict, strict=True):
-        to_pop = [k for k in state_dict.keys() if "h0" in k or "c0" in k]
-        for k in to_pop:
-            state_dict.pop(k)
-        return super(SampleRNN, self).load_state_dict(state_dict, strict=False)
+
+def make_click_command(f):
+    aspec = inspect.getfullargspec(f)
+    if aspec.defaults is not None:
+        for arg, default in zip(reversed(aspec.args), reversed(aspec.defaults)):
+            opt = click.option('--' + arg.replace("_", "-"), default=default)
+            f = opt(f)
+    return click.command()(f)
+
+
+@make_click_command
+def main(sources=['./gould'], sr=16000, q_levels=256):
+    import mimikit as mmk
+
+    net = mmk.SampleRNN(sr=sr, q_levels=q_levels)
+
+    dm = mmk.DataModule(net, "/tmp/srnn.h5",
+                             sources=sources, schema=net.db_schema,
+                             splits=tuple(),
+                             in_mem_data=True)
+    trainer = mmk.get_trainer(root_dir='./',
+                              max_epochs=32)
+
+    trainer.fit(net, datamodule=dm)
+
+
+if __name__ == '__main__':
+    main()

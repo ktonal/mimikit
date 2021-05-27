@@ -5,6 +5,10 @@ from typing import Optional
 from .wavenet import WNNetwork, WaveNetLayer
 from ..modules import homs as H, ops as Ops
 
+__all__ = [
+    'FreqNetNetwork'
+]
+
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class FreqNetNetwork(WNNetwork, nn.Module):

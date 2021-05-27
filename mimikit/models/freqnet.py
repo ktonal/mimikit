@@ -3,13 +3,16 @@ import torch.nn as nn
 from torchaudio.transforms import GriffinLim
 import pytorch_lightning as pl
 
-from ..audios import transforms as A
+from ..audios import fmodules as A
 from ..data import Database
-from ..ds_utils import ShiftedSequences
 from ..loss_functions import mean_L1_prop
-from ..model_parts import SuperAdam, SequenceModel, DataPart
+from .parts import SuperAdam, SequenceModel
 
 from ..networks.freqnet import FreqNetNetwork
+
+__all__ = [
+    'FreqNet'
+]
 
 
 class FreqNetDB(Database):
@@ -25,7 +28,7 @@ class FreqNetDB(Database):
 
     def prepare_dataset(self, model, datamodule):
         prm = model.batch_info()
-        self.slicer = ShiftedSequences(len(self.fft), list(zip(prm["shifts"], prm["lengths"])))
+        # self.slicer = ShiftedSequences(len(self.fft), list(zip(prm["shifts"], prm["lengths"])))
         datamodule.loader_kwargs.setdefault("drop_last", False)
         datamodule.loader_kwargs.setdefault("shuffle", True)
 
@@ -38,7 +41,6 @@ class FreqNetDB(Database):
 
 
 class FreqNet(FreqNetNetwork,
-              DataPart,
               SuperAdam,
               SequenceModel,
               pl.LightningModule):
@@ -75,7 +77,6 @@ class FreqNet(FreqNetNetwork,
                  ):
         super(pl.LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataPart.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
         self.hparams.n_fft = self.db.params.fft["n_fft"]
         self.hparams.hop_length = self.db.params.fft["hop_length"]

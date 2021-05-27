@@ -6,7 +6,12 @@ import os
 
 from .hooks import MMKHooks, LoggingHooks
 from .callbacks import tqdm
-from ..utils import audio
+from ...utils import audio
+
+__all__ = [
+    'SequenceModel',
+    'GenerateCallBack'
+]
 
 
 class SequenceModel(MMKHooks,
@@ -35,9 +40,6 @@ class SequenceModel(MMKHooks,
     def setup(self, stage: str):
         if stage == "fit" and getattr(self, "logger", None) is not None:
             self.logger.log_hyperparams(self.hparams)
-
-    def batch_info(self, *args, **kwargs):
-        raise NotImplementedError("subclasses of `SequenceModel` have to implement `batch_info`")
 
     def get_prompts(self, n_prompts, prompt_length=None):
         raise NotImplementedError

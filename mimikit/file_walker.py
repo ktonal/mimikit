@@ -1,6 +1,11 @@
 import os
 from typing import Iterable
 
+__all__ = [
+    "EXTENSIONS",
+    "FileWalker"
+]
+
 AUDIO_EXTENSIONS = {"wav", "aif", "aiff", "mp3", "m4a", "mp4"}
 MIDI_EXTENSIONS = {"mid"}
 

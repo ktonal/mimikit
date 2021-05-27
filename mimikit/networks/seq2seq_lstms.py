@@ -5,6 +5,12 @@ from dataclasses import dataclass
 
 from ..networks.parametrized_gaussian import ParametrizedGaussian
 
+__all__ = [
+    'EncoderLSTM',
+    'DecoderLSTM',
+    'Seq2SeqLSTM',
+]
+
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class EncoderLSTM(nn.Module):

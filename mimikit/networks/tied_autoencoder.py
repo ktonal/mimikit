@@ -2,6 +2,10 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 
+__all__ = [
+    "TiedAE"
+]
+
 
 class TiedAE(nn.Module):
 

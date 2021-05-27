@@ -7,8 +7,7 @@ import os
 import shutil
 
 from mimikit.get_trainer import get_trainer
-from mimikit.model_parts.loggers import MMKDefaultLogger
-from mimikit.model_parts.checkpoint import MMKCheckpoint
+from mimikit.models.parts import MMKDefaultLogger, MMKCheckpoint
 from mimikit.connectors.neptune import NeptuneConnector
 
 

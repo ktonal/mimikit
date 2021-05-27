@@ -17,6 +17,10 @@ except ModuleNotFoundError:
 
 from mimikit.data import Database
 
+__all__ = [
+    'NeptuneConnector'
+]
+
 
 class NeptuneConnector:
     NEPTUNE_TOKEN_KEY = "NEPTUNE_API_TOKEN"

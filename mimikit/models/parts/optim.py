@@ -1,5 +1,12 @@
 import torch
 from pytorch_lightning import LightningModule
+import dataclasses as dtc
+from typing import Tuple, Optional
+
+__all__ = [
+    'Adam',
+    'SuperAdam'
+]
 
 
 class Adam(LightningModule):
@@ -26,38 +33,28 @@ class ManyOneCycleLR(torch.optim.lr_scheduler.OneCycleLR):
             super(ManyOneCycleLR, self).step(epoch=epoch)
 
 
+@dtc.dataclass(repr=False, eq=False)
 class SuperAdam(LightningModule):
-    """
-    Here the method ``configure_optimizers()`` returns an ``Adam`` optimizer and a slightly modified
-    ``OneCycleLR`` scheduler (the only modification being that it won't raise a ``ValueError`` if you use for more
-    steps than what it expects and will instead restarts its cycle)
-    """
 
-    def __init__(self,
-                 max_lr=1e-3,
-                 betas=(.9, .9),
-                 div_factor=3.,
-                 final_div_factor=1.,
-                 pct_start=.25,
-                 cycle_momentum=False,
-                 total_steps=None,
-                ):
+    max_lr: float = 1e-3
+    betas: Tuple[float, float] = (.9, .9)
+    div_factor: float = 3.
+    final_div_factor: float = 1.
+    pct_start: float = .25
+    cycle_momentum: bool = False
+    total_steps: Optional[int] = None
+
+    def __post_init__(self):
         super(LightningModule, self).__init__()
-        self.max_lr = max_lr
-        self.betas = betas
-        self.div_factor = div_factor
-        self.final_div_factor = final_div_factor
-        self.pct_start = pct_start
-        self.cycle_momentum = cycle_momentum
         # those are set in setup when we know what the trainer and datamodule got
         self.steps_per_epoch = None
-        self.total_steps = total_steps
         self.max_epochs = None
         self.opt, self.sched = None, None
 
     def configure_optimizers(self):
         self.opt = torch.optim.Adam(self.parameters(), lr=self.max_lr, betas=self.betas)
-        steps = dict(total_steps=self.total_steps) if self.total_steps is not None else dict(steps_per_epoch=self.steps_per_epoch, epochs=self.max_epochs)
+        steps = dict(total_steps=self.total_steps) if self.total_steps is not None \
+            else dict(steps_per_epoch=self.steps_per_epoch, epochs=self.max_epochs)
         self.sched = ManyOneCycleLR(self.opt,
                                     **steps,
                                     max_lr=self.max_lr, div_factor=self.div_factor,

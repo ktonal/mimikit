@@ -3,6 +3,10 @@ from pytorch_lightning.trainer.states import TrainerState
 from typing import Iterable
 import os
 
+__all__ = [
+    'MMKCheckpoint'
+]
+
 
 class MMKCheckpoint(ModelCheckpoint):
     def __init__(self,

@@ -3,10 +3,13 @@ import torch.nn as nn
 import pytorch_lightning as pl
 
 from ..data import Database
-from ..ds_utils import ShiftedSequences
-from ..audios.features import QuantizedSignal
-from ..model_parts import SuperAdam, SequenceModel, DataPart
-from ..networks.wavenet import WNNetwork
+from ..audios import MuLawSignal
+from .parts import SuperAdam, SequenceModel
+from ..networks import WNNetwork
+
+__all__ = [
+    'WaveNet'
+]
 
 
 class WaveNetDB(Database):
@@ -14,11 +17,12 @@ class WaveNetDB(Database):
 
     @staticmethod
     def extract(path, sr=16000, q_levels=255, emphasis=0.):
-        return QuantizedSignal.extract(path, sr, q_levels, emphasis)
+        # return QuantizedSignal.extract(path, sr, q_levels, emphasis)
+        pass
 
     def prepare_dataset(self, model, datamodule):
         prm = model.batch_info()
-        self.slicer = ShiftedSequences(len(self.qx), list(zip(prm["shifts"], prm["lengths"])))
+        # self.slicer = ShiftedSequences(len(self.qx), list(zip(prm["shifts"], prm["lengths"])))
         datamodule.loader_kwargs.setdefault("drop_last", False)
         datamodule.loader_kwargs.setdefault("shuffle", True)
 
@@ -31,7 +35,6 @@ class WaveNetDB(Database):
 
 
 class WaveNet(WNNetwork,
-              DataPart,
               SuperAdam,
               SequenceModel,
               pl.LightningModule):
@@ -70,7 +73,7 @@ class WaveNet(WNNetwork,
                  ):
         super(pl.LightningModule, self).__init__()
         SequenceModel.__init__(self)
-        DataPart.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
+        # DataPart.__init__(self, db, in_mem_data, splits, batch_size=batch_size, **loaders_kwargs)
         SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum, sched_total_steps)
         self.hparams.q_levels = db.params.qx["q_levels"]
         self.hparams.sr = db.params.qx["sr"]
@@ -99,12 +102,12 @@ class WaveNet(WNNetwork,
         lengths = (self.hparams.batch_seq_length, self.output_shape((-1, self.hparams.batch_seq_length, -1))[1])
         shifts = (0, self.shift)
         return dict(shifts=shifts, lengths=lengths)
-
-    def encode_inputs(self, inputs: torch.Tensor):
-        return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
-
-    def decode_outputs(self, outputs: torch.Tensor):
-        return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
+    #
+    # def encode_inputs(self, inputs: torch.Tensor):
+    #     return QuantizedSignal.encode(inputs, self.hparams.q_levels, self.hparams.emphasis)
+    #
+    # def decode_outputs(self, outputs: torch.Tensor):
+    #     return QuantizedSignal.decode(outputs, self.hparams.q_levels, self.hparams.emphasis)
 
     def get_prompts(self, n_prompts, prompt_length=None):
         return next(iter(self.datamodule.train_dataloader()))[0][:n_prompts, :prompt_length]

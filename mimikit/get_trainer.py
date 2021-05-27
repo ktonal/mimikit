@@ -2,11 +2,14 @@ import os
 import torch
 from pytorch_lightning.loggers import NeptuneLogger
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from .model_parts.loggers import MMKDefaultLogger
-from .model_parts.checkpoint import MMKCheckpoint
-from .model_parts.callbacks import EpochProgressBarCallback
+
+from .models.parts import MMKDefaultLogger, MMKCheckpoint, EpochProgressBarCallback
 from pytorch_lightning.trainer import Trainer
 import warnings
+
+__all__ = [
+    'get_trainer'
+]
 
 
 def get_trainer(root_dir=None,

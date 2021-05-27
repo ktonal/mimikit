@@ -5,6 +5,11 @@ from typing import Optional
 
 from ..modules import homs as H, ops as Ops
 
+__all__ = [
+    'WaveNetLayer',
+    'WNNetwork'
+]
+
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class WaveNetLayer(nn.Module):

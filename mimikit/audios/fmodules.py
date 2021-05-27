@@ -6,7 +6,16 @@ import numpy as np
 from scipy.signal import lfilter
 import dataclasses as dtc
 
-from ..extract.segment import from_recurrence_matrix
+__all__ = [
+    'FileToSignal',
+    'Normalize',
+    'Emphasis',
+    'Deemphasis',
+    'MuLawCompress',
+    'MuLawExpand',
+    'MagSpec',
+    'GLA'
+]
 
 N_FFT = 2048
 HOP_LENGTH = 512

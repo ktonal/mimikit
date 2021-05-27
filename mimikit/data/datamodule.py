@@ -2,17 +2,87 @@ import dataclasses as dtc
 import os
 import pytorch_lightning as pl
 import torch
+from numpy.lib.stride_tricks import as_strided as np_as_strided
 from torch.utils.data import Dataset, DataLoader
-from typing import Iterable
+from typing import Iterable, Optional, Callable
 import re
-from torch._six import container_abcs, string_classes, int_classes
+from torch._six import container_abcs, string_classes
 
-from . import Database, Input, Target
+from . import Database
 
 __all__ = [
+    'AsSlice',
+    'AsFramedSlice',
+    'Input',
+    'Target',
     'DefaultDataset',
     'DataModule'
 ]
+
+
+@dtc.dataclass
+class Getter:
+    n: Optional[int] = dtc.field(default=None, init=False)
+
+    def __call__(self, feat_data, item):
+        return feat_data[item]
+
+    def __len__(self):
+        return self.n
+
+
+@dtc.dataclass
+class AsSlice(Getter):
+    shift: int = 0
+    length: int = 1
+    stride: int = 1
+
+    def __call__(self, feat_data, item):
+        i = item * self.stride
+        return feat_data[slice(i + self.shift, i + self.shift + self.length)]
+
+    def __len__(self):
+        return (self.n - self.shift + self.length + 1) // self.stride
+
+
+@dtc.dataclass
+class AsFramedSlice(AsSlice):
+
+    frame_size: int = 1
+    as_strided: bool = False
+
+    def __call__(self, feat_data, item):
+        sliced = super(AsFramedSlice, self).__call__(feat_data, item)
+        if self.as_strided:
+            if type(feat_data) is not torch.Tensor:
+                itemsize = sliced.dtype.itemsize
+                as_strided = lambda arr: np_as_strided(arr,
+                                                       shape=(self.length, self.frame_size),
+                                                       strides=(itemsize, itemsize))
+            else:
+                as_strided = lambda tensor: torch.as_strided(tensor,
+                                                             size=(self.length, self.frame_size),
+                                                             stride=(1, 1))
+
+            with torch.no_grad():
+                return as_strided(sliced)
+        else:
+            return sliced.reshape(-1, self.frame_size)
+
+
+@dtc.dataclass
+class Input:
+    db_key: str = ''
+    getter: Getter = Getter()
+    transform: Callable = lambda x: x
+
+    def __len__(self):
+        return len(self.getter)
+
+
+class Target(Input):
+    """exactly equivalent to Input, just makes code simpler to read."""
+    pass
 
 
 np_str_obj_array_pattern = re.compile(r'[SaUO]')
@@ -44,21 +114,21 @@ class DefaultDataset(Dataset):
 
     def prepare_dataset(self, model=None):
         super(Dataset, self).__init__()
-        self.batch = model.batch_signature()
+        batch = model.batch_signature()
 
-        # pass the lengths to the getters
+        # pass the lengths of the db features to the getters
         def cache_lengths(feat):
-            if feat.getter.n_examples is None:
-                feat.getter.n_examples = len(getattr(self, feat.db_key))
+            if feat.getter.n is None:
+                setattr(feat.getter, 'n', len(getattr(self, feat.db_key)))
             return feat
-        _apply_recursively(self.batch, _is_batchitem, cache_lengths)
+        self.batch = _apply_recursively(batch, _is_batchitem, cache_lengths)
 
         # get the minimum length of all batchitems
         self.N = float('inf')
 
         def set_n_to_min(feat):
             self.N = min(len(feat), self.N)
-            return self.N
+            return feat
         _apply_recursively(self.batch, _is_batchitem, set_n_to_min)
 
     def __getitem__(self, item):
@@ -87,26 +157,28 @@ class DataModule(pl.LightningDataModule):
 
     model: pl.LightningModule = None
     db: [Database, Dataset, str] = None
-    keep_open: bool = False
+    keep_open: bool = True
     sources: [str, Iterable[str]] = ''
     schema: dict = dtc.field(default_factory=dict)
     dataset_cls: type = None
     in_mem_data: bool = True
-    splits: tuple = None
+    splits: tuple = tuple()
     loader_kwargs: dict = dtc.field(default_factory=dict)
 
     def __post_init__(self):
+        super(DataModule, self).__init__()
         self.full_ds, self.train_ds, self.val_ds, self.test_ds = None, None, None, None
 
     def prepare_data(self, *args, **kwargs):
-        # get a db object
-        if isinstance(self.db, (str, os.PathLike)) and not os.path.exists(self.db):
-            # user must provide sources and schema to build db
-            if not self.sources and self.schema:
-                raise ValueError("You need to provide sources and a schema in order to create a db")
-            db = Database.build(self.db, self.sources, self.schema)
-            if self.keep_open:
-                db = Database(self.db, keep_open=True)
+        # get a db object (create it if necessary)
+        if isinstance(self.db, (str, os.PathLike)):
+            if not os.path.exists(self.db):
+                # user must provide sources and schema to build db
+                if not self.sources and self.schema:
+                    raise ValueError("You need to provide sources and a schema in order to create a db")
+                db = Database.build(self.db, self.sources, self.schema)
+            else:
+                db = Database(self.db, keep_open=self.keep_open)
         elif isinstance(self.db, (Database, Dataset)):
             # user provided built db
             db = self.db
@@ -114,22 +186,22 @@ class DataModule(pl.LightningDataModule):
             raise TypeError("Expected `db` to be of type str, Database or Dataset. Got " + str(type(self.db)))
 
         # upgrade db to a Dataset if it isn't one already
-
-        # db implements Dataset interface
         if _implements_mapstyle(db):
             pass
         # user provided Dataset class
         elif self.dataset_cls is not None:
             db.bind(self.dataset_cls)
         # model has a batch signature
-        elif hasattr(self.model, 'batch_signature'):
+        elif getattr(self.model, 'batch_signature', False):
             db.bind(DefaultDataset)
         else:
             raise RuntimeError("couldn't instantiate a Dataset with the provided arguments")
 
         # now we have it!
         self.db = db
-        self.db.prepare_dataset(self.model)
+        # maybe the db is a standard Dataset...
+        if hasattr(self.db, 'prepare_dataset'):
+            self.db.prepare_dataset(self.model)
 
         # move data to device, split
         if self.in_mem_data and torch.cuda.is_available():
@@ -143,6 +215,10 @@ class DataModule(pl.LightningDataModule):
         for ds, attr in zip(sets, ["train_ds", "val_ds", "test_ds"]):
             setattr(self, attr, ds)
         setattr(self, 'full_ds', self.db)
+
+        # update loader kwargs
+        if hasattr(self.model, 'loader_kwargs'):
+            self.loader_kwargs.update(self.model.loader_kwargs(self))
 
         return self
 
@@ -189,3 +265,5 @@ class DataModule(pl.LightningDataModule):
         kwargs = self.loader_kwargs.copy()
         kwargs["shuffle"] = shuffle
         return DataLoader(self.test_ds, **kwargs)
+
+

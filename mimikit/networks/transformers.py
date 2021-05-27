@@ -3,6 +3,11 @@ import torch
 from torch.nn import Transformer, TransformerEncoder, TransformerEncoderLayer
 import math
 
+__all__ = [
+    'PositionalEncoding',
+    'SimpleTransformer'
+]
+
 
 class PositionalEncoding(nn.Module):
     r"""Inject some information about the relative or absolute position of the tokens
