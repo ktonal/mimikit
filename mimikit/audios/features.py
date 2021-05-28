@@ -10,7 +10,9 @@ from . import fmodules as T
 
 __all__ = [
     'AudioSignal',
-    'MuLawSignal'
+    'MuLawSignal',
+    'Spectrogram',
+    'SegmentLabels'
 ]
 
 
@@ -94,4 +96,64 @@ class MuLawSignal(AudioSignal):
             np.ndarray: T.MuLawExpand(self.q_levels),
             torch.Tensor: T.MuLawExpand(self.q_levels)
         }
+
+
+@dtc.dataclass
+class Spectrogram(AudioSignal):
+
+    n_fft: int = 2048
+    hop_length: int = 512
+    magspec: bool = False
+
+    @property
+    def dim(self):
+        return self.n_fft // 2 + 1
+
+    @property
+    def encoders(self):
+        if self.magspec:
+            return {
+                np.ndarray: T.MagSpec(self.n_fft, self.hop_length),
+                torch.Tensor: T.MagSpec(self.n_fft, self.hop_length)
+            }
+        return {
+            np.ndarray: T.STFT(self.n_fft, self.hop_length),
+            torch.Tensor: T.STFT(self.n_fft, self.hop_length)
+        }
+
+    @property
+    def decoders(self):
+        if self.magspec:
+            return {
+                np.ndarray: T.GLA(self.n_fft, self.hop_length, n_iter=32),
+                torch.Tensor: T.GLA(self.n_fft, self.hop_length, n_iter=32)
+            }
+        return {
+            np.ndarray: T.ISTFT(self.n_fft, self.hop_length),
+            torch.Tensor: T.ISTFT(self.n_fft, self.hop_length)
+        }
+
+    def display(self, inputs, **waveplot_kwargs):
+        y = self.decode(inputs)
+        return super(Spectrogram, self).display(y, **waveplot_kwargs)
+
+    def play(self, inputs):
+        y = self.decode(inputs)
+        return super(Spectrogram, self).play(y)
+
+    def write(self, filename, inputs):
+        y = self.decode(inputs)
+        return super(Spectrogram, self).write(filename, y)
+
+
+@dtc.dataclass
+class SegmentLabels(Feature):
+
+    base_repr: Feature = Spectrogram(magspec=True)
+    L: int = 6
+    k: int = None
+    sym: bool = True
+    bandwidth: float = 1.
+    thresh: float = 0.2
+    min_dur: int = 4
 

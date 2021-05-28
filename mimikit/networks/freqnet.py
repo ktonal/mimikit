@@ -11,7 +11,7 @@ __all__ = [
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class FreqNetNetwork(WNNetwork, nn.Module):
+class FreqNetNetwork(WNNetwork):
     """
     adapts Wavenet to the frequency-domain
 

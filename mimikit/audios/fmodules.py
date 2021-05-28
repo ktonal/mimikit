@@ -13,6 +13,8 @@ __all__ = [
     'Deemphasis',
     'MuLawCompress',
     'MuLawExpand',
+    'STFT',
+    'ISTFT',
     'MagSpec',
     'GLA'
 ]
@@ -154,12 +156,38 @@ class STFT(FModule):
     @property
     def functions(self):
         def np_func(inputs):
-            return librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length, )
+            # returned shape is (time x freq)
+            return librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length).T
 
         def torch_func(inputs):
             mod = T.Spectrogram(self.n_fft, hop_length=self.hop_length, power=1.,
                                 wkwargs=dict(device=inputs.device))
+            # returned shape is (..., time x freq)
             return mod(inputs).transpose(-1, -2).contiguous()
+
+        return {
+            np.ndarray: np_func,
+            torch.Tensor: torch_func
+        }
+
+
+@dtc.dataclass
+class ISTFT(FModule):
+    n_fft: int = N_FFT
+    hop_length: int = HOP_LENGTH
+
+    @property
+    def functions(self):
+        def np_func(inputs):
+            # inputs is of shape (time x freq)
+            return librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, )
+
+        def torch_func(inputs):
+            # inputs is of shape (time x freq)
+            y = torch.istft(inputs.transpose(-1, -2).contiguous(),
+                            n_fft=self.n_fft, hop_length=self.hop_length,
+                            window=torch.hann_window(self.n_fft, device=inputs.device))
+            return y
 
         return {
             np.ndarray: np_func,
@@ -173,7 +201,12 @@ class MagSpec(STFT):
     @property
     def functions(self):
         sup_f = super(MagSpec, self).functions
-        return {tp: lambda x: abs(func(x)) for tp, func in sup_f.items()}
+        # dict comprehension would result in a single function for
+        # all types, so we declare the dict manually...
+        return {
+            np.ndarray: lambda x: abs(sup_f[np.ndarray](x)),
+            torch.Tensor: lambda x: abs(sup_f[torch.Tensor](x))
+        }
 
 
 @dtc.dataclass
@@ -185,11 +218,13 @@ class GLA(FModule):
     @property
     def functions(self):
         def np_func(inputs):
-            return librosa.griffinlim(inputs, hop_length=self.hop_length, n_iter=self.n_iter)
+            # inputs is of shape (time x freq)
+            return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter)
 
         def torch_func(inputs):
             gla = T.GriffinLim(n_fft=self.n_fft, hop_length=self.hop_length, power=1.,
                                wkwargs=dict(device=inputs.device))
+            # inputs is of shape (time x freq)
             return gla(inputs.transpose(-1, -2).contiguous())
 
         return {

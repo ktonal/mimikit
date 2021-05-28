@@ -2,6 +2,7 @@ import dataclasses as dtc
 import os
 import pytorch_lightning as pl
 import torch
+import numpy as np
 from numpy.lib.stride_tricks import as_strided as np_as_strided
 from torch.utils.data import Dataset, DataLoader
 from typing import Iterable, Optional, Callable
@@ -101,7 +102,7 @@ class AsSlice(Getter):
         return feat_data[slice(i + self.shift, i + self.shift + self.length)]
 
     def __len__(self):
-        return (self.n - self.shift + self.length + 1) // self.stride
+        return (self.n - (self.shift + self.length) + 1) // self.stride
 
 
 @dtc.dataclass
@@ -113,7 +114,7 @@ class AsFramedSlice(AsSlice):
     def __call__(self, feat_data, item):
         sliced = super(AsFramedSlice, self).__call__(feat_data, item)
         if self.as_strided:
-            if type(feat_data) is not torch.Tensor:
+            if isinstance(sliced, np.ndarray):
                 itemsize = sliced.dtype.itemsize
                 as_strided = lambda arr: np_as_strided(arr,
                                                        shape=(self.length, self.frame_size),

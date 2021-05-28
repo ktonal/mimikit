@@ -59,7 +59,7 @@ class SequenceModel(MMKHooks,
         torch.set_grad_enabled(True)
 
     def prepare_prompt(self, prompt, n_steps, at_least_nd=2):
-        if not isinstance(prompt, torch.Tensor):
+        if not isinstance(prompt, torch.TensorType):
             prompt = torch.from_numpy(prompt)
         while len(prompt.shape) < at_least_nd:
             prompt = prompt.unsqueeze(0)
