@@ -10,6 +10,7 @@ from argparse import Namespace
 import pytorch_lightning as pl
 
 from .create import make_root_db, write_feature
+from .feature import Feature
 from .regions import Regions
 from ..file_walker import FileWalker, EXTENSIONS
 
@@ -64,23 +65,26 @@ class FeatureProxy(object):
             self.attrs = {k: v for k, v in ds.attrs.items()}
             has_files = self.name + "_files" in f
             has_regions = self.name + "_regions" in f
-        self.files = pd.read_hdf(h5_file, self.name + "_files", mode="r") if has_files else None
-        self.regions = pd.read_hdf(h5_file, self.name + "_regions", mode="r") if has_regions else None
-        self._f = h5py.File(h5_file, "r") if keep_open else None
-        # sequence for restricting the data to specific indices
-        self._idx_map = []
+        self.files = Regions(pd.read_hdf(h5_file, self.name + "_files", mode="r")) if has_files else None
+        self.regions = Regions(pd.read_hdf(h5_file, self.name + "_regions", mode="r")) if has_regions else None
+        self._f = h5py.File(h5_file, "r+") if keep_open else None
 
     def __len__(self):
         return self.N
 
     def __getitem__(self, item):
-        if any(self._idx_map):
-            item = self._idx_map[item]
         if self._f is not None:
             return self._f[self.name][item]
         with h5py.File(self.h5_file, "r") as f:
             rv = f[self.name][item]
         return rv
+
+    def __setitem__(self, item, value):
+        if self._f is not None:
+            self._f[self.name][item] = value
+        with h5py.File(self.h5_file, "r+") as f:
+            f[self.name][item] = value
+        return
 
     def get_regions(self, regions):
         """
@@ -140,16 +144,19 @@ class Database(Dataset):
     """
 
     schema = {}
-    get_controller = None
 
     def __init__(self, h5_file: str, keep_open=False):
         self.h5_file = h5_file
+        self.keep_open = keep_open
         with h5py.File(h5_file, "r") as f:
             self.attrs = {k: v for k, v in f.attrs.items()}
             self.features = f.attrs.get("features", ["fft"])
         # add found features as self.feature_name = FeatureProxy(self.h5_file, feature_name)
         self.params = Namespace()
         self._register_features(self.features, keep_open)
+
+    def copy(self):
+        return type(self)(self.h5_file, self.keep_open)
 
     @staticmethod
     def extract(path, **kwargs):
@@ -171,16 +178,26 @@ class Database(Dataset):
         out = {}
         for f_name, f in schema.items():
             # check that f has `load` and that `path` is of the right type
-            if hasattr(f, 'load') and os.path.splitext(path)[-1].strip('.') in EXTENSIONS[f.__ext__]:
+            if getattr(type(f), 'load', Feature.load) != Feature.load and \
+                    os.path.splitext(path)[-1].strip('.') in EXTENSIONS[f.__ext__]:
                 obj = f.load(path)
-                if isinstance(obj, Regions):
-                    out[f_name] = getattr(f, 'params', {}), None, obj
-                else:
-                    out[f_name] = getattr(f, 'params', {}), obj, None
+            # feature is derived from the output of an other
+            elif hasattr(f, 'input_key') and f.input_key in out:
+                # we us __call__ instead of load, the former being eq. to a transform
+                obj = f(out[f.input_key][1])
+            else:
+                obj = None
+            # obj is (data, regions)
+            if isinstance(obj, tuple) and tuple(map(type, obj)) == (np.ndarray, Regions):
+                out[f_name] = getattr(f, 'params', {}), *obj
+            elif isinstance(obj, Regions):
+                out[f_name] = getattr(f, 'params', {}), np.array([]), obj
+            elif isinstance(obj, np.ndarray):
+                out[f_name] = getattr(f, 'params', {}), obj, None
         return out
 
     @classmethod
-    def build(cls, db_name, sources=tuple(), schema={}):
+    def create(cls, db_name, sources=tuple(), schema={}):
         """
         creates a db from the schema provided in `features_dict` and the files or root directories found in `items`
 
@@ -207,9 +224,20 @@ class Database(Dataset):
         # add post-build features
         db = cls(db_name)
         for f_name, f in schema.items():
-            if getattr(f, "after_build", False):
-                write_feature(db_name, f_name, getattr(f, 'params', {}), f.after_build(db))
-        return cls(db_name)
+            # let features the chance to update them selves confronted to their whole set
+            if getattr(type(f), "post_create", Feature.post_create) != Feature.post_create:
+                rv = f.post_create(db, f_name)
+                if isinstance(rv, np.ndarray):
+                    rv = (rv, getattr(db, f_name).regions)
+                elif isinstance(rv, Regions):
+                    rv = (getattr(db, f_name)[:], rv)
+                elif tuple(*map(type, rv)) == (np.ndarray, Regions):
+                    pass
+                write_feature(db_name, f_name, getattr(f, 'params', {}),
+                              *rv, files=getattr(db, f_name).files)
+        db = cls(db_name)
+        db.schema = schema
+        return db
 
     @classmethod
     def make_temp(cls, roots=None, files=None, **kwargs):
@@ -350,11 +378,11 @@ class Database(Dataset):
 
     @staticmethod
     def _to_tensor(obj):
-        if isinstance(obj, torch.Tensor):
+        if type(obj) is torch.Tensor:
             return obj
         # converting obj[:] makes sure we get the data out of any db.feature object
         maybe_tensor = default_convert(obj[:])
-        if isinstance(maybe_tensor, torch.Tensor):
+        if type(maybe_tensor) is torch.Tensor:
             return maybe_tensor
         try:
             obj = torch.tensor(obj)

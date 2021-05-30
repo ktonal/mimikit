@@ -26,6 +26,8 @@ def _sizeof_fmt(num, suffix='b'):
 
 def write_feature(h5_file, feature_name, attrs, data, regions=None, files=None):
     with h5py.File(h5_file, "r+") as f:
+        if feature_name in f:
+            f.pop(feature_name)
         ds = f.create_dataset(name=feature_name, shape=data.shape, data=data)
         ds.attrs.update(attrs)
         f.attrs["features"] = [*f.attrs["features"], feature_name]

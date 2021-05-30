@@ -61,7 +61,7 @@ class Feature:
 
     def __call__(self, inputs, encode=True):
         """
-        only apply the layer of encoder/decoder owned by this class. Great for augmentation.
+        only apply the layer of encoder/decoder owned by this class. Use it for augmentation, transformation.
 
         Parameters
         ----------
@@ -125,7 +125,7 @@ class Feature:
         # since this is optional, we don't raise any exception
         pass
 
-    def post_create(self, db):
+    def post_create(self, db, schema_key):
         # since this is optional, we don't raise any exception
         pass
 
