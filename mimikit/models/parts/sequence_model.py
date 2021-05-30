@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import os
 
 from .hooks import MMKHooks, LoggingHooks
-from .callbacks import tqdm
 from ...utils import audio
 
 __all__ = [
@@ -18,7 +17,6 @@ class SequenceModel(MMKHooks,
                     LoggingHooks,
                     pl.LightningModule,
                     ABC):
-
     loss_fn = None
 
     def __init__(self):
@@ -41,7 +39,10 @@ class SequenceModel(MMKHooks,
         if stage == "fit" and getattr(self, "logger", None) is not None:
             self.logger.log_hyperparams(self.hparams)
 
-    def get_prompts(self, n_prompts, prompt_length=None):
+    def encode_inputs(self, inputs: torch.Tensor):
+        raise NotImplementedError
+
+    def decode_outputs(self, outputs: torch.Tensor):
         raise NotImplementedError
 
     def before_generate(self, *args, **kwargs):
@@ -58,37 +59,32 @@ class SequenceModel(MMKHooks,
         self.train() if self._was_training else None
         torch.set_grad_enabled(True)
 
-    def prepare_prompt(self, prompt, n_steps, at_least_nd=2):
-        if not isinstance(prompt, torch.TensorType):
-            prompt = torch.from_numpy(prompt)
-        while len(prompt.shape) < at_least_nd:
-            prompt = prompt.unsqueeze(0)
-        prompt = prompt.to(self.device)
-        blank_shapes = prompt.size(0), n_steps, *prompt.size()[2:]
-        return torch.cat((prompt, torch.zeros(*blank_shapes).to(prompt)), dim=1)
+    def generate(self, prompt, n_steps=16000,
+                 encode_prompt=False, decode_outputs=False,
+                 **kwargs):
+        # prepare model
+        self.before_generate()
+        if encode_prompt:
+            prompt = self.encode_inputs(prompt)
 
-    @staticmethod
-    def generate_tqdm(rng):
-        return tqdm(rng, desc="Generate", dynamic_ncols=True, leave=False, unit="step", mininterval=0.25)
+        output = self.generate_(prompt, n_steps, **kwargs)
 
-    def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
-        raise NotImplementedError
+        if decode_outputs:
+            output = self.decode_outputs(output)
 
-    def encode_inputs(self, inputs: torch.Tensor):
-        raise NotImplementedError
+        self.after_generate()
 
-    def decode_outputs(self, outputs: torch.Tensor):
-        raise NotImplementedError
+        return output
 
 
 class GenerateCallBack(pl.callbacks.Callback):
 
-    def __init__(self, every_n_epochs=10, n_prompts=3, n_steps=1000,
+    def __init__(self, every_n_epochs=10, indices=3, n_steps=1000,
                  plot_audios=True, play_audios=True, log_audios=False,
                  log_dir=None,
                  **gen_kwargs):
         self.every_n_epochs = every_n_epochs
-        self.n_prompts = n_prompts
+        self.indices = indices
         self.n_steps = n_steps
         self.kwargs = gen_kwargs
         self.log_audios = log_audios
@@ -99,8 +95,11 @@ class GenerateCallBack(pl.callbacks.Callback):
     def on_epoch_end(self, trainer: pl.Trainer, model: SequenceModel):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
             return
-        prompt = model.get_prompts(self.n_prompts)
+        dm = trainer.datamodule
+        prompt = dm.get_prompts(self.indices)
         output = model.generate(prompt, self.n_steps, decode_outputs=True, **self.kwargs)
+        sr = model.feature.params.get('sr', 22050)
+        hop_length = model.feature.params.get('hop_length', 512)
         for i in range(output.size(0)):
             y = output[i].detach().cpu().numpy()
             if self.plot_audios:
@@ -108,7 +107,7 @@ class GenerateCallBack(pl.callbacks.Callback):
                 plt.plot(y)
                 plt.show()
             if self.play_audios:
-                audio(y, sr=model.hparams.get("sr", 22050), hop_length=model.hparams.get("hop_length", 512))
+                audio(y, sr=sr, hop_length=hop_length)
 
         if self.log_audios:
             for i in range(output.size(0)):
@@ -116,4 +115,4 @@ class GenerateCallBack(pl.callbacks.Callback):
                 if self.log_dir is not None:
                     os.makedirs(self.log_dir, exist_ok=True)
                     filename = os.path.join(self.log_dir, filename)
-                model.log_audio(filename, output[i].unsqueeze(0), sample_rate=model.hparams.get("sr", 22050))
+                model.log_audio(filename, output[i].unsqueeze(0), sample_rate=sr)

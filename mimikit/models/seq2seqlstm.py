@@ -2,102 +2,67 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
+import dataclasses as dtc
 
-from ..audios import MagSpec
-from ..data import Database
-from .parts import SuperAdam, SequenceModel
+from ..audios import Spectrogram
+from ..data import Feature, AsSlice, Input, Target
+from .parts import SuperAdam, SequenceModel, IData
 from ..networks import Seq2SeqLSTM
-from ..loss_functions import mean_L1_prop
+from .parts.loss_functions import mean_L1_prop
 
 __all__ = [
     'Seq2SeqLSTMModel'
 ]
 
 
-class MagSpecDB(Database):
-    fft = None
+@dtc.dataclass
+class Seq2SeqData(IData):
+    feature: Feature = None
+    batch_size: int = 16
 
-    @staticmethod
-    def extract(path, n_fft=2048, hop_length=512, sr=22050):
-        return MagSpec.extract(path, n_fft, hop_length, sr)
+    @classmethod
+    def schema(cls, sr=22050, emphasis=0., n_fft=2048, hop_length=512):
+        schema = {"fft": Spectrogram(sr=sr, emphasis=emphasis,
+                                     n_fft=n_fft, hop_length=hop_length,
+                                     magspec=True)}
+        return schema
 
-    def prepare_dataset(self, model, datamodule):
-        prm = model.batch_info()
-        # self.slicer = ShiftedSequences(len(self.fft), list(zip(prm["shifts"], prm["lengths"])))
-        datamodule.loader_kwargs.setdefault("drop_last", False)
-        datamodule.loader_kwargs.setdefault("shuffle", True)
+    @classmethod
+    def dependant_hp(cls, db):
+        return dict(
+            feature=db.schema['fft'], input_dim=db.schema['fft'].dim
+        )
 
-    def __getitem__(self, item):
-        slices = self.slicer(item)
-        return tuple(self.fft[sl] for sl in slices)
+    def batch_signature(self, stage='fit'):
+        inpt = Input('fft', AsSlice(shift=0, length=self.shift))
+        trgt = Target('fft', AsSlice(shift=self.shift,
+                                     length=self.shift))
+        if stage in ('full', 'fit', 'train', 'val'):
+            return inpt, trgt
+        # test, predict, generate...
+        return inpt
 
-    def __len__(self):
-        return len(self.slicer)
+    def loader_kwargs(self, stage, datamodule):
+        return dict(
+            batch_size=self.batch_size,
+            drop_last=False,
+            shuffle=True
+        )
 
 
-class Seq2SeqLSTMModel(Seq2SeqLSTM,
-                       SuperAdam,
-                       SequenceModel,
-                       pl.LightningModule):
+class Seq2SeqLSTMModel(
+    Seq2SeqData,
+    SequenceModel,
+    SuperAdam,
+    Seq2SeqLSTM,
+):
 
     @staticmethod
     def loss_fn(output, target):
         return {"loss": mean_L1_prop(output, target)}
 
-    db_class = MagSpecDB
-
-    def __init__(self,
-                 shift=12,
-                 model_dim=1024,
-                 num_layers=1,
-                 bottleneck="add",
-                 n_fc=1,
-                 max_lr=1e-3,
-                 betas=(.9, .9),
-                 div_factor=3.,
-                 final_div_factor=1.,
-                 pct_start=.25,
-                 cycle_momentum=False,
-                 db: [Database, str] = None,
-                 batch_size=64,
-                 in_mem_data: bool = True,
-                 splits: [list, None] = [.8, .2],
-                 keep_open=False,
-                 **loaders_kwargs,
-                 ):
-        super(pl.LightningModule, self).__init__()
-        SequenceModel.__init__(self)
-        # SuperAdam.__init__(self, lr, alpha, eps, weight_decay, momentum, centered)
-        SuperAdam.__init__(self, max_lr, betas, div_factor, final_div_factor, pct_start, cycle_momentum)
-        input_dim = self.hparams.n_fft // 2 + 1
-        Seq2SeqLSTM.__init__(self, input_dim, model_dim, num_layers, bottleneck, n_fc)
-        self.save_hyperparameters()
-
-    def batch_info(self, *args, **kwargs):
-        lengths = (self.hparams.shift, self.hparams.shift,)
-        shifts = (0, self.hparams.shift)
-        return dict(shifts=shifts, lengths=lengths)
+    def encode_inputs(self, inputs: torch.Tensor):
+        return self.feature.encode(inputs)
 
     def decode_outputs(self, outputs: torch.Tensor):
-        return MagSpec.decode(outputs, self.hparams.n_fft, self.hparams.hop_length)
-
-    def get_prompts(self, n_prompts, prompt_length=None):
-        return next(iter(self.datamodule.train_dataloader()))[0][:n_prompts, :prompt_length]
-
-    def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
-        self.before_generate()
-
-        shift = self.hparams.shift
-        output = self.prepare_prompt(prompt, shift * n_steps, at_least_nd=3)
-        prior_t = prompt.size(1)
-
-        for t in self.generate_tqdm(range(prior_t, prior_t + (shift * n_steps), shift)):
-            output.data[:, t:t+shift] = self.forward(output[:, t-shift:t])
-
-        if decode_outputs:
-            output = self.decode_outputs(output)
-
-        self.after_generate()
-
-        return output
-
+        return self.feature.decode(outputs)

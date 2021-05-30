@@ -113,10 +113,11 @@ class Seq2SeqLSTM(nn.Module):
                  input_dim,
                  model_dim,
                  num_layers=1,
+                 n_lstm=1,
                  bottleneck="add",
                  n_fc=1):
         super(Seq2SeqLSTM, self).__init__()
-        self.enc = EncoderLSTM(input_dim, model_dim, num_layers, bottleneck, n_fc)
+        self.enc = EncoderLSTM(input_dim, model_dim, num_layers, n_lstm, bottleneck, n_fc)
         self.dec = DecoderLSTM(model_dim, num_layers, bottleneck)
         self.sampler = ParametrizedGaussian(model_dim, model_dim)
         self.fc_out = nn.Linear(model_dim, input_dim, bias=False)

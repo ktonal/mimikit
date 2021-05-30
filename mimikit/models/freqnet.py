@@ -1,30 +1,79 @@
 import torch
-from torchaudio.transforms import GriffinLim
-import dataclasses as dtc
 
-from ..data import Input, Target, AsSlice
-from ..loss_functions import mean_L1_prop
-from .parts import SuperAdam, SequenceModel
+from ..abstract.features import SegmentLabels, FilesLabels
+from ..audios import Spectrogram
+from ..data import Input, AsSlice, Target
+from .parts import SuperAdam, SequenceModel, mean_L1_prop
 from .model import model
 from ..networks import FreqNetNetwork, WNNetwork
+from .wavenet import WaveNetData
 
 __all__ = [
+    'FreqNetData',
     'FreqNet',
     'main'
 ]
 
 
-@model
-@dtc.dataclass(repr=False)
-class FreqNet(SequenceModel,
-              SuperAdam,
-              FreqNetNetwork,
-              # we have to specify this parent here to avoid infinite recursion in __init__
-              WNNetwork
-              ):
+class FreqNetData(WaveNetData):
 
-    batch_size: int = 32
-    batch_seq_length: int = 64
+    @classmethod
+    def schema(cls, sr=22050, emphasis=0., n_fft=2048, hop_length=512,
+               segment_labels=False, files_labels=False):
+
+        schema = {"fft": Spectrogram(sr=sr, emphasis=emphasis,
+                                     n_fft=n_fft, hop_length=hop_length,
+                                     magspec=True)}
+        if segment_labels:
+            schema.update({
+                'loc': SegmentLabels(input_key='fft')
+            })
+        if files_labels:
+            schema.update({
+                'glob': FilesLabels(input_key='fft')
+            })
+        return schema
+
+    @classmethod
+    def dependant_hp(cls, db):
+        hp = {}
+        if 'loc' in db.features:
+            hp.update(dict(n_cin_classes=len(db.loc.regions)))
+        if 'glob' in db.features:
+            hp.update(dict(n_gin_classes=len(db.glob.files)))
+        return dict(
+            feature=db.schema['fft'], input_dim=db.schema['fft'].dim, **hp
+        )
+
+    def batch_signature(self, stage='fit'):
+        inpt = Input('fft', AsSlice(shift=0, length=self.batch_seq_length))
+        trgt = Target('fft', AsSlice(shift=self.shift,
+                                     length=self.output_shape((-1, self.batch_seq_length, -1))[1]))
+        # where are we conditioned?
+        loc, glob = self.n_cin_classes is not None, self.n_gin_classes is not None
+        if loc:
+            pass
+        if glob:
+            pass
+        if stage in ('full', 'fit', 'train', 'val'):
+            return inpt, trgt
+        # test, predict, generate...
+        return inpt
+
+
+@model
+class FreqNet(
+    # data configuration :
+    FreqNetData,
+    # optimizer :
+    SuperAdam,
+    # training step, generate routine & interface :
+    SequenceModel,
+    # overrides wavenet's inputs/outputs modules :
+    FreqNetNetwork,
+    # we inherit the networks __init__ and all generate_* from wavenet
+    WNNetwork
+):
 
     @staticmethod
     def loss_fn(output, target):
@@ -34,83 +83,51 @@ class FreqNet(SequenceModel,
         SequenceModel.setup(self, stage)
         SuperAdam.setup(self, stage)
 
-    def batch_signature(self):
-        inpt = Input('fft', AsSlice(shift=0, length=self.hparams.batch_seq_length))
-        trgt = Target('fft', AsSlice(shift=self.shift,
-                                     length=self.output_shape((-1, self.hparams.batch_seq_length, -1))[1]))
-        return inpt, trgt
-
-    def generation_slices(self):
-        # input is always the last receptive field
-        input_slice = slice(-self.receptive_field, None)
-        if self.pad_input == 1:
-            # then there's only one future time-step : the last output
-            output_slice = slice(-1, None)
-        else:
-            # for all other cases, the first output has the shift of the whole network
-            output_slice = slice(None, 1)
-        return input_slice, output_slice
+    def encode_inputs(self, inputs: torch.Tensor):
+        return self.feature.encode(inputs)
 
     def decode_outputs(self, outputs: torch.Tensor):
-        gla = GriffinLim(n_fft=self.hparams.n_fft, hop_length=self.hparams.hop_length, power=1.,
-                         wkwargs=dict(device=outputs.device))
-        return gla(outputs.transpose(-1, -2).contiguous())
-
-    def get_prompts(self, n_prompts, prompt_length=None):
-        return next(iter(self.datamodule.train_dataloader()))[0][:n_prompts, :prompt_length]
-
-    def generate(self, prompt, n_steps, decode_outputs=False, **kwargs):
-        self.before_generate()
-
-        output = self.prepare_prompt(prompt, n_steps, at_least_nd=3)
-        prior_t = prompt.size(1)
-        rf = self.receptive_field
-        _, out_slc = self.generation_slices()
-
-        for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            output.data[:, t:t + 1] = self.forward(output[:, t - rf:t])[:, out_slc]
-
-        if decode_outputs:
-            output = self.decode_outputs(output)
-
-        self.after_generate()
-
-        return output
+        return self.feature.decode(outputs)
 
 
 def main(
         sources='./gould',
         sr=22050, n_fft=2048, hop_length=512,
         segments_labels=False, files_labels=False):
-    import os
     import mimikit as mmk
 
-    schema = {"fft": mmk.Spectrogram(sr=sr, n_fft=n_fft, hop_length=hop_length,
-                                     magspec=True)}
-    if segments_labels:
-        schema.update({'s_labels': mmk.SegmentLabels(base_repr=schema['fft'])})
-    if files_labels:
-        schema.update({'f_labels': None})
+    schema = mmk.FreqNet.schema(sr, emphasis=0., n_fft=n_fft, hop_length=hop_length,
+                                segment_labels=True, files_labels=True)
 
     db_path = '/tmp/freqnet_db.h5'
-    if not os.path.exists(db_path):
-        db = mmk.Database.build(db_path, sources, schema)
-    else:
-        db = mmk.Database(db_path)
+    # if not os.path.exists(db_path):
+    db = mmk.Database.create(db_path, sources, schema)
+    # else:
+    #     db = mmk.Database(db_path)
+    print(db._visit())
+    print(db.loc[:])
+    print(db.glob[:])
 
     net = mmk.FreqNet(
-        input_dim=db.fft.shape[-1]
+        **mmk.FreqNet.dependant_hp(db),
+        cin_dim=256,
+        gin_dim=256
     )
+    print(net.hparams)
 
     dm = mmk.DataModule(net, db,
-                        loader_kwargs=dict(
-                            batch_size=net.batch_size,
-                            drop_last=False,
-                            shuffle=True
-                        ))
-    trainer = mmk.get_trainer(root_dir=None, max_epochs=32)
+                        splits=(0.8, 0.2))
+    trainer = mmk.get_trainer(root_dir=None,
+                              max_epochs=1,
+                              limit_train_batches=4)
 
     trainer.fit(net, datamodule=dm)
+
+    prp = dm.get_prompts([None] * 4)
+    print(prp.size())
+
+    out = net.generate(prp, 32)
+    print('Done!')
 
 
 if __name__ == '__main__':
