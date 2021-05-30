@@ -91,3 +91,7 @@ class FreqNetNetwork(WNNetwork):
             Ops.Transpose(1, 2),
             nn.Linear(self.gate_dim if self.skip_dim is None else self.skip_dim, self.input_dim), Ops.Abs()
         )
+
+    @staticmethod
+    def predict_(outpt, temp=None):
+        return outpt

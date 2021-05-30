@@ -3,6 +3,8 @@ import torch.nn as nn
 from typing import Optional
 from dataclasses import dataclass
 
+from .generating_net import GeneratingNetwork
+
 __all__ = [
     "SampleRNNTier",
     "SampleRNNNetwork"
@@ -141,7 +143,7 @@ class SampleRNNTier(nn.Module):
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class SampleRNNNetwork(nn.Module):
+class SampleRNNNetwork(GeneratingNetwork, nn.Module):
 
     frame_sizes: tuple = (16, 8, 8)  # from top to bottom!
     dim: int = 512
@@ -152,6 +154,7 @@ class SampleRNNNetwork(nn.Module):
 
     def __post_init__(self):
         nn.Module.__init__(self)
+        GeneratingNetwork.__init__(self)
         n_tiers = len(self.frame_sizes)
         tiers = []
         if n_tiers > 2:
@@ -188,3 +191,45 @@ class SampleRNNNetwork(nn.Module):
 
     def reset_h0(self):
         self.hidden = [None] * len(self.frame_sizes)
+
+    def generate_(self, prompt, n_steps, temperature=1.):
+        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        # trim to start with a whole number of top frames
+        output = output[:, prompt.size(1) % self.frame_sizes[0]:]
+        prior_t = prompt.size(1) - (prompt.size(1) % self.frame_sizes[0])
+
+        # init variables
+        fs = [*self.frame_sizes]
+        outputs = [None] * (len(fs) - 1)
+        # hidden are reset if prompt.size(0) != self.hidden.size(0)
+        hiddens = self.hidden
+        tiers = self.tiers
+
+        for t in self.generate_tqdm(range(fs[0], n_steps + prior_t)):
+            for i in range(len(tiers) - 1):
+                if t % fs[i] == 0:
+                    inpt = output[:, t - fs[i]:t].unsqueeze(1)
+
+                    if i == 0:
+                        prev_out = None
+                    else:
+                        prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
+
+                    out, h = tiers[i](inpt, prev_out, hiddens[i])
+                    hiddens[i] = h
+                    outputs[i] = out
+            if t < prior_t:  # only used for warming-up
+                continue
+            prev_out = outputs[-1]
+            inpt = output[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
+
+            out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
+            if temperature is None:
+                pred = (nn.Softmax(dim=-1)(out.squeeze(1))).argmax(dim=-1)
+            else:
+                # great place to implement dynamic cooling/heating !
+                pred = torch.multinomial(nn.Softmax(dim=-1)(out.squeeze(1) / temperature), 1)
+            output.data[:, t] = pred.squeeze()
+
+        return output
+

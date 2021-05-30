@@ -1,9 +1,11 @@
 import math
+import torch
 import torch.nn as nn
 from dataclasses import dataclass
 from typing import Optional
 
 from ..modules import homs as H, ops as Ops
+from .generating_net import GeneratingNetwork
 
 __all__ = [
     'WaveNetLayer',
@@ -128,7 +130,7 @@ class WaveNetLayer(nn.Module):
 
 # Finally : define the network class
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class WNNetwork(nn.Module):
+class WNNetwork(GeneratingNetwork):
 
     n_layers: tuple = (4,)
     q_levels: int = 256
@@ -216,3 +218,116 @@ class WNNetwork(nn.Module):
             out_length = layer.output_length(out_length)
             lengths += [out_length]
         return tuple(lengths)
+
+    def generation_slices(self):
+        # input is always the last receptive field
+        input_slice = slice(-self.receptive_field, None)
+        if self.pad_input == 1:
+            # then there's only one future time-step : the last output
+            output_slice = slice(-1, None)
+        else:
+            # for all other cases, the first output has the shift of the whole network
+            output_slice = slice(None, 1)
+        return input_slice, output_slice
+
+    @staticmethod
+    def predict_(outpt, temp):
+        if temp is None:
+            return nn.Softmax(dim=-1)(outpt).argmax(dim=-1, keepdims=True)
+        else:
+            return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp), 1)
+
+    def generate_(self, prompt, n_steps, temperature=0.5, benchmark=False):
+        return self.generate_slow(prompt, n_steps, temperature)
+
+    def generate_slow(self, prompt, n_steps, temperature=0.5):
+
+        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        prior_t = prompt.size(1)
+        rf = self.receptive_field
+        _, out_slc = self.generation_slices()
+
+        for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
+            output.data[:, t:t + 1] = self.predict_(self(output[:, t - rf:t])[:, out_slc],
+                                                    temperature)
+        return output
+
+    def generate_fast(self, prompt, n_steps, temperature=0.5):
+
+        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        prior_t = prompt.size(1)
+
+        inpt = output[:, prior_t - self.receptive_field:prior_t]
+        z, cin, gin = self.inpt(inpt, None, None)
+        qs = [(z.clone(), None)]
+        # initialize queues with one full forward pass
+        skips = None
+        for layer in self.layers:
+            z, _, _, skips = layer((z, cin, gin, skips))
+            qs += [(z.clone(), skips.clone() if skips is not None else skips)]
+
+        outpt = self.outpt(skips if skips is not None else z)[:, -1:].squeeze()
+        outpt = self.predict_(outpt, temperature)
+        output.data[:, prior_t:prior_t + 1] = outpt
+
+        qs = {i: q for i, q in enumerate(qs)}
+
+        # disable padding and dilation
+        dilations = {}
+        for mod in self.modules():
+            if isinstance(mod, nn.Conv1d) and mod.dilation != (1,):
+                dilations[mod] = mod.dilation
+                mod.dilation = (1,)
+        for layer in self.layers:
+            layer.pad_input = 0
+
+        # cache the indices of the inputs for each layer
+        lyr_slices = {}
+        for l, layer in enumerate(self.layers):
+            d, k = layer.dilation, layer.kernel_size
+            rf = d * k
+            indices = [qs[l][0].size(2) - 1 - n for n in range(0, rf, d)][::-1]
+            lyr_slices[l] = torch.tensor(indices).long().to(self.device)
+
+        for t in self.generate_tqdm(range(prior_t + 1, prior_t + n_steps)):
+
+            x, cin, gin = self.inpt(output[:, t - 1:t], None, None)
+            q, _ = qs[0]
+            q = q.roll(-1, 2)
+            q[:, :, -1:] = x
+            qs[0] = (q, None)
+
+            for l, layer in enumerate(self.layers):
+                z, skips = qs[l]
+                zi = torch.index_select(z, 2, lyr_slices[l])
+                if skips is not None:
+                    # we only need one skip : the first or the last of the kernel's indices
+                    i = lyr_slices[l][0 if layer.accum_outputs > 0 else -1].item()
+                    skips = skips[:, :, i:i + 1]
+
+                z, _, _, skips = layer((zi, cin, gin, skips))
+
+                if l < len(self.layers) - 1:
+                    q, skp = qs[l + 1]
+
+                    q = q.roll(-1, 2)
+                    q[:, :, -1:] = z
+                    if skp is not None:
+                        skp = skp.roll(-1, 2)
+                        skp[:, :, -1:] = skips
+
+                    qs[l + 1] = (q, skp)
+                else:
+                    y, skips = z, skips
+
+            outpt = self.outpt(skips if skips is not None else y).squeeze()
+            outpt = self.predict_(outpt, temperature)
+            output.data[:, t:t + 1] = outpt
+
+        # reset the layers' parameters
+        for mod, d in dilations.items():
+            mod.dilation = d
+        for layer in self.layers:
+            layer.pad_input = self.pad_input
+
+        return output
