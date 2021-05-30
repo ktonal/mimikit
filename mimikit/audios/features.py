@@ -11,8 +11,7 @@ from . import fmodules as T
 __all__ = [
     'AudioSignal',
     'MuLawSignal',
-    'Spectrogram',
-    'SegmentLabels'
+    'Spectrogram'
 ]
 
 
@@ -75,7 +74,7 @@ class AudioSignal(Feature):
         return sf.write(filename, inputs, self.sr, 'PCM_24')
 
 
-@dtc.dataclass
+@dtc.dataclass(unsafe_hash=True)
 class MuLawSignal(AudioSignal):
     q_levels: int = 256
 
@@ -98,9 +97,8 @@ class MuLawSignal(AudioSignal):
         }
 
 
-@dtc.dataclass
+@dtc.dataclass(unsafe_hash=True)
 class Spectrogram(AudioSignal):
-
     n_fft: int = 2048
     hop_length: int = 512
     magspec: bool = False
@@ -144,16 +142,3 @@ class Spectrogram(AudioSignal):
     def write(self, filename, inputs):
         y = self.decode(inputs)
         return super(Spectrogram, self).write(filename, y)
-
-
-@dtc.dataclass
-class SegmentLabels(Feature):
-
-    base_repr: Feature = Spectrogram(magspec=True)
-    L: int = 6
-    k: int = None
-    sym: bool = True
-    bandwidth: float = 1.
-    thresh: float = 0.2
-    min_dur: int = 4
-
