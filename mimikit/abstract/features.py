@@ -1,7 +1,8 @@
 import dataclasses as dtc
 
 import numpy as np
-from mimikit import Feature, from_recurrence_matrix
+from ..data import Feature
+from ..extract import from_recurrence_matrix
 
 
 @dtc.dataclass

@@ -12,8 +12,9 @@ __all__ = [
 
 
 class IData(LightningModule):
-    """
-    """
+
+    def __init__(self):
+        LightningModule.__init__(self)
 
     @property
     def dm(self) -> DataModule:

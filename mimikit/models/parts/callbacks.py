@@ -32,7 +32,7 @@ class EpochProgressBarCallback(Callback):
                               position=0, leave=False, dynamic_ncols=True)
 
     def on_train_epoch_end(self, trainer, *args):
-        if any(trainer.val_dataloaders):
+        if trainer.val_dataloaders is not None and any(trainer.val_dataloaders):
             return
         else:
             self.epoch_bar.update()

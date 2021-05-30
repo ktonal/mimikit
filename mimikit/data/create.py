@@ -67,7 +67,15 @@ def file_to_h5(abs_path, extract_func=None, output_path=None, mode="w"):
             output_path += ".h5"
     rv = extract_func(abs_path)
     info = {}
-    f = h5py.File(output_path, mode)
+    if os.path.exists(output_path) and mode == 'w':
+        os.remove(output_path)
+    if not os.path.exists(os.path.dirname(output_path)):
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    try:
+        f = h5py.File(output_path, mode)
+    except OSError as e:
+        print(output_path)
+        raise e
     for name, (attrs, data, regions) in rv.items():
         ds = f.create_dataset(name=name, shape=data.shape, data=data)
         ds.attrs.update(attrs)
@@ -109,8 +117,8 @@ def _make_db_for_each_file(file_walker,
     """
     # add ".tmp_" prefix to the output_paths
     # args = [(file, extract_func, )
-    args = [(file, extract_func, os.path.join(destination, os.path.split(file)[1]))
-            for file in file_walker]
+    args = [(file, extract_func, os.path.join(destination, file.strip('.').strip('/')))
+            for n, file in enumerate(file_walker)]
     if len(args) > 1:
         with Pool(min(n_cores, len(args))) as p:
             tmp_dbs_infos = p.starmap(file_to_h5, args)
@@ -143,8 +151,9 @@ def _aggregate_db_infos(infos):
         dtype = dtype.pop()
         shapes = [db[1][f]["shape"] for db in infos]
         dims = shapes[0][1:]
-        assert all(shp[1:] == dims for shp in
-                   shapes[1:]), "all features should have the same dimensions but for the first axis"
+        if not all(shp[1:] == dims for shp in shapes[1:]):
+            raise ValueError("all features should have the same dimensions but for the first axis." + \
+                             f" feature {str(f)} returned different shapes")
         # collect the regions for the files (this is different from the possible segmentation regions!)
         regions = Regions.from_duration([s[0] for s in shapes])
         ds_shape = (regions.last_stop, *dims)

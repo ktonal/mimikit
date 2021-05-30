@@ -30,8 +30,12 @@ def model(cls):
     # collect positional arguments for validation
     posits = {k: v for s in sigs for k, v in s.items() if v.default is v.empty}
     if any(k for k in posits.keys() if k != "self"):
-        raise ValueError("All dependencies should have kwargs only."
-                         " Got following positional args: " + str([k for k in posits.keys() if k != "self"]))
+        for b in bases:
+            posits = {k: v for k, v in dict(signature(b.__init__).parameters).items() if v.default is v.empty}
+            if any(k for k in posits.keys() if k != "self"):
+                raise ValueError("All dependencies should have kwargs only."
+                                 " Got following positional args: " + str([k for k in posits.keys() if k != "self"]) +\
+                                 "for the following parent class: " + str(b))
 
     # collect keywords arguments
     kws = {k: v for s in sigs for k, v in s.items() if v.default is not v.empty}

@@ -3,10 +3,9 @@ import torch
 from ..abstract.features import SegmentLabels, FilesLabels
 from ..audios import Spectrogram
 from ..data import Input, AsSlice, Target
-from .parts import SuperAdam, SequenceModel, mean_L1_prop
+from .parts import SuperAdam, SequenceModel, mean_L1_prop, IData
 from .model import model
 from ..networks import FreqNetNetwork, WNNetwork
-from .wavenet import WaveNetData
 
 __all__ = [
     'FreqNetData',
@@ -15,7 +14,7 @@ __all__ = [
 ]
 
 
-class FreqNetData(WaveNetData):
+class FreqNetData(IData):
 
     @classmethod
     def schema(cls, sr=22050, emphasis=0., n_fft=2048, hop_length=512,
