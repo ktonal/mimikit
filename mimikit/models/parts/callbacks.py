@@ -4,7 +4,8 @@ from IPython import get_ipython
 __all__ = [
     'is_notebook',
     'EpochProgressBarCallback',
-    'GradNormCallback'
+    'GradNormCallback',
+    'tqdm'
 ]
 
 

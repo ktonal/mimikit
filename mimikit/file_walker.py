@@ -9,7 +9,7 @@ __all__ = [
 AUDIO_EXTENSIONS = {"wav", "aif", "aiff", "mp3", "m4a", "mp4"}
 MIDI_EXTENSIONS = {"mid"}
 
-EXTENSIONS = dict(audio=AUDIO_EXTENSIONS, midi=MIDI_EXTENSIONS)
+EXTENSIONS = dict(audio=AUDIO_EXTENSIONS, midi=MIDI_EXTENSIONS, none={})
 
 
 class FileWalker:

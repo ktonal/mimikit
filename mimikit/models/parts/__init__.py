@@ -1,6 +1,6 @@
 from .callbacks import *
 from .checkpoint import *
-from .data import *
+from .idata import *
 from .hooks import *
 from .loggers import *
 from .optim import *
