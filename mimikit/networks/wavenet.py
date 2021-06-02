@@ -248,7 +248,7 @@ class WNNetwork(GeneratingNetwork):
         _, out_slc = self.generation_slices()
 
         for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            output.data[:, t:t + 1] = self.predict_(self(output[:, t - rf:t])[:, out_slc],
+            output.data[:, t:t + 1] = self.predict_(self.forward(output[:, t - rf:t])[:, out_slc],
                                                     temperature)
         return output
 

@@ -40,7 +40,7 @@ class SuperAdam(LightningModule):
     betas: Tuple[float, float] = (.9, .9)
     div_factor: float = 3.
     final_div_factor: float = 1.
-    pct_start: float = .25
+    pct_start: float = 0.
     cycle_momentum: bool = False
     total_steps: Optional[int] = None
 

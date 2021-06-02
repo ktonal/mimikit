@@ -102,12 +102,22 @@ def make_click_command(f):
 
 
 @make_click_command
-def main(sources=['./gould'], sr=16000, q_levels=256):
+def main(sources=['./data'], sr=16000, q_levels=256):
     import mimikit as mmk
+    import os
 
     schema = mmk.SampleRNN.schema(sr, 0., q_levels)
 
-    net = mmk.SampleRNN(feature=schema['qx'], q_levels=q_levels)
+    net = mmk.SampleRNN(
+        feature=schema['qx'],
+        q_levels=q_levels,
+        frame_sizes=(16, 4, 4),
+        n_rnn=2,
+
+        max_lr=7e-4,
+        betas=(.9, .91),
+        div_factor=5,
+    )
 
     print(net.hparams)
 
@@ -116,19 +126,20 @@ def main(sources=['./gould'], sr=16000, q_levels=256):
                         splits=tuple(),
                         in_mem_data=True)
 
-    trainer = mmk.get_trainer(root_dir='./',
-                              max_epochs=3,
-                              limit_train_batches=4)
+    cb = mmk.GenerateCallBack(5, indices=[None] * 4,
+                              n_steps=16000*10,
+                              play_audios=False,
+                              plot_audios=False,
+                              log_audios=True,
+                              log_dir=os.path.abspath('outputs/sample-rnn'),
+                              temperature=torch.tensor([[.9], [.999], [1.1], [1.25]]).to('cuda'))
+
+    trainer = mmk.get_trainer(root_dir=None,
+                              max_epochs=50,
+                              callbacks=[cb],
+                              checkpoint_callback=False)
 
     trainer.fit(net, datamodule=dm)
-
-    prp = dm.get_prompts([None] * 4)
-    print(prp.size())
-
-    out = net.generate(prp, 32)
-    print(out.size(), 'Done!')
-
-    print(trainer.datamodule.datasets)
 
 
 if __name__ == '__main__':

@@ -66,14 +66,12 @@ class SequenceModel(MMKHooks,
         self.before_generate()
         if encode_prompt:
             prompt = self.encode_inputs(prompt)
-
         output = self.generate_(prompt, n_steps, **kwargs)
 
         if decode_outputs:
             output = self.decode_outputs(output)
 
         self.after_generate()
-
         return output
 
 
@@ -91,6 +89,11 @@ class GenerateCallBack(pl.callbacks.Callback):
         self.plot_audios = plot_audios
         self.play_audios = play_audios
         self.log_dir = log_dir
+
+    def on_train_epoch_start(self, trainer, model):
+        # TODO : avoid having to do that!
+        dm = trainer.datamodule
+        dm.full_ds = dm._init_ds(dm.full_ds, 'fit')
 
     def on_epoch_end(self, trainer: pl.Trainer, model: SequenceModel):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:

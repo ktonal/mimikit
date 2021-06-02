@@ -1,6 +1,7 @@
 import torch
+import dataclasses as dtc
 
-from ..abstract.features import SegmentLabels, FilesLabels
+from ..abstract.features import Feature, SegmentLabels, FilesLabels
 from ..audios import Spectrogram
 from ..data import Input, AsSlice, Target
 from .parts import SuperAdam, SequenceModel, mean_L1_prop, IData
@@ -14,7 +15,12 @@ __all__ = [
 ]
 
 
+@dtc.dataclass
 class FreqNetData(IData):
+
+    feature: Feature = None
+    batch_size: int = 64
+    batch_seq_length: int = 64
 
     @classmethod
     def schema(cls, sr=22050, emphasis=0., n_fft=2048, hop_length=512,
@@ -59,8 +65,16 @@ class FreqNetData(IData):
         # test, predict, generate...
         return inpt
 
+    def loader_kwargs(self, stage, datamodule):
+        return dict(
+            batch_size=self.batch_size,
+            drop_last=False,
+            shuffle=True
+        )
+
 
 @model
+@dtc.dataclass
 class FreqNet(
     # data configuration :
     FreqNetData,
@@ -90,35 +104,48 @@ class FreqNet(
 
 
 def main(
-        sources='./gould',
+        sources='./data',
         sr=22050, n_fft=2048, hop_length=512,
         segments_labels=False, files_labels=False):
     import mimikit as mmk
+    import os
 
     schema = mmk.FreqNet.schema(sr, emphasis=0., n_fft=n_fft, hop_length=hop_length,
-                                segment_labels=True, files_labels=True)
+                                segment_labels=False, files_labels=False)
 
     db_path = '/tmp/freqnet_db.h5'
-    # if not os.path.exists(db_path):
     db = mmk.Database.create(db_path, sources, schema)
-    # else:
-    #     db = mmk.Database(db_path)
-    print(db._visit())
-    print(db.loc[:])
-    print(db.glob[:])
 
     net = mmk.FreqNet(
         **mmk.FreqNet.dependant_hp(db),
-        cin_dim=256,
-        gin_dim=256
+        cin_dim=None,
+        gin_dim=None,
+        n_layers=(4,),
+        gate_dim=1024,
+        groups=2,
+        batch_size=16,
+        batch_seq_length=32,
+        max_lr=1e-3,
+        div_factor=10,
+        betas=(.9, .92),
+
     )
     print(net.hparams)
 
     dm = mmk.DataModule(net, db,
-                        splits=(0.8, 0.2))
+                        splits=tuple())
+
+    cb = mmk.GenerateCallBack(3, indices=[None]*4,
+                              n_steps=1000,
+                              play_audios=False,
+                              plot_audios=False,
+                              log_audios=True,
+                              log_dir=os.path.abspath('outputs/freqnet'))
+
     trainer = mmk.get_trainer(root_dir=None,
-                              max_epochs=1,
-                              limit_train_batches=4)
+                              max_epochs=100,
+                              callbacks=[cb],
+                              checkpoint_callback=False)
 
     trainer.fit(net, datamodule=dm)
 
