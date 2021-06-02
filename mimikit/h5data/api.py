@@ -5,9 +5,9 @@ import pandas as pd
 import os
 from argparse import Namespace
 
-from .write import make_root_db
+from .write import make_root_db, write_feature
 from .regions import Regions
-from ..file_walker import FileWalker
+from ..file_walker import FileWalker, EXTENSIONS
 
 
 class FeatureProxy(object):
@@ -145,6 +145,56 @@ class Database(object):
     def make(cls, db_name, files_ext='audio', items=tuple(), **kwargs):
         walker = FileWalker(files_ext, items)
         make_root_db(db_name, walker, partial(cls.extract, **kwargs))
+        return cls(db_name)
+
+    @classmethod
+    def _load(cls, path, schema={}):
+        """
+        default extract_func for Database.build. Roughly equivalent to :
+            ``{feat_name: feat.load(path) for feat_name, feat in features_dict.items()}``
+
+        """
+        out = {}
+        for f_name, f in schema.items():
+            # check that f has `load` and that `path` is of the right type
+            if hasattr(f, 'load') and os.path.splitext(path)[-1].strip('.') in EXTENSIONS[f.__ext__]:
+                obj = f.load(path)
+                if isinstance(obj, Regions):
+                    out[f_name] = getattr(f, 'params', {}), None, obj
+                else:
+                    out[f_name] = getattr(f, 'params', {}), obj, None
+        return out
+
+    @classmethod
+    def build(cls, db_name, sources=tuple(), schema={}):
+        """
+        creates a db from the schema provided in `features_dict` and the files or root directories found in `items`
+
+        Parameters
+        ----------
+        db_name : str
+            the name of the file to be created
+        sources : str or iterable of str
+            the sources to be passed to `FileWalker`
+        schema : dict
+            keys (`str`) are the names of the features, values are `Feature` objects
+
+        Returns
+        -------
+        db : Database
+            an instance of the created db
+
+        """
+        # get the set of file extensions from the features and instantiate a walker
+        exts = {f.__ext__ for f in schema.values() if getattr(f, '__ext__', False)}
+        walker = FileWalker(exts, sources)
+        # run the extraction job
+        make_root_db(db_name, walker, partial(cls._load, schema=schema))
+        # add post-build features
+        db = cls(db_name)
+        for f_name, f in schema.items():
+            if getattr(f, "after_build", False):
+                write_feature(db_name, f_name, getattr(f, 'params', {}), f.after_build(db))
         return cls(db_name)
 
     @classmethod
