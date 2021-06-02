@@ -3,9 +3,9 @@ import pandas as pd
 import pytest
 import soundfile
 
-import mimikit.audios.transforms as A
+import mimikit.audios.fmodules as A
 from mimikit.file_walker import FileWalker
-from mimikit.h5data.api import Database
+from mimikit.data import Database
 import mimikit.audios.features as F
 
 
@@ -43,7 +43,7 @@ class TestDB(Database):
 
     @staticmethod
     def extract(path, **kwargs):
-        return dict(y=({}, A.FileTo.signal(path), None))
+        return dict(y=({}, A.FileToSignal(sr=16000)(path), None))
 
 
 def test_Database_make(audio_tree):
@@ -58,7 +58,7 @@ def test_Database_make(audio_tree):
 
 def test_Database_build(audio_tree):
     fdict = dict(y=F.AudioSignal())
-    TestDB.build(audio_tree + "/test_db.h5", sources=audio_tree, schema=fdict)
+    TestDB.create(audio_tree + "/test_db.h5", sources=audio_tree, schema=fdict)
 
     db = TestDB(audio_tree + "/test_db.h5")
     assert isinstance(db.y.files, pd.DataFrame)

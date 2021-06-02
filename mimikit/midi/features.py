@@ -6,6 +6,11 @@ from typing import Optional
 from collections import OrderedDict
 import IPython.display as ipd
 
+__all__ = [
+    'MidiMusic',
+    'MidiEvent'
+]
+
 
 class MMKNote(muspy.Note):
     """
@@ -91,16 +96,16 @@ class MidiMusic:
 @dtc.dataclass
 class MidiEvent(MidiMusic):
 
-    resolution: int = muspy.DEFAULT_RESOLUTION,
-    program: int = 0,
-    is_drum: bool = False,
-    use_single_note_off_event: bool = False,
-    use_end_of_sequence_event: bool = False,
-    encode_velocity: bool = False,
-    force_velocity_event: bool = True,
-    max_time_shift: int = 100,
-    velocity_bins: int = 32,
-    default_velocity: int = 64,
+    resolution: int = muspy.DEFAULT_RESOLUTION
+    program: int = 0
+    is_drum: bool = False
+    use_single_note_off_event: bool = False
+    use_end_of_sequence_event: bool = False
+    encode_velocity: bool = False
+    force_velocity_event: bool = True
+    max_time_shift: int = 100
+    velocity_bins: int = 32
+    default_velocity: int = 64
 
     @property
     def encoders(self):
