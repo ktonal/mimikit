@@ -3,9 +3,6 @@ name: Upload Python Package
 on:
   workflow_dispatch:
   push:
-#    branches-ignore: [master, develop]
-  pull_request:
-    branches: [master, develop]
 
 jobs:
   ci-pipeline:
