@@ -37,8 +37,8 @@ kwargs = {
     "long_description_content_type": "text/markdown",
     'author': 'Antoine Daurat',
     'author_email': 'ktonalberlin@gmail.com',
-    'url': 'https://github.com/k-tonal/mimikit',
-    'download_url': 'https://github.com/k-tonal/mimikit',
+    'url': 'https://github.com/ktonal/mimikit',
+    'download_url': 'https://github.com/ktonal/mimikit',
     'license': 'GNU General Public License v3 (GPLv3)',
     'classifiers': [
         'Development Status :: 3 - Alpha',
@@ -60,7 +60,8 @@ kwargs = {
     'packages': PACKAGES,
     "entry_points": {
         'console_scripts': [
-            'freqnet-db=mimikit.data.freqnet_db:main'
+            'samplernn=mimikit.models.sample_rnn:main',
+            'freqnet=mimikit.models.freqnet:main'
         ]}
 
 }

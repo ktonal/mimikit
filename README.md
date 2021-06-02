@@ -1,18 +1,13 @@
 # mimikit
 
-`mimikit` is an open-source python package for audio and music data
-modeling with neural networks.
+The MusIc ModelIng toolKIT (MIMIKIT) is a python package that does Machine Learning with music data.
 
-It contains models out-of-the-box and simple utilities for dealing with audio data.
-The aim of mimikit is double : it will lower the barrier to deep-learning for non-developers while providing tools to developers that enable fast experimentation.
+The goal of `mimikit` is to enable you to use referenced and experimental algorithms on data you provide.
 
------
-
-## Usage 
-
-Check out the [mimikit-notebooks](https://github.com/ktonal/mimikit-notebooks) for examples of client code.
-
+`mimikit` is still in early development, details and documentation are on their way.
 
 ## License
 
 mimikit is distributed under the terms of the [GNU General Public License v3.0](https://choosealicense.com/licenses/gpl-3.0/)
+
+

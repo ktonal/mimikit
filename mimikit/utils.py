@@ -4,7 +4,12 @@ from librosa.display import specshow
 import IPython.display as ipd
 import matplotlib.pyplot as plt
 
-from .data.transforms import HOP_LENGTH, SR
+__all__ = [
+    'audio',
+    'show'
+]
+
+HOP_LENGTH, SR = 512, 22050
 
 # Conversion
 

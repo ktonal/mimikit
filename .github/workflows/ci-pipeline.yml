@@ -3,9 +3,6 @@ name: Upload Python Package
 on:
   workflow_dispatch:
   push:
-#    branches-ignore: [master, develop]
-  pull_request:
-    branches: [master, develop]
 
 jobs:
   ci-pipeline:
@@ -15,7 +12,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.6'
+        python-version: '3.7'
     - name: Install dependencies
       run: |
         sudo apt-get install -y libsndfile-dev

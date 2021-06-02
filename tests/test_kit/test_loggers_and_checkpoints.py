@@ -4,7 +4,8 @@ import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 
-from mimikit.kit import MMKHooks, LoggingHooks, get_trainer
+from mimikit.models.parts import MMKHooks, LoggingHooks
+from mimikit.get_trainer import get_trainer
 
 
 class TestModel(MMKHooks,
@@ -12,7 +13,9 @@ class TestModel(MMKHooks,
                 pl.LightningModule):
 
     def __init__(self, model_dim=10):
-        super(TestModel, self).__init__()
+        super(pl.LightningModule, self).__init__()
+        MMKHooks.__init__(self)
+        LoggingHooks.__init__(self)
         self.fc = nn.Linear(model_dim, model_dim)
         self.save_hyperparameters()
 
@@ -20,6 +23,13 @@ class TestModel(MMKHooks,
         return self.fc(x)
 
     def training_step(self, batch, batch_idx):
+        inpt, target = batch
+        pred = self.forward(inpt)
+        L = nn.MSELoss()(pred, target)
+        self.log("recon", L, on_step=False, on_epoch=True)
+        return {"loss": L, "recon_loss": L}
+
+    def validation_step(self, batch, batch_idx):
         inpt, target = batch
         pred = self.forward(inpt)
         L = nn.MSELoss()(pred, target)
@@ -53,7 +63,7 @@ def test_model(tmp_path):
 
     states = os.listdir(os.path.join(root, "states"))
     assert 'last_optim_state.ckpt' in states, states
-    assert 'epoch=0.ckpt' in states, states
+    assert 'epoch=1.ckpt' in states, states
 
     ckpt_path = str(root / "states" / 'epoch=1.ckpt')
     ckpt = torch.load(ckpt_path)
@@ -67,7 +77,7 @@ def test_model(tmp_path):
 
     from_ckpt = TestModel.load_from_checkpoint(ckpt_path)
     assert isinstance(from_ckpt, TestModel)
-    new_trainer = pl.Trainer(resume_from_checkpoint=ckpt_path, max_epochs=4)
+    new_trainer = get_trainer(resume_from_checkpoint=ckpt_path, max_epochs=4)
     print("SECOND RUN")
     new_trainer.fit(from_ckpt)
     assert new_trainer.current_epoch == 3
@@ -82,4 +92,3 @@ def test_model(tmp_path):
     assert new_trainer.global_step > trainer.global_step, (new_trainer.global_step, trainer.global_step)
 
     shutil.rmtree(root)
-    shutil.rmtree("./lightning_logs/")

@@ -1,10 +1,14 @@
 import pandas as pd
 import numpy as np
 
+__all__ = [
+    'Regions'
+]
+
 
 def ssts(item, axis=0):
     arr = np.atleast_2d(item[['start', 'stop']].values)
-    slices = map(lambda a: (*[slice(0, None)] * axis, slice(a[0], a[1]), ), arr)
+    slices = map(lambda a: (*[slice(0, None)] * axis, slice(a[0], a[1]),), arr)
     return slices
 
 
@@ -119,6 +123,10 @@ class Regions(pd.DataFrame):
         durations = frame_length + np.zeros_like(starts, dtype=np.int)
         stops = starts + durations
         return Regions.from_start_stop(starts, stops, durations)
+
+    def to_labels(self):
+        return np.hstack([np.ones((tp.duration,), dtype=np.int) * tp.Index
+                          for tp in self.itertuples()])
 
 
 @pd.api.extensions.register_dataframe_accessor("soft_q")

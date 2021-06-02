@@ -4,6 +4,18 @@ from librosa.util import localmax
 from scipy.ndimage import convolve
 from ..data.regions import Regions
 
+__all__ = [
+    'from_recurrence_matrix'
+]
+
+
+def checker(N):
+    block = np.zeros((N * 2 + 1, N * 2 + 1), dtype=np.int32)
+    for k in range(-N, N + 1):
+        for l in range(-N, N + 1):
+            block[k + N, l + N] = np.sign(k) * np.sign(l)
+    return block / abs(block).sum()
+
 
 def from_recurrence_matrix(X,
                            L=6,
@@ -12,12 +24,6 @@ def from_recurrence_matrix(X,
                            bandwidth=1.,
                            thresh=0.2,
                            min_dur=4):
-    def checker(N):
-        block = np.zeros((N * 2 + 1, N * 2 + 1), dtype=np.int32)
-        for k in range(-N, N + 1):
-            for l in range(-N, N + 1):
-                block[k + N, l + N] = np.sign(k) * np.sign(l)
-        return block / abs(block).sum()
 
     R = recurrence_matrix(
         X, metric="cosine", mode="affinity",
