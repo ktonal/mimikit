@@ -15,7 +15,6 @@ __all__ = [
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class WaveNetLayer(nn.Module):
-
     layer_i: int
     gate_dim: int = 128
     residuals_dim: Optional[int] = None
@@ -24,6 +23,7 @@ class WaveNetLayer(nn.Module):
     groups: int = 1
     cin_dim: Optional[int] = None
     gin_dim: Optional[int] = None
+    gated_units: bool = True
     pad_input: int = 1
     accum_outputs: int = -1
 
@@ -59,14 +59,14 @@ class WaveNetLayer(nn.Module):
         return dict(kernel_size=1, bias=self.bias, groups=self.groups)
 
     def gcu_(self):
-        return H.GatedUnit(
-            H.AddPaths(
-                # core
-                nn.Conv1d(self.gate_dim, self.residuals_dim, **self.conv_kwargs),
-                # conditioning parameters :
-                nn.Conv1d(self.cin_dim, self.residuals_dim, **self.kwargs_1x1) if self.cin_dim else None,
-                nn.Conv1d(self.gin_dim, self.residuals_dim, **self.kwargs_1x1) if self.gin_dim else None
-            ))
+        mod = H.AddPaths(
+            # core
+            nn.Conv1d(self.gate_dim, self.residuals_dim, **self.conv_kwargs),
+            # conditioning parameters :
+            nn.Conv1d(self.cin_dim, self.residuals_dim, **self.conv_kwargs) if self.cin_dim else None,
+            nn.Conv1d(self.gin_dim, self.residuals_dim, **self.conv_kwargs) if self.gin_dim else None
+        )
+        return H.GatedUnit(mod) if self.gated_units else mod
 
     def residuals_(self):
         return nn.Conv1d(self.residuals_dim, self.gate_dim, **self.kwargs_1x1)
@@ -112,12 +112,12 @@ class WaveNetLayer(nn.Module):
         else:
             slc = slice(None)
             padder = Ops.CausalPad((0, 0, self.input_padding))
-        y = self.gcu(padder(x), cin, gin)
+        y = self.gcu((padder(x), cin, gin))
         if skips is not None and y.size(-1) != skips.size(-1):
             skips = skips[:, :, slc]
         skips = self.skips(y, skips)
         y = self.accum(self.residuals(y), x[:, :, slc])
-        return y, cin, gin, skips
+        return y, cin[:, :, slc] if cin is not None else cin, gin[:, :, slc] if gin is not None else gin, skips
 
     def output_length(self, input_length):
         if bool(self.pad_input):
@@ -131,7 +131,6 @@ class WaveNetLayer(nn.Module):
 # Finally : define the network class
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class WNNetwork(GeneratingNetwork):
-
     n_layers: tuple = (4,)
     q_levels: int = 256
     n_cin_classes: Optional[int] = None
@@ -143,9 +142,11 @@ class WNNetwork(GeneratingNetwork):
     groups: int = 1
     accum_outputs: int = 0
     pad_input: int = 0
+    gated_units: bool = True
     skip_dim: Optional[int] = None
     residuals_dim: Optional[int] = None
     head_dim: Optional[int] = None
+    reverse_dilation_order: bool = False
 
     def inpt_(self):
         return H.Paths(
@@ -157,7 +158,7 @@ class WNNetwork(GeneratingNetwork):
 
     def layers_(self):
         return nn.Sequential(*[
-            WaveNetLayer(i,
+            WaveNetLayer(i if not self.reverse_dilation_order else block - 1 - i,
                          gate_dim=self.gate_dim,
                          skip_dim=self.skip_dim,
                          residuals_dim=self.residuals_dim,
@@ -165,6 +166,7 @@ class WNNetwork(GeneratingNetwork):
                          cin_dim=self.cin_dim,
                          gin_dim=self.gin_dim,
                          groups=self.groups,
+                         gated_units=self.gated_units,
                          pad_input=self.pad_input,
                          accum_outputs=self.accum_outputs,
                          )
@@ -175,7 +177,8 @@ class WNNetwork(GeneratingNetwork):
         return nn.Sequential(
             nn.ReLU(),
             nn.Conv1d(self.gate_dim if self.skip_dim is None else self.skip_dim,
-                      self.gate_dim if self.head_dim is None else self.head_dim, kernel_size=1),
+                      self.gate_dim if self.head_dim is None else self.head_dim,
+                      kernel_size=1),
             nn.ReLU(),
             nn.Conv1d(self.gate_dim if self.head_dim is None else self.head_dim,
                       self.q_levels, kernel_size=1),
@@ -203,8 +206,10 @@ class WNNetwork(GeneratingNetwork):
         else:
             self.shift = sum(layer.shift_diff for layer in self.layers) + 1
 
-    def forward(self, xi, cin=None, gin=None):
-        x, cin, gin = self.inpt(xi, cin, gin)
+    def forward(self, inputs):
+        x, cin, gin = self.inpt(inputs[0],
+                                inputs[1] if len(inputs) > 1 else None,
+                                inputs[2] if len(inputs) == 3 else None)
         y, _, _, skips = self.layers((x, cin, gin, None))
         return self.outpt(skips if skips is not None else y)
 
@@ -243,19 +248,21 @@ class WNNetwork(GeneratingNetwork):
     def generate_slow(self, prompt, n_steps, temperature=0.5):
 
         output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
-        prior_t = prompt.size(1)
+        prior_t = prompt[0].size(1)
+
         rf = self.receptive_field
         _, out_slc = self.generation_slices()
 
         for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            output.data[:, t:t + 1] = self.predict_(self.forward(output[:, t - rf:t])[:, out_slc],
-                                                    temperature)
-        return output
+            inputs = tuple(map(lambda x: x[:, t - rf:t] if x is not None else None, output))
+            output[0].data[:, t:t + 1] = self.predict_(self.forward(inputs)[:, out_slc],
+                                                       temperature)
+        return output[0]
 
     def generate_fast(self, prompt, n_steps, temperature=0.5):
 
         output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
-        prior_t = prompt.size(1)
+        prior_t = prompt.size(1) if isinstance(prompt, torch.Tensor) else prompt[0].size(1)
 
         inpt = output[:, prior_t - self.receptive_field:prior_t]
         z, cin, gin = self.inpt(inpt, None, None)

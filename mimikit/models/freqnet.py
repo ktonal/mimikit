@@ -15,7 +15,7 @@ __all__ = [
 ]
 
 
-@dtc.dataclass
+@dtc.dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class FreqNetData(IData):
 
     feature: Feature = None
@@ -47,19 +47,19 @@ class FreqNetData(IData):
         if 'glob' in db.features:
             hp.update(dict(n_gin_classes=len(db.glob.files)))
         return dict(
-            feature=db.schema['fft'], input_dim=db.schema['fft'].dim, **hp
+            feature=Spectrogram(**db.fft.attrs), input_dim=db.fft.shape[-1], **hp
         )
 
     def batch_signature(self, stage='fit'):
-        inpt = Input('fft', AsSlice(shift=0, length=self.batch_seq_length))
+        inpt = [Input('fft', AsSlice(shift=0, length=self.batch_seq_length))]
         trgt = Target('fft', AsSlice(shift=self.shift,
                                      length=self.output_shape((-1, self.batch_seq_length, -1))[1]))
         # where are we conditioned?
         loc, glob = self.n_cin_classes is not None, self.n_gin_classes is not None
         if loc:
-            pass
+            inpt += [Input('loc', AsSlice(shift=0, length=self.batch_seq_length))]
         if glob:
-            pass
+            inpt += [Input('glob', AsSlice(shift=0, length=self.batch_seq_length))]
         if stage in ('full', 'fit', 'train', 'val'):
             return inpt, trgt
         # test, predict, generate...
@@ -74,7 +74,6 @@ class FreqNetData(IData):
 
 
 @model
-@dtc.dataclass
 class FreqNet(
     # data configuration :
     FreqNetData,
@@ -104,30 +103,30 @@ class FreqNet(
 
 
 def main(
-        sources='./data',
+        sources='./data/RANDOLF_SHORT_LOW.mp3',
         sr=22050, n_fft=2048, hop_length=512,
         segments_labels=False, files_labels=False):
     import mimikit as mmk
     import os
 
     schema = mmk.FreqNet.schema(sr, emphasis=0., n_fft=n_fft, hop_length=hop_length,
-                                segment_labels=False, files_labels=False)
+                                segment_labels=True, files_labels=True)
 
     db_path = '/tmp/freqnet_db.h5'
     db = mmk.Database.create(db_path, sources, schema)
 
     net = mmk.FreqNet(
         **mmk.FreqNet.dependant_hp(db),
-        cin_dim=None,
-        gin_dim=None,
-        n_layers=(4,),
-        gate_dim=1024,
-        groups=2,
+        cin_dim=128,
+        gin_dim=128,
+        n_layers=(6,),
+        gate_dim=2048,
+        groups=4,
         batch_size=16,
-        batch_seq_length=32,
+        batch_seq_length=128,
         max_lr=1e-3,
         div_factor=10,
-        betas=(.9, .92),
+        betas=(.9, .94),
 
     )
     print(net.hparams)
@@ -135,15 +134,16 @@ def main(
     dm = mmk.DataModule(net, db,
                         splits=tuple())
 
-    cb = mmk.GenerateCallBack(3, indices=[None]*4,
+    cb = mmk.GenerateCallBack(1, indices=[None]*4,
                               n_steps=1000,
                               play_audios=False,
                               plot_audios=False,
                               log_audios=True,
-                              log_dir=os.path.abspath('outputs/freqnet'))
+                              log_dir=os.path.abspath('outputs/freqnet3'))
 
     trainer = mmk.get_trainer(root_dir=None,
                               max_epochs=100,
+                              limit_train_batches=20,
                               callbacks=[cb],
                               checkpoint_callback=False)
 
