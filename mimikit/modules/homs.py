@@ -5,7 +5,6 @@ import torch.nn as nn
 import torch
 from copy import deepcopy
 
-
 __all__ = [
     'HOM',
     'HOMSequential',
@@ -21,6 +20,7 @@ __all__ = [
     'Skips',
     'GatedUnit'
 ]
+
 
 # *******************************************************************
 # ************************ HOM **************************************
@@ -166,6 +166,7 @@ def block(name, layer_func, container_cls=HOMSequential):
     def init(self, n_layers, *args, **kwargs):
         container_cls.__init__(self, *(layer_func(i, *args, **kwargs)
                                        for sub_block in n_layers for i in range(sub_block)))
+
     return type(name, (container_cls,), {"__init__": init})
 
 
@@ -198,8 +199,12 @@ class Skips(nn.Module):
 class GatedUnit(MulPaths):
 
     def __new__(cls, module):
-        return MulPaths(nn.Sequential(module, nn.Tanh()),
-                        nn.Sequential(deepcopy(module), nn.Sigmoid()))
+        class GU(MulPaths):
+            def forward(self, inputs):
+                return super(MulPaths, self).forward(inputs, inputs)
+
+        return GU(nn.Sequential(module, nn.Tanh()),
+                  nn.Sequential(deepcopy(module), nn.Sigmoid()))
 
 
 def propped(*bases):

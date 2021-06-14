@@ -15,18 +15,15 @@ class ParametrizedGaussian(nn.Module):
     """
     input_dim: int
     z_dim: int
-    bias: Optional[bool] = False
-    pre_activation: Optional[nn.Module] = nn.Identity()
-    return_params: Optional[bool] = True
+    bias: bool = False
+    return_params: bool = True
 
-    def __postinit__(self):
+    def __post_init__(self):
         nn.Module.__init__(self)
-        self.fc1 = nn.Linear(self.input_dim, self.z_dim, bias=self.bias)
-        self.fc2 = nn.Linear(self.input_dim, self.z_dim, bias=self.bias)
-        self.pre_act = self.pre_activation if self.pre_activation is not None else lambda x: x
+        self.fc = nn.Linear(self.input_dim, self.z_dim * 2, bias=self.bias)
 
     def forward(self, h):
-        mu, logvar = self.fc1(self.pre_act(h)), self.fc2(self.pre_act(h))
+        mu, logvar = torch.chunk(self.fc(h), 2, dim=-1)
         std = logvar.mul(0.5).exp_()
         eps = torch.randn(*mu.size()).to(h.device)
         z = mu + std * eps
