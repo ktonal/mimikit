@@ -30,7 +30,7 @@ class Seq2SeqData(IData):
     @classmethod
     def dependant_hp(cls, db):
         return dict(
-            feature=db.schema['fft'], input_dim=db.schema['fft'].dim
+            feature=Spectrogram(**db.fft.attrs), input_dim=db.fft.shape[-1]
         )
 
     def batch_signature(self, stage='fit'):

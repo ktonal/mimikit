@@ -24,11 +24,6 @@ with open(os.path.join(os.path.dirname(__file__), 'requirements.txt'), "r", enco
 
 PACKAGES = find_packages(exclude=('tests', 'tests.*'))
 
-if os.environ.get("MIMIKIT_NOTORCH", False):
-    PACKAGES = [p for p in PACKAGES if "data" in p or "connectors" in p]
-    REQUIRES = [r for r in REQUIRES if "torch" not in r and "test-tube" not in r]
-
-
 kwargs = {
     'name': 'mimikit',
     'version': version,
@@ -61,7 +56,7 @@ kwargs = {
     "entry_points": {
         'console_scripts': [
             'samplernn=mimikit.models.sample_rnn:main',
-            'freqnet=mimikit.models.freqnet:main'
+            'freqnet=mimikit.models.freqnet:demo'
         ]}
 
 }

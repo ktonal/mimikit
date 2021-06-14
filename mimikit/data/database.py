@@ -67,20 +67,27 @@ class FeatureProxy(object):
             has_regions = self.name + "_regions" in f
         self.files = Regions(pd.read_hdf(h5_file, self.name + "_files", mode="r")) if has_files else None
         self.regions = Regions(pd.read_hdf(h5_file, self.name + "_regions", mode="r")) if has_regions else None
-        self._f = h5py.File(h5_file, "r+") if keep_open else None
+        # handle to the file when keeping open. To support torch's Dataloader, we have to open the file by the
+        # first getitem request
+        self._f = None
+        self.keep_open = keep_open
 
     def __len__(self):
         return self.N
 
     def __getitem__(self, item):
-        if self._f is not None:
+        if self.keep_open:
+            if self._f is None:
+                self._f = h5py.File(self.h5_file, "r+")
             return self._f[self.name][item]
         with h5py.File(self.h5_file, "r") as f:
             rv = f[self.name][item]
         return rv
 
     def __setitem__(self, item, value):
-        if self._f is not None:
+        if self.keep_open:
+            if self._f is None:
+                self._f = h5py.File(self.h5_file, "r+")
             self._f[self.name][item] = value
         with h5py.File(self.h5_file, "r+") as f:
             f[self.name][item] = value
@@ -173,7 +180,6 @@ class Database(Dataset):
         """
         default extract_func for Database.build. Roughly equivalent to :
             ``{feat_name: feat.load(path) for feat_name, feat in features_dict.items()}``
-
         """
         out = {}
         for f_name, f in schema.items():
@@ -226,7 +232,7 @@ class Database(Dataset):
         for f_name, f in schema.items():
             # let features the chance to update them selves confronted to their whole set
             if getattr(type(f), "post_create", Feature.post_create) != Feature.post_create:
-                rv = f.post_create(db, f_name)
+                rv = f.after_create(db, f_name)
                 if isinstance(rv, np.ndarray):
                     rv = (rv, getattr(db, f_name).regions)
                 elif isinstance(rv, Regions):
