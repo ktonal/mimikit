@@ -11,7 +11,7 @@ from ..networks import FreqNetNetwork, WNNetwork
 __all__ = [
     'FreqNetData',
     'FreqNet',
-    'main'
+    'demo'
 ]
 
 
@@ -102,59 +102,106 @@ class FreqNet(
         return self.feature.decode(outputs)
 
 
-def main(
-        sources='./data/RANDOLF_SHORT_LOW.mp3',
-        sr=22050, n_fft=2048, hop_length=512,
-        segments_labels=False, files_labels=False):
+# this script is a base template for programmatically generating
+# demo notebooks
+def demo():
+    """### import and arguments"""
     import mimikit as mmk
-    import os
 
-    schema = mmk.FreqNet.schema(sr, emphasis=0., n_fft=n_fft, hop_length=hop_length,
-                                segment_labels=True, files_labels=True)
+    # DATA
 
-    db_path = '/tmp/freqnet_db.h5'
+    # list of files or directories to use as data
+    sources = ['./data']
+    # audio sample rate
+    sr = 22050
+    # the size of the stft
+    n_fft = 2048
+    # hop_length of the
+    hop_length = n_fft // 4
+
+    # NETWORK
+
+    # the number of layers determines 'how much past' is used to predict the next future step
+    # here you can make blocks of layers by specifying a tuple of integers, e.g. (2, 3, 2)
+    n_layers = (3, )
+    # how many parameters pro layer (must be divisible by 2)
+    gate_dim = 1024
+    # this multiplies the number of parameters used in the input & output layers.
+    n_heads = 4
+
+    # OPTIMIZATION
+
+    # how many epochs should we train for
+    max_epochs = 50
+    # how many examples are used pro training steps
+    batch_size = 16
+    # how long are the examples in each training step
+    # must be bigger than the network's receptive field
+    batch_seq_length = sum(2**n for n in n_layers) * 2
+    # the learning rate
+    max_lr = 5e-4
+    # betas control how fast the network changes its 'learning course'.
+    # generally, betas should be close but smaller than 1. and be balanced with the batch_size :
+    # the smaller the batch, the higher the betas 'could be'.
+    betas = (0.9, 0.93)
+
+    # MONITORING
+
+    # how often should the network generate during training
+    every_n_epochs = 2
+    # how many examples from random prompts should be generated
+    n_examples = 3
+    # how many steps (1 step = 1 fft frame) should be generated
+    n_steps = 1000
+
+    # make sure batches are long enough
+    rf = sum(2**n for n in n_layers)
+    assert batch_seq_length > rf, f"batch_seq_length ({batch_seq_length}) needs to be greater than the receptive field ({rf})"
+    print("arguments are ok!")
+
+    """### create the data"""
+    schema = mmk.FreqNet.schema(sr, n_fft=n_fft, hop_length=hop_length,
+                                segment_labels=False, files_labels=False)
+
+    db_path = 'freqnet-demo.h5'
+    print("collecting data...")
     db = mmk.Database.create(db_path, sources, schema)
+    print("successfully created the db.")
 
+    """### create network and train"""
     net = mmk.FreqNet(
         **mmk.FreqNet.dependant_hp(db),
-        cin_dim=128,
-        gin_dim=128,
-        n_layers=(6,),
-        gate_dim=2048,
-        groups=4,
-        batch_size=16,
-        batch_seq_length=128,
-        max_lr=1e-3,
-        div_factor=10,
-        betas=(.9, .94),
+        n_layers=n_layers,
+        gate_dim=gate_dim,
+        groups=2,
+        n_input_heads=n_heads,
+        n_output_heads=n_heads,
+        batch_size=batch_size,
+        batch_seq_length=batch_seq_length,
+        max_lr=max_lr,
+        div_factor=5,
+        betas=betas,
 
     )
     print(net.hparams)
 
-    dm = mmk.DataModule(net, db,
-                        splits=tuple())
+    dm = mmk.DataModule(net, db, splits=tuple())
 
-    cb = mmk.GenerateCallBack(1, indices=[None]*4,
-                              n_steps=1000,
-                              play_audios=False,
-                              plot_audios=False,
-                              log_audios=True,
-                              log_dir=os.path.abspath('outputs/freqnet3'))
+    cb = mmk.GenerateCallBack(every_n_epochs,
+                              indices=[None]*n_examples,
+                              n_steps=n_steps,
+                              play_audios=True,
+                              plot_audios=True)
 
     trainer = mmk.get_trainer(root_dir=None,
-                              max_epochs=100,
-                              limit_train_batches=20,
+                              max_epochs=max_epochs,
                               callbacks=[cb],
                               checkpoint_callback=False)
-
+    print("here we go!")
     trainer.fit(net, datamodule=dm)
 
-    prp = dm.get_prompts([None] * 4)
-    print(prp.size())
-
-    out = net.generate(prp, 32)
-    print('Done!')
+    """----------------------------"""
 
 
 if __name__ == '__main__':
-    main()
+    demo()

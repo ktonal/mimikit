@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 from dataclasses import dataclass
 from typing import Optional
+from itertools import accumulate
+import operator
 
 from ..modules import homs as H, ops as Ops
 from .generating_net import GeneratingNetwork
@@ -30,7 +32,7 @@ class WaveNetLayer(nn.Module):
     stride: int = 1
     bias: bool = True
 
-    dilation = property(lambda self: self.kernel_size ** self.layer_i)
+    dilation: int = 1
 
     shift_diff = property(
         lambda self:
@@ -66,7 +68,7 @@ class WaveNetLayer(nn.Module):
             nn.Conv1d(self.cin_dim, self.residuals_dim, **self.conv_kwargs) if self.cin_dim else None,
             nn.Conv1d(self.gin_dim, self.residuals_dim, **self.conv_kwargs) if self.gin_dim else None
         )
-        return H.GatedUnit(mod) if self.gated_units else mod
+        return H.GatedUnit(mod) if self.gated_units else nn.Sequential(mod, nn.Tanh())
 
     def residuals_(self):
         return nn.Conv1d(self.residuals_dim, self.gate_dim, **self.kwargs_1x1)
@@ -128,7 +130,6 @@ class WaveNetLayer(nn.Module):
         return math.floor(1 + numerator / self.stride)
 
 
-# Finally : define the network class
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class WNNetwork(GeneratingNetwork):
     n_layers: tuple = (4,)
@@ -157,23 +158,36 @@ class WNNetwork(GeneratingNetwork):
         )
 
     def layers_(self):
+        # allow custom sequences of kernel_sizes
+        if isinstance(self.kernel_size, tuple):
+            assert sum(self.n_layers) == len(self.kernel_size), "total number of layers and of kernel sizes must match"
+            k_iter = iter(self.kernel_size)
+            dilation_iter = iter(accumulate([1, *self.kernel_size], operator.mul))
+        else:
+            # reverse_dilation_order leads to the connectivity of the FFTNet
+            k_iter = iter([self.kernel_size] * sum(self.n_layers))
+            dilation_iter = iter([self.kernel_size**(i if not self.reverse_dilation_order else block-1-i)
+                                  for block in self.n_layers for i in range(block)])
+
         return nn.Sequential(*[
             WaveNetLayer(i if not self.reverse_dilation_order else block - 1 - i,
                          gate_dim=self.gate_dim,
                          skip_dim=self.skip_dim,
                          residuals_dim=self.residuals_dim,
-                         kernel_size=self.kernel_size,
+                         kernel_size=next(k_iter),
                          cin_dim=self.cin_dim,
                          gin_dim=self.gin_dim,
                          groups=self.groups,
                          gated_units=self.gated_units,
                          pad_input=self.pad_input,
                          accum_outputs=self.accum_outputs,
+                         dilation=next(dilation_iter)
                          )
             for block in self.n_layers for i in range(block)
         ])
 
     def outpt_(self):
+        # TODO : Support auxiliary classifier for conditioned networks
         return nn.Sequential(
             nn.ReLU(),
             nn.Conv1d(self.gate_dim if self.skip_dim is None else self.skip_dim,
@@ -260,7 +274,7 @@ class WNNetwork(GeneratingNetwork):
         return output[0]
 
     def generate_fast(self, prompt, n_steps, temperature=0.5):
-
+        # TODO : add support for conditioned networks
         output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
         prior_t = prompt.size(1) if isinstance(prompt, torch.Tensor) else prompt[0].size(1)
 
