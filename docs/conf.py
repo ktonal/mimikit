@@ -18,11 +18,11 @@ sys.path.insert(0, os.path.abspath('../mimikit'))
 # -- Project information -----------------------------------------------------
 
 project = 'mimikit'
-copyright = '2021, k-tonal'
-author = 'k-tonal'
+copyright = '2021, ktonal'
+author = 'ktonal'
 
 # The full version, including alpha/beta/rc tags
-release = 'v0.1.6'
+release = 'v0.2.1'
 
 
 # -- General configuration ---------------------------------------------------

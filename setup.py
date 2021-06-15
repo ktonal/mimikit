@@ -55,8 +55,9 @@ kwargs = {
     'packages': PACKAGES,
     "entry_points": {
         'console_scripts': [
-            'samplernn=mimikit.models.sample_rnn:main',
-            'freqnet=mimikit.models.freqnet:demo'
+            'samplernn=mimikit.models.sample_rnn:demo',
+            'freqnet=mimikit.models.freqnet:demo',
+            'seq2seq=mimikit.models.s2s_lstm:demo',
         ]}
 
 }

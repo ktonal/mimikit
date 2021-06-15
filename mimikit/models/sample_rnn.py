@@ -14,7 +14,7 @@ from . import model, IData
 __all__ = [
     'SampleRNNData',
     'SampleRNN',
-    'main'
+    'demo'
 ]
 
 
@@ -101,46 +101,102 @@ def make_click_command(f):
     return click.command()(f)
 
 
-@make_click_command
-def main(sources=['./data'], sr=16000, q_levels=256):
+def demo():
+    """### import and arguments"""
     import mimikit as mmk
-    import os
+    import torch
 
+    # DATA
+
+    # list of files or directories to use as data
+    sources = ['./data']
+    # audio sample rate
+    sr = 16000
+    # number of quantization levels (256 -> 8-bit)
+    q_levels = 256
+
+    # NETWORK
+
+    # how many samples each tier receives as input
+    # stick to decreasing sequences, size_i must be divisible by size_i+1 and
+    # last 2 numbers must be equal. You can have as many tiers as you want.
+    frame_sizes = (16, 4, 4)
+    # number of lstm network pro tier
+    n_rnn = 2
+    # dimensionality of the lstms
+    dim = 512
+
+    # OPTIMIZATION
+
+    # how many epochs should we train for
+    max_epochs = 50
+    # how many examples are used pro training steps
+    batch_size = 16
+    # the learning rate
+    max_lr = 5e-4
+    # betas control how fast the network changes its 'learning course'.
+    # generally, betas should be close but smaller than 1. and be balanced with the batch_size :
+    # the smaller the batch, the higher the betas 'could be'.
+    betas = (0.9, 0.93)
+
+    # MONITORING
+
+    # how often should the network generate during training
+    every_n_epochs = 4
+    # how many examples from random prompts should be generated
+    n_examples = 3
+    # how many steps (1 step = 1 sample) should be generated
+    n_steps = 15 * sr
+    # the sampling temperature changes outputs a lot!
+    # roughly : prefer values close to 1. & hot -> noisy ; cold -> silence
+    temperature = torch.tensor([.9, .999, 1.25]).unsqueeze(1).to('cuda')
+
+    assert temperature.size(0) == n_examples, "number of values in temperature must be equal to n_examples"
+    print("arguments are ok!")
+
+    """### create the data"""
     schema = mmk.SampleRNN.schema(sr, 0., q_levels)
 
+    db_path = 'sample-rnn-demo.h5'
+    print("collecting data...")
+    db = mmk.Database.create(db_path, sources, schema)
+    print("successfully created the db.")
+
+    """### create network and train"""
     net = mmk.SampleRNN(
         feature=schema['qx'],
         q_levels=q_levels,
-        frame_sizes=(16, 4, 4),
-        n_rnn=2,
-
-        max_lr=7e-4,
-        betas=(.9, .91),
+        frame_sizes=frame_sizes,
+        n_rnn=n_rnn,
+        dim=dim,
+        mlp_dim=dim,
+        batch_size=batch_size,
+        max_lr=max_lr,
+        betas=betas,
         div_factor=5,
     )
 
     print(net.hparams)
 
-    dm = mmk.DataModule(net, "/tmp/srnn.h5",
-                        sources=sources, schema=schema,
+    dm = mmk.DataModule(net, db,
                         splits=tuple(),
                         in_mem_data=True)
 
-    cb = mmk.GenerateCallBack(5, indices=[None] * 4,
-                              n_steps=16000*10,
-                              play_audios=False,
-                              plot_audios=False,
-                              log_audios=True,
-                              log_dir=os.path.abspath('outputs/sample-rnn'),
-                              temperature=torch.tensor([[.9], [.999], [1.1], [1.25]]).to('cuda'))
+    cb = mmk.GenerateCallback(every_n_epochs, indices=[None] * n_examples,
+                              n_steps=n_steps,
+                              play_audios=True,
+                              plot_audios=True,
+                              temperature=temperature)
 
     trainer = mmk.get_trainer(root_dir=None,
-                              max_epochs=50,
+                              max_epochs=max_epochs,
                               callbacks=[cb],
                               checkpoint_callback=False)
-
+    print("here we go!")
     trainer.fit(net, datamodule=dm)
+
+    """----------------------------"""
 
 
 if __name__ == '__main__':
-    main()
+    demo()
