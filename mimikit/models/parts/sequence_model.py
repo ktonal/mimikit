@@ -9,7 +9,7 @@ from ...utils import audio
 
 __all__ = [
     'SequenceModel',
-    'GenerateCallBack'
+    'GenerateCallback'
 ]
 
 
@@ -75,7 +75,7 @@ class SequenceModel(MMKHooks,
         return output
 
 
-class GenerateCallBack(pl.callbacks.Callback):
+class GenerateCallback(pl.callbacks.Callback):
 
     def __init__(self, every_n_epochs=10, indices=3, n_steps=1000,
                  plot_audios=True, play_audios=True, log_audios=False,

@@ -187,7 +187,7 @@ def demo():
 
     dm = mmk.DataModule(net, db, splits=tuple())
 
-    cb = mmk.GenerateCallBack(every_n_epochs,
+    cb = mmk.GenerateCallback(every_n_epochs,
                               indices=[None]*n_examples,
                               n_steps=n_steps,
                               play_audios=True,
