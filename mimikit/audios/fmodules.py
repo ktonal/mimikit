@@ -27,19 +27,55 @@ Q_LEVELS = 256
 
 class FModule:
     """
-    base class for implementing message passing in callable objects
+    base class for implementing a custom partial function that supports multiple input types.
+
+    this is the base interface of all classes in this module.
     """
 
     @property
     def functions(self) -> dict:
+        """
+        the functions this class implements for some set of inputs types
+
+        Returns
+        -------
+        dict
+            the keys must be types and the values callable objects taking a single argument
+        """
         raise NotImplementedError
 
     def __call__(self, inputs):
+        """
+        apply the functional corresponding to `type(inputs)` to inputs
+
+        Parameters
+        ----------
+        inputs : any type supported by this ``FModule``
+            some inputs
+
+        Returns
+        -------
+        out
+            result of applying ``self.functions[type(inputs)]`` to ``inputs``
+
+        Raises
+        ------
+        KeyError
+            if ``type(inputs)`` isn't in the keys of ``self.functions``
+        """
         return self.functions[type(inputs)](inputs)
 
 
 @dtc.dataclass
 class FileToSignal(FModule):
+    """
+    returns the np.ndarray of an audio file read at a given sample rate.
+
+    Parameters
+    ----------
+    sr : int
+        the sample rate
+    """
     sr: int = SR
 
     @property
@@ -47,6 +83,22 @@ class FileToSignal(FModule):
         return {
             str: lambda path: librosa.load(path, sr=self.sr)[0]
         }
+
+    def __call__(self, inputs):
+        """
+        get the array
+
+        Parameters
+        ----------
+        inputs : str
+            path to the file
+
+        Returns
+        -------
+        signal : np.ndarray
+            the array as returned by ``librosa.load``
+        """
+        return super(FileToSignal, self).__call__(inputs)
 
 
 @dtc.dataclass

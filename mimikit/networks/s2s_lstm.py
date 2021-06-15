@@ -4,6 +4,8 @@ from typing import Optional
 from dataclasses import dataclass
 
 from ..networks.parametrized_gaussian import ParametrizedGaussian
+from .generating_net import GeneratingNetwork
+
 
 __all__ = [
     'EncoderLSTM',
@@ -14,16 +16,16 @@ __all__ = [
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class EncoderLSTM(nn.Module):
-    input_d: int
-    model_dim: int
-    num_layers: int
+    input_d: int = 512
+    model_dim: int = 512
+    num_layers: int = 1
     n_lstm: Optional[int] = 1
     bottleneck: Optional[str] = "add"
     n_fc: Optional[int] = 1
     bias: Optional[bool] = False
     weight_norm: Optional[bool] = False
 
-    def __postinit__(self):
+    def __post_init__(self):
         nn.Module.__init__(self)
         self.lstms = nn.ModuleList([
             nn.LSTM(self.input_d if i == 0 else self.model_dim,
@@ -68,13 +70,13 @@ class EncoderLSTM(nn.Module):
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class DecoderLSTM(nn.Module):
-    model_dim: int
-    num_layers: int
+    model_dim: int = 512
+    num_layers: int = 1
     bottleneck: Optional[str] = "add"
     bias: Optional[bool] = False
     weight_norm: Optional[tuple] = (False, False)
 
-    def __postinit__(self):
+    def __post_init__(self):
         nn.Module.__init__(self)
         self.lstm1 = nn.LSTM(self.model_dim, self.model_dim if self.bottleneck == "add" else self.model_dim // 2,
                              bias=self.bias,
@@ -108,19 +110,22 @@ class DecoderLSTM(nn.Module):
         return output + output2, (hiddens, cells)
 
 
-class Seq2SeqLSTM(nn.Module):
-    def __init__(self,
-                 input_dim,
-                 model_dim,
-                 num_layers=1,
-                 n_lstm=1,
-                 bottleneck="add",
-                 n_fc=1):
-        super(Seq2SeqLSTM, self).__init__()
-        self.enc = EncoderLSTM(input_dim, model_dim, num_layers, n_lstm, bottleneck, n_fc)
-        self.dec = DecoderLSTM(model_dim, num_layers, bottleneck)
-        self.sampler = ParametrizedGaussian(model_dim, model_dim)
-        self.fc_out = nn.Linear(model_dim, input_dim, bias=False)
+@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
+class Seq2SeqLSTM(GeneratingNetwork, nn.Module):
+    input_dim: int = 513
+    model_dim: int = 1024
+    num_layers: int = 1
+    n_lstm: int = 1
+    bottleneck: str = "add"
+    n_fc: int = 1
+
+    def __post_init__(self):
+        nn.Module.__init__(self)
+        GeneratingNetwork.__init__(self)
+        self.enc = EncoderLSTM(self.input_dim, self.model_dim, self.num_layers, self.n_lstm, self.bottleneck, self.n_fc)
+        self.dec = DecoderLSTM(self.model_dim, self.num_layers, self.bottleneck)
+        self.sampler = ParametrizedGaussian(self.model_dim, self.model_dim)
+        self.fc_out = nn.Linear(self.model_dim, self.input_dim, bias=False)
 
     def forward(self, x, output_length=None):
         coded, (h_enc, c_enc) = self.enc(x)
@@ -131,3 +136,13 @@ class Seq2SeqLSTM(nn.Module):
         coded = coded + residuals
         output, (_, _) = self.dec(coded, h_enc, c_enc)
         return self.fc_out(output).abs()
+
+    def generate_(self, prompt, n_steps):
+        shift = self.hparams.shift
+        output = self.prepare_prompt(prompt, shift * n_steps, at_least_nd=3)
+        prior_t = prompt.size(1)
+
+        for t in self.generate_tqdm(range(prior_t, prior_t + (shift * n_steps), shift)):
+            output.data[:, t:t+shift] = self.forward(output[:, t-shift:t])
+
+        return output
