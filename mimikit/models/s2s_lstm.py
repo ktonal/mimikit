@@ -77,7 +77,7 @@ def demo():
 
     # DATA
 
-    # list of files or directories to use as data
+    # list of files or directories to use as data ("./" is the cwd of the notebook)
     sources = ['./data']
     # audio sample rate
     sr = 22050
@@ -128,6 +128,8 @@ def demo():
     db_path = 's2s-demo.h5'
     print("collecting data...")
     db = mmk.Database.create(db_path, sources, schema)
+    if not len(db.fft.files):
+        raise ValueError("Empty db. No audio files were found")
     print("successfully created the db.")
 
     """### create network and train"""

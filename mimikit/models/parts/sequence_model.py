@@ -108,7 +108,7 @@ class GenerateCallback(pl.callbacks.Callback):
             if self.plot_audios:
                 plt.figure(figsize=(20, 2))
                 plt.plot(y)
-                plt.show()
+                plt.show(block=False)
             if self.play_audios:
                 audio(y, sr=sr, hop_length=hop_length)
 

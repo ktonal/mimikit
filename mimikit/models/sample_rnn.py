@@ -38,7 +38,7 @@ class SampleRNNData(IData):
                 Input('qx', AsFramedSlice(shift, batch_seq_len, frame_size=fs,
                                           as_strided=False)))
         inputs.append(
-            Input('qx', AsFramedSlice(shifts[-1], batch_seq_len, frame_size=frame_sizes[-1],
+            Input('qx', AsFramedSlice(shifts[-1], batch_seq_len+frame_sizes[-1]-1, frame_size=frame_sizes[-1],
                                       as_strided=True)))
         targets = Target('qx', AsSlice(shift=frame_sizes[0], length=batch_seq_len))
         if stage in ('fit', 'train', 'val'):
@@ -108,7 +108,7 @@ def demo():
 
     # DATA
 
-    # list of files or directories to use as data
+    # list of files or directories to use as data ("./" is the cwd of the notebook)
     sources = ['./data']
     # audio sample rate
     sr = 16000
@@ -149,7 +149,7 @@ def demo():
     n_steps = 15 * sr
     # the sampling temperature changes outputs a lot!
     # roughly : prefer values close to 1. & hot -> noisy ; cold -> silence
-    temperature = torch.tensor([.9, .999, 1.25]).unsqueeze(1).to('cuda')
+    temperature = torch.tensor([.9, .999, 1.25]).unsqueeze(1)
 
     assert temperature.size(0) == n_examples, "number of values in temperature must be equal to n_examples"
     print("arguments are ok!")
@@ -160,6 +160,8 @@ def demo():
     db_path = 'sample-rnn-demo.h5'
     print("collecting data...")
     db = mmk.Database.create(db_path, sources, schema)
+    if not len(db.qx.files):
+        raise ValueError("Empty db. No audio files were found...")
     print("successfully created the db.")
 
     """### create network and train"""
@@ -186,7 +188,7 @@ def demo():
                               n_steps=n_steps,
                               play_audios=True,
                               plot_audios=True,
-                              temperature=temperature)
+                              temperature=temperature.to('cuda') if torch.cuda.is_available() else temperature)
 
     trainer = mmk.get_trainer(root_dir=None,
                               max_epochs=max_epochs,
