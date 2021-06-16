@@ -24,30 +24,29 @@ def example_root(tmp_path):
     soundfile.write(str(data / "example.wav"), audio, 22050, 'PCM_24', format="WAV")
     return str(root)
 
-
-def test_models(example_root, monkeypatch):
+@pytest.mark.parametrize("model", [fnet, srnn, s2s, wnet])
+def test_models(example_root, monkeypatch, model):
     with_gpu = torch.cuda.is_available()
-    for model in [fnet, srnn, s2s, wnet]:
-        src = getsource(model)
+    src = getsource(model)
 
-        src = re.sub(r"db_path = '.*.h5'\n", f"db_path = '{example_root}/data.h5'\n", src)
-        src = re.sub(r"sources =.*\n", f"sources = ['{example_root}']\n", src)
-        src = re.sub(r"every_n_epochs =.*\n", "every_n_epochs=1\n", src)
-        src = re.sub(r"n_steps =.*\n", "n_steps = 10\n", src)
-        src = re.sub(r"limit_train_batches=.*\n", "", src)
-        src = re.sub(r"max_epochs=.*,\n", "max_epochs=1,limit_train_batches=10,\n", src)
-        src = re.sub(r"root_dir=.*\n", f"root_dir ='{example_root}',\n", src)
-        src += """\n\n\ndemo()\n"""
-        # run the demo
-        if with_gpu:
-            exec(src)
-            monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-            exec(src)
-            monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
-        else:
-            monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-            exec (src)
-        plt.close('all')
-        # we only need that the demo runs without raising exceptions
-        assert True
+    src = re.sub(r"db_path = '.*.h5'\n", f"db_path = '{example_root}/data.h5'\n", src)
+    src = re.sub(r"sources =.*\n", f"sources = ['{example_root}']\n", src)
+    src = re.sub(r"every_n_epochs =.*\n", "every_n_epochs=1\n", src)
+    src = re.sub(r"n_steps =.*\n", "n_steps = 10\n", src)
+    src = re.sub(r"limit_train_batches=.*\n", "", src)
+    src = re.sub(r"max_epochs=.*,\n", "max_epochs=1,limit_train_batches=10,\n", src)
+    src = re.sub(r"root_dir=.*\n", f"root_dir ='{example_root}',\n", src)
+    src += """\n\n\ndemo()\n"""
+    print("----- RUNNING DEMO for", model, "-----------")
+    # run the demo
+    if with_gpu:
+        exec(src)
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        exec(src)
+    else:
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+        exec (src)
+    plt.close('all')
+    # we only need that the demo runs without raising exceptions
+    assert True
     return
