@@ -211,7 +211,7 @@ def demo():
                               n_steps=n_steps,
                               play_audios=True,
                               plot_audios=True,
-                              temperature=temperature)
+                              temperature=temperature.to('cuda') if torch.cuda.is_available() else temperature)
 
     trainer = mmk.get_trainer(root_dir=None,
                               max_epochs=max_epochs,
