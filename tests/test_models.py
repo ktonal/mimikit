@@ -27,7 +27,7 @@ def example_root(tmp_path):
 @pytest.mark.parametrize("model", [fnet, srnn, s2s, wnet])
 def test_models(example_root, monkeypatch, model):
     # feels wrong but this makes gh actions go crazy...
-    monkeypatch.setattr(torch.cuda, "init", lambda: None)
+    # monkeypatch.setattr(torch.cuda, "init", lambda: None)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     with_gpu = False
     src = getsource(model)

@@ -22,6 +22,8 @@ jobs:
         pip list | grep torch
 
     - name: Test
+      env:
+        CUDA_VISIBLE_DEVICES=-1
       run: hatch test -nd
 
     - name: Build dist and Publish on TestPypi
