@@ -254,7 +254,7 @@ class WNNetwork(GeneratingNetwork):
         if temp is None:
             return nn.Softmax(dim=-1)(outpt).argmax(dim=-1, keepdims=True)
         else:
-            return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp), 1)
+            return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp.to(outpt)), 1)
 
     def generate_(self, prompt, n_steps, temperature=0.5, benchmark=False):
         if self.receptive_field <= 64:

@@ -117,13 +117,12 @@ class AsFramedSlice(AsSlice):
         sliced = super(AsFramedSlice, self).__call__(feat_data, item)
         if self.as_strided:
             if isinstance(sliced, np.ndarray):
-                itemsize = sliced.dtype.itemsize
-                as_strided = lambda arr: np_as_strided(arr,
-                                                       shape=(self.length, self.frame_size),
-                                                       strides=(itemsize, itemsize))
+                as_strided = lambda tensor: torch.as_strided(torch.from_numpy(tensor),
+                                                             size=(self.length-self.frame_size+1, self.frame_size),
+                                                             stride=(1, 1))
             else:
                 as_strided = lambda tensor: torch.as_strided(tensor,
-                                                             size=(self.length, self.frame_size),
+                                                             size=(self.length-self.frame_size+1, self.frame_size),
                                                              stride=(1, 1))
 
             with torch.no_grad():

@@ -38,7 +38,7 @@ class SampleRNNData(IData):
                 Input('qx', AsFramedSlice(shift, batch_seq_len, frame_size=fs,
                                           as_strided=False)))
         inputs.append(
-            Input('qx', AsFramedSlice(shifts[-1], batch_seq_len, frame_size=frame_sizes[-1],
+            Input('qx', AsFramedSlice(shifts[-1], batch_seq_len+frame_sizes[-1]-1, frame_size=frame_sizes[-1],
                                       as_strided=True)))
         targets = Target('qx', AsSlice(shift=frame_sizes[0], length=batch_seq_len))
         if stage in ('fit', 'train', 'val'):
