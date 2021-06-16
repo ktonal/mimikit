@@ -170,7 +170,7 @@ def demo():
     n_steps = 5 * sr
     # the sampling temperature changes outputs a lot!
     # roughly : prefer values close to 1. & hot -> noisy ; cold -> silence
-    temperature = torch.tensor([.9, .999, 1.25]).unsqueeze(1).to('cuda')
+    temperature = torch.tensor([.9, .999, 1.25]).unsqueeze(1)
 
     assert temperature.size(0) == n_examples, "number of values in temperature must be equal to n_examples"
     rf = mmk.WaveNet.rf(n_layers, kernel_size)
