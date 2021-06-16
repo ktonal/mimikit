@@ -18,12 +18,13 @@ jobs:
         sudo apt-get install -y libsndfile-dev
         python -m pip install --quiet --upgrade pip
         pip install --quiet -r requirements.txt
+        pip install --find-links https://download.pytorch.org/whl/cpu/torch_stable.html
         pip install --quiet hatch
         pip list | grep torch
 
     - name: Test
       env:
-        CUDA_VISIBLE_DEVICES: -1
+        CUDA_VISIBLE_DEVICES: ""
       run: hatch test -nd
 
     - name: Build dist and Publish on TestPypi

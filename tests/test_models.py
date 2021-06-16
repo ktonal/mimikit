@@ -27,8 +27,8 @@ def example_root(tmp_path):
 
 @pytest.mark.parametrize("model", [fnet, srnn, s2s, wnet])
 def test_models(example_root, monkeypatch, model):
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    with_gpu = False
+    if torch.cuda.is_available():
+        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     src = getsource(model)
 
     src = re.sub(r"db_path = '.*.h5'\n", f"db_path = '{example_root}/data.h5'\n", src)
