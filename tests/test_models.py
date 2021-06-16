@@ -44,8 +44,7 @@ def test_models(example_root, monkeypatch, model):
         monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
         exec(src)
     else:
-        monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-        exec (src)
+        exec(src)
     plt.close('all')
     # we only need that the demo runs without raising exceptions
     assert True

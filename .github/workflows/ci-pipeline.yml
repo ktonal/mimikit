@@ -19,6 +19,7 @@ jobs:
         python -m pip install --quiet --upgrade pip
         pip install --quiet -r requirements.txt
         pip install --quiet hatch
+        pip list | grep torch
 
     - name: Test
       run: hatch test -nd
