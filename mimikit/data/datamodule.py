@@ -8,7 +8,8 @@ from torch.utils.data import Dataset, DataLoader
 from typing import Iterable, Optional, Callable
 import re
 from random import randint
-from torch._six import container_abcs, string_classes
+from torch._six import string_classes
+import collections
 
 from . import Database
 
@@ -157,11 +158,11 @@ def process_batch(batch, test=lambda x: False, func=lambda x: x):
     elem_type = type(batch)
     if test(batch):
         return func(batch)
-    elif isinstance(batch, container_abcs.Mapping):
+    elif isinstance(batch, collections.abc.Mapping):
         return {key: process_batch(batch[key], test, func) for key in batch}
     elif isinstance(batch, tuple) and hasattr(batch, '_fields'):  # namedtuple
         return elem_type(*(process_batch(d, test, func) for d in batch))
-    elif isinstance(batch, container_abcs.Sequence) and not isinstance(batch, string_classes):
+    elif isinstance(batch, collections.abc.Sequence) and not isinstance(batch, string_classes):
         return [process_batch(d, test, func) for d in batch]
     else:
         return batch
