@@ -24,10 +24,9 @@ def example_root(tmp_path):
     soundfile.write(str(data / "example.wav"), audio, 22050, 'PCM_24', format="WAV")
     return str(root)
 
+
 @pytest.mark.parametrize("model", [fnet, srnn, s2s, wnet])
 def test_models(example_root, monkeypatch, model):
-    # feels wrong but this makes gh actions go crazy...
-    # monkeypatch.setattr(torch.cuda, "init", lambda: None)
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
     with_gpu = False
     src = getsource(model)
@@ -39,14 +38,8 @@ def test_models(example_root, monkeypatch, model):
     src = re.sub(r"limit_train_batches=.*\n", "", src)
     src = re.sub(r"max_epochs=.*,\n", "max_epochs=1,limit_train_batches=10,\n", src)
     src = re.sub(r"root_dir=.*\n", f"root_dir ='{example_root}',\n", src)
-    src += """\n\n\ndemo()\n"""
-    # run the demo
-    if with_gpu:
-        exec(src)
-        # monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-        exec(src)
-    else:
-        exec(src)
+    exec(src)
+    locals()["demo"]()
     plt.close('all')
     # we only need that the demo runs without raising exceptions
     assert True
