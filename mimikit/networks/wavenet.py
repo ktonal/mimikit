@@ -257,7 +257,10 @@ class WNNetwork(GeneratingNetwork):
             return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp), 1)
 
     def generate_(self, prompt, n_steps, temperature=0.5, benchmark=False):
-        return self.generate_slow(prompt, n_steps, temperature)
+        if self.receptive_field <= 64:
+            return self.generate_slow(prompt, n_steps, temperature)
+        # prompt is a list but generate fast only accepts one tensor prompt...
+        return self.generate_fast(prompt[0], n_steps, temperature)
 
     def generate_slow(self, prompt, n_steps, temperature=0.5):
 
