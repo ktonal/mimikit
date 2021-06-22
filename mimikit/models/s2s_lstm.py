@@ -105,7 +105,7 @@ def demo():
     # how many examples are used pro training steps
     batch_size = 16
     # the learning rate
-    max_lr = 1e-3
+    max_lr = 3e-4
     # betas control how fast the network changes its 'learning course'.
     # generally, betas should be close but smaller than 1. and be balanced with the batch_size :
     # the smaller the batch, the higher the betas 'could be'.

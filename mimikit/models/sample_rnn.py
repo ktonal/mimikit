@@ -27,7 +27,7 @@ class SampleRNNData(IData):
 
     @classmethod
     def schema(cls, sr=22050, emphasis=0., q_levels=256):
-        return {'qx': MuLawSignal(sr=sr, emphasis=emphasis, q_levels=q_levels)}
+        return {'qx': MuLawSignal(sr=sr, emphasis=emphasis, q_levels=q_levels, normalize=True)}
 
     def batch_signature(self, stage='fit'):
         batch_seq_len, frame_sizes = tuple(getattr(self, key) for key in ["batch_seq_len", "frame_sizes"])
