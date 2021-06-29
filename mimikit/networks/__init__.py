@@ -1,4 +1,5 @@
 from .freqnet import *
+from .generating_net import *
 from .parametrized_gaussian import *
 from .sample_rnn import *
 from .s2s_lstm import *

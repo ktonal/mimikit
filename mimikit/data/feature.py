@@ -89,8 +89,8 @@ class Feature:
         -------
 
         """
-        if hasattr(super(type(self), self), 'encoders'):
-            inputs = super(type(self), self).encoders[type(inputs)](inputs)
+        if hasattr(super(), 'encoders'):
+            inputs = super().encoders[type(inputs)](inputs)
         return self.encoders[type(inputs)](inputs)
 
     def decode(self, inputs):
@@ -106,8 +106,8 @@ class Feature:
 
         """
         inputs = self.decoders[type(inputs)](inputs)
-        if hasattr(super(type(self), self), 'decoders'):
-            inputs = super(type(self), self).decoders[type(inputs)](inputs)
+        if hasattr(super(), 'decoders'):
+            inputs = super().decoders[type(inputs)](inputs)
         return inputs
 
     def load(self, path):

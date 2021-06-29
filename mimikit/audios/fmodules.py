@@ -103,7 +103,7 @@ class FileToSignal(FModule):
 
 @dtc.dataclass
 class Normalize(FModule):
-    p: int = 1
+    p: int = float('inf')
     dim: int = -1
 
     @property
@@ -209,14 +209,15 @@ class STFT(FModule):
     def functions(self):
         def np_func(inputs):
             # returned shape is (time x freq)
-            return librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length).T
+            S =librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length).T
+            S = np.stack((abs(S), np.angle(S)), axis=-1)
+            return S
 
         def torch_func(inputs):
             mod = T.Spectrogram(self.n_fft, hop_length=self.hop_length, power=1.,
                                 wkwargs=dict(device=inputs.device))
             # returned shape is (..., time x freq)
             return mod(inputs).transpose(-1, -2).contiguous()
-
         return {
             np.ndarray: np_func,
             torch.Tensor: torch_func
@@ -235,8 +236,8 @@ class ISTFT(FModule):
             return librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, )
 
         def torch_func(inputs):
-            # inputs is of shape (time x freq)
-            y = torch.istft(inputs.transpose(-1, -2).contiguous(),
+            inputs = inputs[..., 0] * torch.exp(1j * inputs[..., 1])
+            y = torch.istft(inputs.transpose(1, 2).contiguous(),
                             n_fft=self.n_fft, hop_length=self.hop_length,
                             window=torch.hann_window(self.n_fft, device=inputs.device))
             return y
@@ -256,8 +257,8 @@ class MagSpec(STFT):
         # dict comprehension would result in a single function for
         # all types, so we declare the dict manually...
         return {
-            np.ndarray: lambda x: abs(sup_f[np.ndarray](x)),
-            torch.Tensor: lambda x: abs(sup_f[torch.Tensor](x))
+            np.ndarray: lambda x: abs(sup_f[np.ndarray](x)[..., 0]),
+            torch.Tensor: lambda x: abs(sup_f[torch.Tensor](x)[..., 0])
         }
 
 
