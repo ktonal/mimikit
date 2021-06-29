@@ -15,7 +15,7 @@ __all__ = [
 ]
 
 
-@dtc.dataclass
+@dtc.dataclass(unsafe_hash=True)
 class AudioSignal(Feature):
     """
     audio signal managers
