@@ -257,8 +257,8 @@ class MagSpec(STFT):
         # dict comprehension would result in a single function for
         # all types, so we declare the dict manually...
         return {
-            np.ndarray: lambda x: abs(sup_f[np.ndarray](x)),
-            torch.Tensor: lambda x: abs(sup_f[torch.Tensor](x))
+            np.ndarray: lambda x: abs(sup_f[np.ndarray](x)[..., 0]),
+            torch.Tensor: lambda x: abs(sup_f[torch.Tensor](x)[..., 0])
         }
 
 
