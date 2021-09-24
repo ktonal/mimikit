@@ -4,7 +4,6 @@ from typing import Optional
 from dataclasses import dataclass
 
 from ..networks.parametrized_gaussian import ParametrizedGaussian
-from .generating_net import GeneratingNetwork
 
 
 __all__ = [
@@ -111,7 +110,7 @@ class DecoderLSTM(nn.Module):
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class Seq2SeqLSTM(GeneratingNetwork, nn.Module):
+class Seq2SeqLSTM(nn.Module):
     input_dim: int = 513
     model_dim: int = 1024
     num_layers: int = 1

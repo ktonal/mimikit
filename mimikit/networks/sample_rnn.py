@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
-from typing import Optional
+from argparse import Namespace
 from dataclasses import dataclass
 
-from .generating_net import GeneratingNetwork
+from ..modules.homs import *
 
 __all__ = [
     "SampleRNNTier",
@@ -11,174 +11,123 @@ __all__ = [
 ]
 
 
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class SampleRNNTier(nn.Module):
-    tier_index: int
-    frame_size: int
-    dim: int
-    up_sampling: int = 1
-    n_rnn: int = 2
-    q_levels: int = 256
-    embedding_dim: Optional[int] = None
-    mlp_dim: Optional[int] = None
+class SampleRNNTier(HOM):
+    """
+    in time-domain :
+        - bottom tier has embedding and mlp out
+        - all other linearize their inputs
+    in the tf-domain :
+        - bottom has no embedding (4 embedded samples == same shape as 4 FFT)
+        - all others get 1 frame (frame_size == n_fft)
+    """
 
-    is_bottom = property(lambda self: self.up_sampling == 1)
+    def __init__(self,
+                 frame_size: int,
+                 dim: int,
+                 up_sampling: int = 1,
+                 n_rnn: int = 2,
+                 q_levels: int = 256,
+                 embedding_dim: int = None,
+                 mlp_dim: int = None,
+                 in_feat=None,
+                 out_feat=None
+                 ):
+        init_ctx = locals()
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
+        self.hp = Namespace(**init_ctx)
 
-    def embeddings_(self):
-        if self.embedding_dim is not None:
-            return nn.Embedding(self.q_levels, self.embedding_dim)
-        return None
+        is_bottom = up_sampling == 1
 
-    def input_proj_(self):
+        def linearize(qx):
+            """ maps input samples (0 <= qx < 256) to floats (-2. <= x < 2.) """
+            return ((qx.float() / q_levels) - .5) * 4
 
-        if not self.is_bottom:  # top & middle tiers
-            return nn.Sequential(nn.Linear(self.frame_size, self.dim), )
+        def reset_hidden(x, h):
+            if h is None or x.size(0) != h[0].size(1):
+                B = x.size(0)
+                h0 = torch.zeros(n_rnn, B, dim).to(x.device)
+                c0 = torch.zeros(n_rnn, B, dim).to(x.device)
+                return h0, c0
+            else:
+                return tuple(h_.detach() for h_ in h)
 
-        else:  # bottom tier
-            class BottomProjector(nn.Module):
-                def __init__(self, emb_dim, out_dim, frame_size):
-                    super(BottomProjector, self).__init__()
-                    self.cnv = nn.Conv1d(emb_dim, out_dim, kernel_size=frame_size)
+        FS, E = frame_size, embedding_dim
 
-                def forward(self, hx):
-                    """ hx : (B x T x FS x E) """
-                    B, T, FS, E = hx.size()
-                    hx = self.cnv(hx.view(B * T, FS, E).transpose(1, 2).contiguous())
-                    # now hx : (B*T, DIM, 1)
-                    return hx.squeeze().reshape(B, T, -1)
+        super().__init__(
+            "x, upper_out=None, h=None -> x, h",
+            (lambda x: x.size()[:2], "x -> B, T"),
 
-            return BottomProjector(self.embedding_dim, self.dim, self.frame_size)
+            *Maybe(not is_bottom,
+                   *Maybe(type(in_feat) in (MuLawSignal, ),
+                          (linearize, "x -> x"),),
+                   (nn.Linear(FS, dim), "x -> x"),
+                   ),
+            *Maybe(is_bottom,
+                   (in_feat.input_module(E), "x -> x"),
+                   (lambda x: x.view(-1, FS, E).transpose(1, 2).contiguous(), "x -> x"),
+                   (nn.Conv1d(E, dim, (FS,)), "x -> x"),
+                   (lambda x, B, T: x.squeeze().reshape(B, T, -1), "x, B, T -> x"),
+                   ),
 
-    def rnn_(self):
-        # no rnn for bottom tier
-        if self.is_bottom:
-            return None
-        # we do not learn hidden for practical reasons : storing them as params in the state dict
-        # would force the network to always generate with the train batch_size or to implement some logic
-        # to handle this shape change. We choose the simpler solution : hidden are initialized to zeros
-        # whenever we need fresh ones.
-        self.h0, self.c0 = None, None
-        return nn.LSTM(self.dim, self.dim, self.n_rnn, batch_first=True)
+            (lambda x, upper: x if upper is None else (x + upper), "x, upper_out -> x"),
 
-    def up_sampling_net_(self):
-        # no up sampling for bottom tier
-        if self.is_bottom:
-            return None
+            *Maybe(not is_bottom,
+                   (reset_hidden, "x, h -> h"),
+                   (nn.LSTM(dim, dim, n_rnn, batch_first=True), "x, h -> x, h"),
+                   # upsample T
+                   (nn.Linear(dim, dim * up_sampling), "x -> x"),
+                   (lambda x, B, T: x.reshape(B, T * up_sampling, dim), "x, B, T -> x")
+                   ),
 
-        class TimeUpscalerLinear(nn.Module):
-
-            def __init__(self, in_dim, out_dim, up_sampling, **kwargs):
-                super(TimeUpscalerLinear, self).__init__()
-                self.up_sampling = up_sampling
-                self.out_dim = out_dim
-                self.fc = nn.Linear(in_dim, out_dim * up_sampling, **kwargs)
-
-            def forward(self, x):
-                B, T, _ = x.size()
-                return self.fc(x).reshape(B, T * self.up_sampling, self.out_dim)
-
-        class ConvUpscaler(nn.Module):
-            def __init__(self, dim, up_sampling):
-                super(ConvUpscaler, self).__init__()
-                self.cv = nn.ConvTranspose1d(dim, dim, kernel_size=up_sampling, stride=up_sampling)
-
-            def forward(self, x):
-                return self.cv(x.transpose(1, 2).contiguous()).transpose(1, 2).contiguous()
-
-        return TimeUpscalerLinear(self.dim, self.dim, self.up_sampling)
-
-    def mlp_(self):
-        if self.mlp_dim is None:
-            return None
-        return nn.Sequential(
-            nn.Linear(self.dim, self.mlp_dim), nn.ReLU(),
-            nn.Linear(self.mlp_dim, self.mlp_dim), nn.ReLU(),
-            nn.Linear(self.mlp_dim, self.q_levels if self.is_bottom else self.dim),
+            *Maybe(is_bottom,
+                   (out_feat.output_module(dim),
+                    "x -> x")
+                   )
         )
 
-    def __post_init__(self):
-        nn.Module.__init__(self)
-        self.embeddings = self.embeddings_()
-        self.inpt_proj = self.input_proj_()
-        self.rnn = self.rnn_()
-        self.up_net = self.up_sampling_net_()
-        self.mlp = self.mlp_()
-
-    def reset_hidden(self, batch_size, device):
-        self.h0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
-        self.c0 = torch.zeros(self.n_rnn, batch_size, self.dim).to(device)
-        return self.h0, self.c0
-
-    def linearize(self, q_samples):
-        """ maps input samples (0 <= qx < 256) to floats (-2. <= x < 2.) """
-        return ((q_samples.float() / self.q_levels) - .5) * 4
-
-    def forward(self, input_samples, prev_tier_output=None, hidden=None):
-        if self.embeddings is None:
-            x = self.linearize(input_samples)
-        else:
-            x = self.embeddings(input_samples)
-
-        if self.inpt_proj is not None:
-            p = self.inpt_proj(x)
-            if prev_tier_output is not None:
-                x = p + prev_tier_output
-            else:
-                x = p
-
-        if self.rnn is not None:
-            if hidden is None or x.size(0) != hidden[0].size(1):
-                hidden = self.reset_hidden(x.size(0), x.device)
-            else:
-                # TRUNCATED back propagation through time == detach()!
-                hidden = tuple(h.detach() for h in hidden)
-            x, hidden = self.rnn(x, hidden)
-
-        if self.up_net is not None:
-            x = self.up_net(x)
-
-        if self.mlp is not None:
-            x = self.mlp(x)
-        return x, hidden
-
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class SampleRNNNetwork(GeneratingNetwork, nn.Module):
-
+class SampleRNNNetwork(nn.Module):
     frame_sizes: tuple = (16, 8, 8)  # from top to bottom!
     dim: int = 512
     n_rnn: int = 2
     q_levels: int = 256
     embedding_dim: int = 256
     mlp_dim: int = 512
+    input_features: tuple = ()
+    output_feature: object = None
 
     def __post_init__(self):
         nn.Module.__init__(self)
-        GeneratingNetwork.__init__(self)
         n_tiers = len(self.frame_sizes)
         tiers = []
         if n_tiers > 2:
             for i, fs in enumerate(self.frame_sizes[:-2]):
-                tiers += [SampleRNNTier(i, fs, self.dim,
+                tiers += [SampleRNNTier(fs, self.dim,
                                         up_sampling=fs // self.frame_sizes[i + 1],
                                         n_rnn=self.n_rnn,
                                         q_levels=self.q_levels,
                                         embedding_dim=None,
-                                        mlp_dim=None)]
+                                        mlp_dim=None,
+                                        in_feat=self.input_features[i])]
         # before last tier
-        tiers += [SampleRNNTier(n_tiers - 2, self.frame_sizes[-2], self.dim,
+        tiers += [SampleRNNTier(self.frame_sizes[-2], self.dim,
                                 up_sampling=self.frame_sizes[-1],
                                 n_rnn=self.n_rnn,
                                 q_levels=self.q_levels,
                                 embedding_dim=None,
-                                mlp_dim=None)]
+                                mlp_dim=None,
+                                in_feat=self.input_features[-2])]
         # bottom tier
-        tiers += [SampleRNNTier(n_tiers - 1, self.frame_sizes[-1], self.dim,
+        tiers += [SampleRNNTier(self.frame_sizes[-1], self.dim,
                                 up_sampling=1,
                                 n_rnn=self.n_rnn,
                                 q_levels=self.q_levels,
                                 embedding_dim=self.embedding_dim,
-                                mlp_dim=self.mlp_dim)]
+                                mlp_dim=self.mlp_dim,
+                                in_feat=self.input_features[-2],
+                                out_feat=self.output_feature)]
 
         self.tiers = nn.ModuleList(tiers)
         self.hidden = [None] * n_tiers
@@ -232,4 +181,3 @@ class SampleRNNNetwork(GeneratingNetwork, nn.Module):
             output.data[:, t] = pred.squeeze()
 
         return output
-

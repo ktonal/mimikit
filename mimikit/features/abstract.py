@@ -1,7 +1,7 @@
 import dataclasses as dtc
 
 import numpy as np
-from ..data import Feature
+from .feature import Feature
 from ..extract import from_recurrence_matrix
 
 

@@ -1,11 +1,8 @@
 import os
 import torch
-from pytorch_lightning.loggers import NeptuneLogger
-from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
 
-from .models.parts import MMKDefaultLogger, MMKCheckpoint, EpochProgressBarCallback
+from .callbacks import *
 from pytorch_lightning.trainer import Trainer
-import warnings
 
 __all__ = [
     'get_trainer'
@@ -97,44 +94,12 @@ def get_trainer(root_dir=None,
         next_version = 0
         default_root_dir = root_dir
 
-    user_logger = kwargs.get("logger", None)
-    loggers = []
-
-    if neptune_connector is not None:
-        if model is None:
-            raise ValueError("Expected `model` not to be None in order to create a neptune.Experiment")
-        api_token = neptune_connector.api_token
-        path = neptune_connector.path('model', split=True)
-        project = "/".join(path[:2])
-        exp_id = path[-1]
-        loggers.append(NeptuneLogger(api_token, project, params=model.hparams,
-                                     experiment_name=default_root_dir, experiment_id=exp_id))
-    if user_logger is None:
-        loggers.append(MMKDefaultLogger(default_root_dir, next_version))
-    elif user_logger:
-        loggers.append(user_logger)
-    else:  # it is falsy and the user DOESN'T want logging
-        loggers = False
-        if neptune_connector is not None:
-            warnings.warn("You provided arguments to instantiate a NeptuneLogger but set `logger=False` in the kwargs. "
-                          "The latter resulting in turning any logging off, your experiment won't be logged to neptune.")
-
-    kwargs["logger"] = loggers
-
-    # Figure out checkpoints
-    # if the user specifies one, we don't add ours
-    if not any(issubclass(type(cb), ModelCheckpoint) for cb in kwargs.get("callbacks", [])):
-        if epochs is not None:
-            kwargs.setdefault("callbacks", []).append(MMKCheckpoint(dirpath=default_root_dir, epochs=epochs))
-        else:
-            warnings.warn("You neither specified `epochs` to enable default checkpoint_callback "
-                          "nor passed a `checkpoint_callback` argument as kwarg. Saving of your model won't be managed"
-                          " by mimikit nor by pytorch_lightning's Trainer.")
     # add epoch progress bar
     kwargs.setdefault("callbacks", []).append(EpochProgressBarCallback())
     kwargs.setdefault("progress_bar_refresh_rate", 20)
     kwargs.setdefault("process_position", 1)
+    kwargs.setdefault("logger", False)
+    kwargs.setdefault("checkpoint_callback", False)
     kwargs.setdefault("num_sanity_val_steps", 0)  # this is 2 by default and messes up the steps count...
     kwargs.setdefault("gpus", torch.cuda.device_count() if torch.cuda.is_available() else 0)
-    print("Checkpoints and logs will be saved in", os.path.abspath(default_root_dir))
     return Trainer(default_root_dir=default_root_dir, **kwargs)

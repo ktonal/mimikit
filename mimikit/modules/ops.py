@@ -1,5 +1,6 @@
 import torch.nn.functional as F
 from torch import nn
+import torch
 
 __all__ = [
     'Abs',
@@ -57,3 +58,23 @@ class Slice(nn.Module):
 class Clone(nn.Module):
     def forward(self, x):
         return x.clone()
+
+
+class ScaledSigmoid(nn.Module):
+    def __init__(self, dim):
+        nn.Module.__init__(self)
+        self.scales = nn.Parameter(torch.ones(1, 1, dim))
+
+    def forward(self, x):
+        self.scales.to(x)
+        return nn.Sigmoid()(x / self.scales) * self.scales
+
+
+class ScaledTanh(nn.Module):
+    def __init__(self, dim):
+        nn.Module.__init__(self)
+        self.scales = nn.Parameter(torch.ones(1, 1, dim) * torch.acos(torch.zeros(1)).item() * 2)
+
+    def forward(self, x):
+        self.scales.to(x)
+        return nn.Tanh()(x / self.scales) * self.scales

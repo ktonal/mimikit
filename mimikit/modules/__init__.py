@@ -1,4 +1,5 @@
 from .homs import *
+from .loss_functions import *
 from .ops import *
 
 

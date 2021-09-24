@@ -204,20 +204,28 @@ class MuLawExpand(FModule):
 class STFT(FModule):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
+    coordinate: str = 'pol'
 
     @property
     def functions(self):
         def np_func(inputs):
             # returned shape is (time x freq)
-            S =librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length).T
-            S = np.stack((abs(S), np.angle(S)), axis=-1)
+            S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length).T
+            if self.coordinate == 'pol':
+                S = np.stack((abs(S), np.angle(S)), axis=-1)
+            elif self.coordinate == 'car':
+                S = np.stack(S.real, S.imag, axis=-1)
             return S
 
         def torch_func(inputs):
-            mod = T.Spectrogram(self.n_fft, hop_length=self.hop_length, power=1.,
-                                wkwargs=dict(device=inputs.device))
-            # returned shape is (..., time x freq)
-            return mod(inputs).transpose(-1, -2).contiguous()
+            S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
+                           window=torch.hann_window(self.n_fft, device=inputs.device)).transpose(-1, -2).contiguous()
+            if self.coordinate == 'pol':
+                S = torch.stack((abs(S), torch.angle(S)), dim=-1)
+            elif self.coordinate == 'car':
+                S = torch.stack((S.real, S.imag), dim=-1)
+            return S
+
         return {
             np.ndarray: np_func,
             torch.Tensor: torch_func
@@ -228,15 +236,24 @@ class STFT(FModule):
 class ISTFT(FModule):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
+    coordinate: str = 'pol'
 
     @property
     def functions(self):
         def np_func(inputs):
             # inputs is of shape (time x freq)
-            return librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, )
+            if self.coordinate == 'pol':
+                inputs = inputs[..., 0] * np.exp(1j * inputs[..., 1])
+            elif self.coordinate == 'car':
+                inputs = inputs[..., 0] * (1j * inputs[..., 1])
+            y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, )
+            return y
 
         def torch_func(inputs):
-            inputs = inputs[..., 0] * torch.exp(1j * inputs[..., 1])
+            if self.coordinate == 'pol':
+                inputs = inputs[..., 0] * torch.exp(1j * inputs[..., 1])
+            elif self.coordinate == 'car':
+                inputs = inputs[..., 0] * (1j * inputs[..., 1])
             y = torch.istft(inputs.transpose(1, 2).contiguous(),
                             n_fft=self.n_fft, hop_length=self.hop_length,
                             window=torch.hann_window(self.n_fft, device=inputs.device))

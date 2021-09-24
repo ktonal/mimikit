@@ -1,253 +1,289 @@
-import math
 import torch
 import torch.nn as nn
 from dataclasses import dataclass
-from typing import Optional
-from itertools import accumulate
-import operator
+from typing import Optional, Tuple
+from itertools import accumulate, chain
+import operator as opr
+from functools import partial
+from argparse import Namespace
 
-from ..modules import homs as H, ops as Ops
-from .generating_net import GeneratingNetwork
+from h5mapper import AsSlice
+from .generate_utils import *
+from ..modules.homs import *
+from ..modules.ops import CausalPad, Transpose
 
 __all__ = [
-    'WaveNetLayer',
-    'WNNetwork'
+    'WNLayer',
+    "WNBlock",
+    'WNNetwork',
+
 ]
 
 
+# some HOM helpers
+
+def Chunk(mod: nn.Module, chunks, dim=-1, sig_in="x"):
+    out_vars = ", ".join(["x" + str(i) for i in range(chunks)])
+    return hom("Chunk",
+               f"{sig_in} -> {out_vars}",
+               (mod, f"{sig_in} -> _tmp_"),
+               (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}")
+               )
+
+
+def GatingUnit(act_f: nn.Module, act_g: nn.Module):
+    return hom("GatingUnit",
+               "x, y -> z",
+               (act_f, "x -> x"),
+               (act_g, "y -> y"),
+               (opr.mul, "x, y -> z")
+               )
+
+
+def Skips(skipper: nn.Module):
+    return hom("Skips",
+               "x, skips=None -> skips",
+               (skipper, "x -> x"),
+               (lambda x, s: x if s is None else x + s, "x, skips -> skips")
+               )
+
+
+class WNLayer(HOM):
+
+    def __init__(
+            self,
+            dims_dilated: Tuple[int] = (128,),
+            dims_1x1: Tuple[int] = tuple(),
+            residuals_dim: Optional[int] = None,
+            apply_residuals: bool = False,
+            skips_dim: Optional[int] = None,
+            kernel_size: int = 2,
+            groups: int = 1,
+            act_f: nn.Module = nn.Tanh(),
+            act_g: Optional[nn.Module] = nn.Sigmoid(),
+            pad_side: int = 1,
+            stride: int = 1,
+            bias: bool = True,
+            dilation: int = 1,
+    ):
+        init_ctx = locals()
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
+        self.hp = Namespace(**init_ctx)
+
+        cause = (kernel_size - 1) * dilation
+        has_gated_units = act_g is not None
+        has_residuals = residuals_dim is not None
+        if residuals_dim is None:
+            # output dim for the gates
+            main_dim = residuals_dim = dims_dilated[0]
+        else:
+            main_dim = residuals_dim
+            apply_residuals = True
+
+        def trim_cause(x):
+            # remove dilation for generate_fast
+            cs = kernel_size - 1 if x.size(2) == kernel_size and self.training else cause
+            return x[:, :, slice(cs, None) if pad_side >= 0 else slice(None, -cs)]
+
+        # as many dilated and 1x1 inputs of any size as we want!
+        vars_dil = [f"x{i}" for i in range(1, len(dims_dilated))]
+        vars_1x1 = [f"h{i}" for i in range(len(dims_1x1))]
+        in_sig = ", ".join(["x"] + vars_dil + vars_1x1 + ["skips=None"])
+        out_sig = ", ".join(["y"] + vars_dil + vars_1x1 + ["skips"])
+
+        kwargs_dil = dict(kernel_size=(kernel_size,), dilation=dilation, stride=stride, bias=bias, groups=groups)
+        kwargs_1x1 = dict(kernel_size=(1,), stride=stride, bias=bias, groups=groups)
+
+        if has_gated_units:
+            conv_dil = [Chunk(nn.Conv1d(d, main_dim * 2, **kwargs_dil), 2, dim=1) for d in dims_dilated]
+            conv_1x1 = [Chunk(nn.Conv1d(d, main_dim * 2, **kwargs_1x1), 2, dim=1) for d in dims_1x1]
+        else:
+            conv_dil = [nn.Conv1d(d, main_dim, **kwargs_dil) for d in dims_dilated]
+            conv_1x1 = [nn.Conv1d(d, main_dim, **kwargs_1x1) for d in dims_1x1]
+
+        conv_skip = Skips(nn.Conv1d(main_dim, skips_dim, **kwargs_1x1)) if skips_dim is not None else None
+        conv_res = nn.Conv1d(main_dim, main_dim, **kwargs_1x1) if has_residuals else None
+
+        def conv_dil_sig(v):
+            return f"{v}in -> {v}_f" + (f", {v}_g" if has_gated_units else "")
+
+        def conv_1x1_sig(v):
+            return f"{v} -> {v}_f" + (f", {v}_g" if has_gated_units else "")
+
+        HOM.__init__(
+            self,
+            f"{in_sig} -> {out_sig}",
+
+            # main input
+            *Maybe(pad_side,
+                   (CausalPad((0, 0, pad_side * cause)), "x -> xin")),
+            *Maybe(not pad_side,
+                   (lambda x: x, "x -> xin")),
+            (conv_dil[0], conv_dil_sig("x")),
+
+            # other dilated inputs
+            *flatten([(*Maybe(pad_side,
+                              (CausalPad((0, 0, pad_side * cause)), f"{var} -> {var}in")),
+                       (conv_dil[i], conv_dil_sig(var)),
+                       Sum(f"x_f, {var}_f -> x_f"),
+                       *Maybe(has_gated_units,
+                              Sum(f"x_g, {var}_g -> x_g")),
+                       *Maybe(not pad_side,  # trim input for next layer
+                              (trim_cause, f"{var} -> {var}")
+                              ))
+                      for i, var in enumerate(vars_dil, 1)]),
+
+            # other 1x1 inputs
+            *flatten([(*Maybe(not pad_side,
+                              (trim_cause, f"{var} -> {var}")),
+                       (conv_1x1[i], conv_1x1_sig(var)),
+                       Sum(f"x_f, {var}_f -> x_f"),
+                       *Maybe(has_gated_units,
+                              Sum(f"x_g, {var}_g -> x_g")),
+                       ) for i, var in enumerate(vars_1x1)]),
+
+            # non-linearity
+            (GatingUnit(act_f, act_g) if has_gated_units else act_f,
+             "x_f" + (", x_g" if has_gated_units else "") + " -> y"),
+
+            # with or without skips
+            *Maybe(skips_dim is not None,
+                   *Maybe(not pad_side,
+                          (lambda s: trim_cause(s) if s is not None else s, "skips -> skips")),
+                   (conv_skip, "y, skips -> skips")
+                   ),
+
+            # with or without residuals
+            *Maybe(has_residuals,
+                   (conv_res, "y -> y"),
+                   ),
+
+            # even if we don't have residual parameters, we can sum inputs + outputs...
+            *Maybe(apply_residuals,
+                   *Maybe(not pad_side,
+                          (trim_cause, "x -> x")),
+                   Sum("x, y -> y")),
+            # return statement is in the signature ;)
+        )
+
+
+class WNBlock(HOM):
+
+    def __init__(
+            self,
+            kernel_sizes: Tuple[int] = (2,),
+            blocks: Tuple[int] = (),
+            dims_dilated: Tuple[int] = (128,),
+            dims_1x1: Tuple[int] = (),
+            residuals_dim: Optional[int] = None,
+            apply_residuals: bool = False,
+            skips_dim: Optional[int] = None,
+            groups: int = 1,
+            act_f: nn.Module = nn.Tanh(),
+            act_g: Optional[nn.Module] = nn.Sigmoid(),
+            pad_side: int = 1,
+            stride: int = 1,
+            bias: bool = True,
+    ):
+        init_ctx = locals()
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
+        kernel_sizes, dilation = self.get_kernels_and_dilation(kernel_sizes, blocks)
+        layers = [
+            WNLayer(dims_dilated=dims_dilated, dims_1x1=dims_1x1, residuals_dim=residuals_dim,
+                    apply_residuals=apply_residuals, skips_dim=skips_dim,
+                    kernel_size=k,
+                    groups=groups, act_f=act_f, act_g=act_g, pad_side=pad_side,
+                    stride=stride, bias=bias,
+                    dilation=d)
+            for k, d in zip(kernel_sizes, dilation)
+        ]
+        if pad_side == 1:
+            shift = 1
+        else:
+            shift = sum(layer.hp.cause for layer in layers) + 1
+        in_sig = ", ".join(["x" + str(i) for i in range(len(dims_dilated) + len(dims_1x1))])
+        mid_sig = in_sig + (", skips" if skips_dim is not None else "")
+        out_sig = "skips" if skips_dim is not None else "x0"
+        # make the steps
+        layers = zip(layers, [f"{mid_sig} -> {mid_sig}"] * len(layers))
+        # all shapes in and out are Batch x Time x Dim
+        super().__init__(
+            f"{in_sig}, skips=None -> {out_sig}",
+            Map(Transpose(1, 2), f"{mid_sig} -> {mid_sig}"),
+            *layers,
+            (Transpose(1, 2), f"{out_sig} -> {out_sig}"),
+        )
+        self.shift = shift
+        self.hp = Namespace(**init_ctx)
+
+    @staticmethod
+    def get_kernels_and_dilation(kernel_sizes, blocks):
+        # figure out the layers dilation.
+        # User can pass :
+        # - 1 kernel, n blocks
+        # - 1 block of kernel & n times the length of this block
+        # - n kernels for sum(blocks) == n
+        # - n kernels & no blocks = 1 block
+        if not blocks:
+            # single block from kernels
+            dilation = accumulate([1, *kernel_sizes], opr.mul)
+        else:
+            # repetitions of the same block
+            if len(set(blocks)) == 1 and set(blocks).pop() == len(kernel_sizes):
+                dilation = accumulate([1, *kernel_sizes], opr.mul)
+                dilation = chain(*([dilation] * len(blocks)))
+                # broadcast!
+                kernel_sizes = chain(*([kernel_sizes] * len(blocks)))
+            elif len(kernel_sizes) == sum(blocks):
+                cum_blocks = list(accumulate(blocks, opr.add))
+                dilation = []
+                for start, stop in zip([0] + cum_blocks, cum_blocks[1:]):
+                    ks = kernel_sizes[start:stop]
+                    dilation += list(accumulate([1, *ks], opr.mul))
+            elif len(kernel_sizes) == 1:
+                k = kernel_sizes[0]
+                # all the same
+                kernel_sizes = (k for _ in range(sum(blocks)))
+                dilation = (k ** i for block in blocks for i in range(block))
+            else:
+                raise ValueError(f"number of layers and number of kernel sizes not compatible."
+                                 " Got kernel_sizes={kernel_sizes} ; blocks={blocks}")
+        return kernel_sizes, dilation
+
+    def with_io(self, input_features, output_features):
+        inpt_mod = combine("==", None,
+                           *(feat.input_module(d)
+                             for feat, d in zip(input_features,
+                                                chain(self.hp.dims_dilated, self.hp.dims_1x1))))
+        out_d = self.hp.skips_dim if self.hp.skips_dim is not None else self.hp.dims_dilated[0]
+        outpt_mod = combine("-<", None,
+                            *(feat.output_module(out_d) for feat in output_features))
+        in_vars = ", ".join([f"x{i}" for i in range(len(input_features))])
+        out_vars = ", ".join([f"y{i}" for i in range(len(output_features))])
+        # wrap the steps without wrapping the object
+        self[:] = [(inpt_mod, f"{in_vars} -> {in_vars}"),
+                   (self.elevate(), f"{in_vars} -> y"),
+                   (outpt_mod, f"y -> {out_vars}")]
+        self.recompile(f"{in_vars} - > {out_vars}")
+        return self
+
+    def getters(self, batch_length, stride=1, hop_length=1, shift_error=0):
+        if batch_length - self.shift <= 0:
+            raise ValueError(f"batch_length must be greater than the receptive field of this network ({self.shift}).")
+        return {
+            "inputs": AsSlice(shift=0,
+                              length=batch_length * hop_length,
+                              stride=stride),
+            "targets": AsSlice(shift=(self.shift + shift_error) * hop_length,
+                               length=(batch_length if self.hp.pad_input else batch_length - self.shift) * hop_length,
+                               stride=stride)
+        }
+
+
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class WaveNetLayer(nn.Module):
-    layer_i: int
-    gate_dim: int = 128
-    residuals_dim: Optional[int] = None
-    skip_dim: Optional[int] = None
-    kernel_size: int = 2
-    groups: int = 1
-    cin_dim: Optional[int] = None
-    gin_dim: Optional[int] = None
-    gated_units: bool = True
-    pad_input: int = 1
-    accum_outputs: int = -1
-
-    stride: int = 1
-    bias: bool = True
-
-    dilation: int = 1
-
-    shift_diff = property(
-        lambda self:
-        (self.kernel_size - 1) * self.dilation if self.pad_input == 0 else 0
-    )
-    input_padding = property(
-        lambda self:
-        self.pad_input * (self.kernel_size - 1) * self.dilation if self.pad_input else 0
-    )
-    output_padding = property(
-        lambda self:
-        - self.accum_outputs * self.shift_diff
-    )
-    receptive_field = property(
-        lambda self:
-        self.kernel_size * self.dilation
-    )
-
-    @property
-    def conv_kwargs(self):
-        return dict(kernel_size=self.kernel_size, dilation=self.dilation,
-                    stride=self.stride, bias=self.bias, groups=self.groups)
-
-    @property
-    def kwargs_1x1(self):
-        return dict(kernel_size=1, bias=self.bias, groups=self.groups)
-
-    def gcu_(self):
-        mod = H.AddPaths(
-            # core
-            nn.Conv1d(self.gate_dim, self.residuals_dim, **self.conv_kwargs),
-            # conditioning parameters :
-            nn.Conv1d(self.cin_dim, self.residuals_dim, **self.conv_kwargs) if self.cin_dim else None,
-            nn.Conv1d(self.gin_dim, self.residuals_dim, **self.conv_kwargs) if self.gin_dim else None
-        )
-        return H.GatedUnit(mod) if self.gated_units else nn.Sequential(mod, nn.Tanh())
-
-    def residuals_(self):
-        return nn.Conv1d(self.residuals_dim, self.gate_dim, **self.kwargs_1x1)
-
-    def skips_(self):
-        return H.Skips(
-            nn.Conv1d(self.residuals_dim, self.skip_dim, **self.kwargs_1x1)
-        )
-
-    def accumulator(self):
-        return H.AddPaths(nn.Identity(), nn.Identity())
-
-    def __post_init__(self):
-        nn.Module.__init__(self)
-
-        with_residuals = self.residuals_dim is not None
-        if not with_residuals:
-            self.residuals_dim = self.gate_dim
-
-        self.gcu = self.gcu_()
-
-        if with_residuals:
-            self.residuals = self.residuals_()
-        else:  # keep the signature but just pass through
-            self.residuals = nn.Identity()
-
-        if self.skip_dim is not None:
-            self.skips = self.skips_()
-        else:
-            self.skips = lambda y, skp: skp
-
-        if self.accum_outputs:
-            self.accum = self.accumulator()
-        else:
-            self.accum = lambda y, x: y
-
-    def forward(self, inputs):
-        x, cin, gin, skips = inputs
-        if self.pad_input == 0:
-            cause = self.shift_diff if x.size(2) > self.kernel_size else self.kernel_size - 1
-            slc = slice(cause, None) if self.accum_outputs <= 0 else slice(None, -cause)
-            padder = nn.Identity()
-        else:
-            slc = slice(None)
-            padder = Ops.CausalPad((0, 0, self.input_padding))
-        y = self.gcu((padder(x), cin, gin))
-        if skips is not None and y.size(-1) != skips.size(-1):
-            skips = skips[:, :, slc]
-        skips = self.skips(y, skips)
-        y = self.accum(self.residuals(y), x[:, :, slc])
-        return y, cin[:, :, slc] if cin is not None else cin, gin[:, :, slc] if gin is not None else gin, skips
-
-    def output_length(self, input_length):
-        if bool(self.pad_input):
-            # no matter what, padding input gives the same output shape
-            return input_length
-        # output is gonna be less than input
-        numerator = input_length - self.dilation * (self.kernel_size - 1) - 1
-        return math.floor(1 + numerator / self.stride)
-
-
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class WNNetwork(GeneratingNetwork):
-    n_layers: tuple = (4,)
-    q_levels: int = 256
-    n_cin_classes: Optional[int] = None
-    cin_dim: Optional[int] = None
-    n_gin_classes: Optional[int] = None
-    gin_dim: Optional[int] = None
-    gate_dim: int = 128
-    kernel_size: int = 2
-    groups: int = 1
-    accum_outputs: int = 0
-    pad_input: int = 0
-    gated_units: bool = True
-    skip_dim: Optional[int] = None
-    residuals_dim: Optional[int] = None
-    head_dim: Optional[int] = None
-    reverse_dilation_order: bool = False
-
-    def inpt_(self):
-        return H.Paths(
-            nn.Sequential(nn.Embedding(self.q_levels, self.gate_dim), Ops.Transpose(1, 2)),
-            nn.Sequential(nn.Embedding(self.n_cin_classes, self.cin_dim),
-                          Ops.Transpose(1, 2)) if self.cin_dim else None,
-            nn.Sequential(nn.Embedding(self.n_gin_classes, self.gin_dim), Ops.Transpose(1, 2)) if self.gin_dim else None
-        )
-
-    def layers_(self):
-        # allow custom sequences of kernel_sizes
-        if isinstance(self.kernel_size, tuple):
-            assert sum(self.n_layers) == len(self.kernel_size), "total number of layers and of kernel sizes must match"
-            k_iter = iter(self.kernel_size)
-            dilation_iter = iter(accumulate([1, *self.kernel_size], operator.mul))
-        else:
-            # reverse_dilation_order leads to the connectivity of the FFTNet
-            k_iter = iter([self.kernel_size] * sum(self.n_layers))
-            dilation_iter = iter([self.kernel_size**(i if not self.reverse_dilation_order else block-1-i)
-                                  for block in self.n_layers for i in range(block)])
-
-        return nn.Sequential(*[
-            WaveNetLayer(i if not self.reverse_dilation_order else block - 1 - i,
-                         gate_dim=self.gate_dim,
-                         skip_dim=self.skip_dim,
-                         residuals_dim=self.residuals_dim,
-                         kernel_size=next(k_iter),
-                         cin_dim=self.cin_dim,
-                         gin_dim=self.gin_dim,
-                         groups=self.groups,
-                         gated_units=self.gated_units,
-                         pad_input=self.pad_input,
-                         accum_outputs=self.accum_outputs,
-                         dilation=next(dilation_iter)
-                         )
-            for block in self.n_layers for i in range(block)
-        ])
-
-    def outpt_(self):
-        # TODO : Support auxiliary classifier for conditioned networks
-        return nn.Sequential(
-            nn.ReLU(),
-            nn.Conv1d(self.gate_dim if self.skip_dim is None else self.skip_dim,
-                      self.gate_dim if self.head_dim is None else self.head_dim,
-                      kernel_size=1),
-            nn.ReLU(),
-            nn.Conv1d(self.gate_dim if self.head_dim is None else self.head_dim,
-                      self.q_levels, kernel_size=1),
-            Ops.Transpose(1, 2)
-        )
-
-    def __post_init__(self):
-        nn.Module.__init__(self)
-        self.inpt = self.inpt_()
-        self.layers = self.layers_()
-        self.outpt = self.outpt_()
-
-        rf = 0
-        for i, layer in enumerate(self.layers):
-            if i == (len(self.layers) - 1):
-                rf += layer.receptive_field
-            elif self.layers[i + 1].layer_i == 0:
-                rf += layer.receptive_field - 1
-        self.receptive_field = rf
-
-        if self.pad_input == 1:
-            self.shift = 1
-        elif self.pad_input == -1:
-            self.shift = self.receptive_field
-        else:
-            self.shift = sum(layer.shift_diff for layer in self.layers) + 1
-
-    def forward(self, inputs):
-        x, cin, gin = self.inpt(inputs[0],
-                                inputs[1] if len(inputs) > 1 else None,
-                                inputs[2] if len(inputs) == 3 else None)
-        y, _, _, skips = self.layers((x, cin, gin, None))
-        return self.outpt(skips if skips is not None else y)
-
-    def output_shape(self, input_shape):
-        return input_shape[0], self.all_output_lengths(input_shape[1])[-1], input_shape[-1]
-
-    def all_output_lengths(self, input_length):
-        out_length = input_length
-        lengths = []
-        for layer in self.layers:
-            out_length = layer.output_length(out_length)
-            lengths += [out_length]
-        return tuple(lengths)
-
-    def generation_slices(self):
-        # input is always the last receptive field
-        input_slice = slice(-self.receptive_field, None)
-        if self.pad_input == 1:
-            # then there's only one future time-step : the last output
-            output_slice = slice(-1, None)
-        else:
-            # for all other cases, the first output has the shift of the whole network
-            output_slice = slice(None, 1)
-        return input_slice, output_slice
+class WNNetwork(nn.Module):
 
     @staticmethod
     def predict_(outpt, temp):
@@ -264,7 +300,7 @@ class WNNetwork(GeneratingNetwork):
 
     def generate_slow(self, prompt, n_steps, temperature=0.5):
 
-        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
+        output = prepare_prompt(self.device, prompt, n_steps, at_least_nd=2)
         prior_t = prompt[0].size(1)
 
         rf = self.receptive_field
@@ -272,8 +308,7 @@ class WNNetwork(GeneratingNetwork):
 
         for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
             inputs = tuple(map(lambda x: x[:, t - rf:t] if x is not None else None, output))
-            output[0].data[:, t:t + 1] = self.predict_(self.forward(inputs)[:, out_slc],
-                                                       temperature)
+            output[0].data[:, t:t + 1] = self.predict_(self.forward(inputs)[:, out_slc], temperature)
         return output[0]
 
     def generate_fast(self, prompt, n_steps, temperature=0.5):
@@ -298,17 +333,19 @@ class WNNetwork(GeneratingNetwork):
 
         # disable padding and dilation
         dilations = {}
+        pads = {}
         for mod in self.modules():
             if isinstance(mod, nn.Conv1d) and mod.dilation != (1,):
                 dilations[mod] = mod.dilation
                 mod.dilation = (1,)
-        for layer in self.layers:
-            layer.pad_input = 0
+            if isinstance(mod, CausalPad):
+                pads[mod] = mod.pad
+                mod.pad = (0, 0, 0)
 
         # cache the indices of the inputs for each layer
         lyr_slices = {}
         for l, layer in enumerate(self.layers):
-            d, k = layer.dilation, layer.kernel_size
+            d, k = layer.hp.dilation, layer.hp.kernel_size
             rf = d * k
             indices = [qs[l][0].size(2) - 1 - n for n in range(0, rf, d)][::-1]
             lyr_slices[l] = torch.tensor(indices).long().to(self.device)
@@ -326,7 +363,7 @@ class WNNetwork(GeneratingNetwork):
                 zi = torch.index_select(z, 2, lyr_slices[l])
                 if skips is not None:
                     # we only need one skip : the first or the last of the kernel's indices
-                    i = lyr_slices[l][0 if layer.accum_outputs > 0 else -1].item()
+                    i = lyr_slices[l][0 if layer.hp.pad_side < 0 else -1].item()
                     skips = skips[:, :, i:i + 1]
 
                 z, _, _, skips = layer((zi, cin, gin, skips))
@@ -351,7 +388,7 @@ class WNNetwork(GeneratingNetwork):
         # reset the layers' parameters
         for mod, d in dilations.items():
             mod.dilation = d
-        for layer in self.layers:
-            layer.pad_input = self.pad_input
+        for mod, pad in pads.items():
+            mod.pad = pad
 
         return output
