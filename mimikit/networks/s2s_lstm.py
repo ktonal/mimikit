@@ -120,7 +120,6 @@ class Seq2SeqLSTM(nn.Module):
 
     def __post_init__(self):
         nn.Module.__init__(self)
-        GeneratingNetwork.__init__(self)
         self.enc = EncoderLSTM(self.input_dim, self.model_dim, self.num_layers, self.n_lstm, self.bottleneck, self.n_fc)
         self.dec = DecoderLSTM(self.model_dim, self.num_layers, self.bottleneck)
         self.sampler = ParametrizedGaussian(self.model_dim, self.model_dim)

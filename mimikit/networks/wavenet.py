@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-from dataclasses import dataclass
 from typing import Optional, Tuple
 from itertools import accumulate, chain
 import operator as opr
@@ -8,15 +7,12 @@ from functools import partial
 from argparse import Namespace
 
 from h5mapper import AsSlice
-from .generate_utils import *
 from ..modules.homs import *
 from ..modules.ops import CausalPad, Transpose
 
 __all__ = [
     'WNLayer',
     "WNBlock",
-    'WNNetwork',
-
 ]
 
 
@@ -68,10 +64,9 @@ class WNLayer(HOM):
     ):
         init_ctx = locals()
         init_ctx.pop("self")
-        init_ctx.pop("__class__")
-        self.hp = Namespace(**init_ctx)
-
         cause = (kernel_size - 1) * dilation
+        self.hp = Namespace(**init_ctx)
+        self.hp.cause = cause
         has_gated_units = act_g is not None
         has_residuals = residuals_dim is not None
         if residuals_dim is None:
@@ -199,23 +194,36 @@ class WNBlock(HOM):
                     dilation=d)
             for k, d in zip(kernel_sizes, dilation)
         ]
+        rf = sum(layer.hp.cause for layer in layers) + 1
         if pad_side == 1:
             shift = 1
         else:
-            shift = sum(layer.hp.cause for layer in layers) + 1
-        in_sig = ", ".join(["x" + str(i) for i in range(len(dims_dilated) + len(dims_1x1))])
-        mid_sig = in_sig + (", skips" if skips_dim is not None else "")
+            shift = rf
+
+        in_sig = ", ".join(["x" + str(i)
+                            for i in range(len(dims_dilated) + len(dims_1x1))])
+        mid_sig = in_sig + ", skips"
         out_sig = "skips" if skips_dim is not None else "x0"
         # make the steps
         layers = zip(layers, [f"{mid_sig} -> {mid_sig}"] * len(layers))
+
+        # helper to output only predictions in eval mode
+        class CausalTrimIfEval(nn.Module):
+            def forward(self, x):
+                if self.training:
+                    return x
+                return x[:, -1 if pad_side == 1 else 0]
+
         # all shapes in and out are Batch x Time x Dim
         super().__init__(
             f"{in_sig}, skips=None -> {out_sig}",
-            Map(Transpose(1, 2), f"{mid_sig} -> {mid_sig}"),
+            Map(Transpose(1, 2), f"{in_sig} -> {in_sig}"),
             *layers,
             (Transpose(1, 2), f"{out_sig} -> {out_sig}"),
+            (CausalTrimIfEval(), f"{out_sig} -> {out_sig}")
         )
         self.shift = shift
+        self.rf = rf
         self.hp = Namespace(**init_ctx)
 
     @staticmethod
@@ -258,15 +266,19 @@ class WNBlock(HOM):
                              for feat, d in zip(input_features,
                                                 chain(self.hp.dims_dilated, self.hp.dims_1x1))))
         out_d = self.hp.skips_dim if self.hp.skips_dim is not None else self.hp.dims_dilated[0]
-        outpt_mod = combine("-<", None,
-                            *(feat.output_module(out_d) for feat in output_features))
-        in_vars = ", ".join([f"x{i}" for i in range(len(input_features))])
+        outpt_mods = tuple(feat.output_module(out_d) for feat in output_features)
+        outpt_mod = combine("-<", None, *outpt_mods)
+        in_pos, in_kw = get_input_signature(inpt_mod.forward)
+        self_in = inpt_mod.s.split(" -> ")[1]
+        out_kwargs = get_input_signature(outpt_mod.forward)[1]
+        out_in_vars = ', '.join([v.split("=")[0] for v in out_kwargs.split(',')])
         out_vars = ", ".join([f"y{i}" for i in range(len(output_features))])
-        # wrap the steps without wrapping the object
-        self[:] = [(inpt_mod, f"{in_vars} -> {in_vars}"),
-                   (self.elevate(), f"{in_vars} -> y"),
-                   (outpt_mod, f"y -> {out_vars}")]
-        self.recompile(f"{in_vars} - > {out_vars}")
+        elevated = self.elevate()
+        # initialize the graph without re-initializing the object :
+        super().__init__(f"{', '.join([arg for arg in (in_pos, in_kw, out_kwargs) if arg])} -> {out_vars}",
+                         (inpt_mod, f"{', '.join([arg for arg in (in_pos, in_kw) if arg])} -> {self_in}"),
+                         (elevated, f"{self_in} -> y"),
+                         (outpt_mod, f"y, {out_in_vars} -> {out_vars}"))
         return self
 
     def getters(self, batch_length, stride=1, hop_length=1, shift_error=0):
@@ -277,118 +289,98 @@ class WNBlock(HOM):
                               length=batch_length * hop_length,
                               stride=stride),
             "targets": AsSlice(shift=(self.shift + shift_error) * hop_length,
-                               length=(batch_length if self.hp.pad_input else batch_length - self.shift) * hop_length,
+                               length=(batch_length if (self.hp.pad_side != 0)
+                                       else batch_length - self.shift) * hop_length,
                                stride=stride)
         }
 
+    use_fast_generate = False
 
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class WNNetwork(nn.Module):
+    def before_generate(self, g_loop, batch, batch_idx):
+        if not self.use_fast_generate:
+            return
 
-    @staticmethod
-    def predict_(outpt, temp):
-        if temp is None:
-            return nn.Softmax(dim=-1)(outpt).argmax(dim=-1, keepdims=True)
-        else:
-            return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp.to(outpt)), 1)
+        layers = [m for m in self.modules() if isinstance(m, WNLayer)]
 
-    def generate_(self, prompt, n_steps, temperature=0.5, benchmark=False):
-        if self.receptive_field <= 64:
-            return self.generate_slow(prompt, n_steps, temperature)
-        # prompt is a list but generate fast only accepts one tensor prompt...
-        return self.generate_fast(prompt[0], n_steps, temperature)
-
-    def generate_slow(self, prompt, n_steps, temperature=0.5):
-
-        output = prepare_prompt(self.device, prompt, n_steps, at_least_nd=2)
-        prior_t = prompt[0].size(1)
-
-        rf = self.receptive_field
-        _, out_slc = self.generation_slices()
-
-        for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            inputs = tuple(map(lambda x: x[:, t - rf:t] if x is not None else None, output))
-            output[0].data[:, t:t + 1] = self.predict_(self.forward(inputs)[:, out_slc], temperature)
-        return output[0]
-
-    def generate_fast(self, prompt, n_steps, temperature=0.5):
-        # TODO : add support for conditioned networks
-        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
-        prior_t = prompt.size(1) if isinstance(prompt, torch.Tensor) else prompt[0].size(1)
-
-        inpt = output[:, prior_t - self.receptive_field:prior_t]
-        z, cin, gin = self.inpt(inpt, None, None)
-        qs = [(z.clone(), None)]
-        # initialize queues with one full forward pass
-        skips = None
-        for layer in self.layers:
-            z, _, _, skips = layer((z, cin, gin, skips))
-            qs += [(z.clone(), skips.clone() if skips is not None else skips)]
-
-        outpt = self.outpt(skips if skips is not None else z)[:, -1:].squeeze()
-        outpt = self.predict_(outpt, temperature)
-        output.data[:, prior_t:prior_t + 1] = outpt
-
-        qs = {i: q for i, q in enumerate(qs)}
-
-        # disable padding and dilation
+        qs = {i: None for i in range(len(layers))}
+        lyr_slices = {}
         dilations = {}
         pads = {}
-        for mod in self.modules():
-            if isinstance(mod, nn.Conv1d) and mod.dilation != (1,):
-                dilations[mod] = mod.dilation
-                mod.dilation = (1,)
-            if isinstance(mod, CausalPad):
-                pads[mod] = mod.pad
-                mod.pad = (0, 0, 0)
 
-        # cache the indices of the inputs for each layer
-        lyr_slices = {}
-        for l, layer in enumerate(self.layers):
+        for i, layer in enumerate(layers):
             d, k = layer.hp.dilation, layer.hp.kernel_size
             rf = d * k
-            indices = [qs[l][0].size(2) - 1 - n for n in range(0, rf, d)][::-1]
-            lyr_slices[l] = torch.tensor(indices).long().to(self.device)
+            if self.hp.pad_side == 0:
+                size = (self.rf - layer.hp.cause)
+                indices = [size - n for n in range(0, rf, d)][::-1]
+            else:
+                size = (self.rf - 1)
+                indices = [size - n for n in range(0, rf, d)][::-1]
+            lyr_slices[i] = torch.tensor(indices).long().to(self.device)
 
-        for t in self.generate_tqdm(range(prior_t + 1, prior_t + n_steps)):
+        handles = []
 
-            x, cin, gin = self.inpt(output[:, t - 1:t], None, None)
-            q, _ = qs[0]
-            q = q.roll(-1, 2)
-            q[:, :, -1:] = x
-            qs[0] = (q, None)
+        for i, layer in enumerate(layers):
 
-            for l, layer in enumerate(self.layers):
-                z, skips = qs[l]
-                zi = torch.index_select(z, 2, lyr_slices[l])
-                if skips is not None:
-                    # we only need one skip : the first or the last of the kernel's indices
-                    i = lyr_slices[l][0 if layer.hp.pad_side < 0 else -1].item()
-                    skips = skips[:, :, i:i + 1]
+            def pre_hook(mod, inpt, i=i):
+                if qs[i] is None:
+                    qs[i] = inpt
+                    return inpt
+                if i == 0 and qs[i] is not None:
+                    q, _ = qs[0]
+                    q = q.roll(-1, 2)
+                    q[:, :, -1:] = inpt[0][:, :, -1:]
+                    qs[0] = (q, None)
+                return tuple(torch.index_select(x, 2, lyr_slices[i])
+                             if x is not None else x for x in inpt)
 
-                z, _, _, skips = layer((zi, cin, gin, skips))
+            handles += [layer.register_forward_pre_hook(pre_hook)]
 
-                if l < len(self.layers) - 1:
-                    q, skp = qs[l + 1]
+            def hook(module, inpt, outpt, i=i):
+                if not getattr(module, '_fast_mode', False):
+                    # turn padding and dilation AFTER first pass
+                    for mod in module.modules():
+                        if isinstance(mod, nn.Conv1d) and mod.dilation != (1,):
+                            dilations[mod] = mod.dilation
+                            mod.dilation = (1,)
+                        if isinstance(mod, CausalPad):
+                            pads[mod] = mod.pad
+                            mod.pad = (0,) * len(mod.pad)
+                    module._fast_mode = True
+                    return outpt
+                z, skips = outpt
+                if i < len(layers) - 1:
+                    # set and roll input for next layer
+                    q, skp = qs[i + 1]
 
                     q = q.roll(-1, 2)
-                    q[:, :, -1:] = z
+                    q[:, :, -1:] = z[:]
                     if skp is not None:
                         skp = skp.roll(-1, 2)
                         skp[:, :, -1:] = skips
 
-                    qs[l + 1] = (q, skp)
-                else:
-                    y, skips = z, skips
+                    qs[i + 1] = (q, skp)
+                    return qs.get(i + 1, outpt)
 
-            outpt = self.outpt(skips if skips is not None else y).squeeze()
-            outpt = self.predict_(outpt, temperature)
-            output.data[:, t:t + 1] = outpt
+            handles += [layer.register_forward_hook(hook)]
+        # save those for later
+        return dict(handles=handles, dilations=dilations, pads=pads, layers=layers)
 
+    def generate_step(self, t, inputs, ctx):
+        return self.forward(*inputs)
+
+    def after_generate(self, final_outputs, ctx, batch_idx):
+        if not self.use_fast_generate:
+            return
         # reset the layers' parameters
-        for mod, d in dilations.items():
+        for mod, d in ctx['dilations'].items():
             mod.dilation = d
-        for mod, pad in pads.items():
+        for mod, pad in ctx['pads'].items():
             mod.pad = pad
-
-        return output
+        # remove the hooks
+        for handle in ctx['handles']:
+            handle.remove()
+        # turn off fast_mode
+        for layer in ctx['layers']:
+            layer._fast_mode = False
+        return final_outputs

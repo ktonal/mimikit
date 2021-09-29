@@ -5,7 +5,8 @@ from torch.utils.data import Sampler, RandomSampler, BatchSampler
 
 
 __all__ = [
-    'TBPTTSampler'
+    'TBPTTSampler',
+    'IndicesSampler'
 ]
 
 
@@ -40,3 +41,19 @@ class TBPTTSampler(Sampler):
 
     def __len__(self):
         return int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
+
+
+class IndicesSampler(Sampler):
+    def __init__(self,
+                 indices=(None,),
+                 min_i=0,
+                 max_i=None,
+                 ):
+        super().__init__(None)
+        self.indices = tuple(i if i is not None else torch.randint(min_i, max_i, (1,))[0]
+                             for i in indices)
+        self.N = len(indices)
+
+    def __iter__(self):
+        for i in self.indices:
+            yield i

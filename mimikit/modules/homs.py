@@ -4,6 +4,7 @@ from itertools import chain
 from functools import reduce
 from types import MethodType
 import re
+from inspect import signature, Parameter
 
 __all__ = [
     'HOC',
@@ -17,6 +18,7 @@ __all__ = [
     "combine",
     "Map",
     "Reduce",
+    "get_input_signature"
 ]
 
 
@@ -31,7 +33,7 @@ def sig2tuple(sig):
     if sig is not None:
         i, o = sig.split("->")
         i, o = i.strip(" "), o.strip(" ")
-        return tuple(x.split('=')[0] if '=' in x else x for x in i.split(", ")), tuple(o.split(", "))
+        return tuple(x.split('=')[0] if '=' in x else x.strip(',') for x in i.split(", ")), tuple(o.split(", "))
     else:
         return ("_",), ("_",)
 
@@ -45,12 +47,14 @@ is_optional = re.compile(r"[*=]")
 
 
 class Signature(str):
-    def __init__(self, signature):
+    def __init__(self, signature_str):
         super(Signature, self).__init__()
-        self.in_, self.out_ = sig2tuple(signature)
-        self.in_sig, self.out_sig = signature.split(" -> ")
-        self.required = tuple(i for i, si in zip(self.in_, self.in_sig.split(", "))
-                              if re.search(is_optional, si) is None)
+        self.in_, self.out_ = sig2tuple(signature_str)
+        self.in_sig, self.out_sig = signature_str.split(" -> ")
+        self.args = tuple(i for i, si in zip(self.in_, self.in_sig.split(", "))
+                          if re.search(is_optional, si) is None)
+        self.kwargs = tuple(i for i, si in zip(self.in_, self.in_sig.split(", "))
+                            if re.search(is_optional, si) is not None)
 
 
 def always_tuple(obj):
@@ -145,10 +149,14 @@ class HOCBase:
             clb, sig = value
             super().__setitem__(item, self._wrap_clb(clb))
             self.signatures[item] = Signature(sig)
-        else:
+        elif isinstance(item, slice):
             clbs, sigs = zip(*value)
-            super().__setitem__(item, map(self._wrap_clb, clbs))
+            items_to_set = list(range(len(self)))[item]
+            for it in items_to_set:
+                super().__setitem__(it, self._wrap_clb(clbs[it]))
             self.signatures[item] = list(map(Signature, sigs))
+        else:
+            raise ValueError(f"Cannot set item {item} to value {value}")
 
     def __add__(self, other):
         return self.extend(other)
@@ -188,6 +196,7 @@ HOM = type(
      # method to return a copy of the base (meta?) type.
      # handy if a hom needs to extend its graph without losing its attributes.
      "elevate": lambda self: HOM(self.s, *self),
+     "device": property(lambda self: next(self.parameters()).device)
      })
 
 
@@ -234,6 +243,16 @@ def Reduce(clb, sig):
     return lambda *args: reduce(clb, args), sig
 
 
+def get_input_signature(clb, pos_args_suffix=""):
+    pos, kw = [], []
+    for k, v in signature(clb).parameters.items():
+        if v.default == Parameter.empty and k not in ('self', 'kwargs'):
+            pos += [k + pos_args_suffix]
+        if v.default != Parameter.empty:
+            kw += ["=".join([k, str(v.default)])]
+    return ', '.join(pos) if pos else "", ', '.join(kw) if kw else ""
+
+
 def combine(mode=None, reducer=None, *modules):
     """
     combine `modules` into single HOM with a basic graph controlled by `mode` and `reducer`
@@ -241,36 +260,45 @@ def combine(mode=None, reducer=None, *modules):
     - if mode == ">-" : each module gets its own input and all their outputs are reduced with `reducer`
     - if mode == "-<" : all modules receive the same input and all outputs are returned
     - if mode == "==" : each module gets its own input and all outputs are returned
-
     """
+    in_pos, in_kw, mod_ins, mod_outs = [], [], [], []
+    for i, mod in enumerate(modules):
+        clb = mod.forward if isinstance(mod, nn.Module) else mod
+        pos, kw = get_input_signature(clb, pos_args_suffix=str(i))
+        in_pos += [pos]
+        in_kw += [kw]
+        mod_ins += [", ".join([pos, kw])]
+    in_vars = in_pos + list(set(in_kw))
+    mod_outs = tuple(f'_output_{i}' for i in range(len(modules)))
+    rdc_ins = ""
     if mode == "==":
         if reducer is not None:
             raise ValueError("reducer must be None if mode is '='")
-        in_vars = out_vars = tuple(f'x{i}' for i in range(len(modules)))
-        in_ = ", ".join(in_vars)
-        out_ = ", ".join(out_vars)
+        in_ = ", ".join([v for v in in_vars if v])
+        out_ = ", ".join(mod_outs)
     elif mode == ">-" or (mode is None and reducer is not None):
-        in_vars = out_vars = tuple(f'x{i}' for i in range(len(modules)))
+        rdc_ins = ", ".join(mod_outs)
         in_ = ", ".join(in_vars)
-        out_ = 'y'
+        out_ = '_output_'
         if reducer is None:
             reducer = operator.add
     elif mode == "-<" and reducer is None:
-        in_vars = ("x",) * len(modules)
-        out_vars = tuple(f'y{i}' for i in range(len(modules)))
-        in_ = "x"
-        out_ = ", ".join(out_vars)
+        in_ = f"_input_, {','.join(list(set(in_kw)))}"
+        mod_ins = tuple(', '.join(['_input_', kw]) for kw in in_kw)
+        mod_outs = tuple(f'_output_{i}' for i in range(len(modules)))
+        rdc_ins = ""
+        out_ = ", ".join(mod_outs)
     else:
         raise ValueError
     return HOM(f"{in_} -> {out_}",
-               *[(clb, f"{vi} -> {vo}") for clb, vi, vo in zip(modules, in_vars, out_vars)],
+               *[(clb, f"{vi} -> {vo}")
+                 for clb, vi, vo in zip(modules, mod_ins, mod_outs)],
                *Maybe(reducer is not None,
-                      Reduce(reducer, f"{in_} -> {out_}"))
+                      Reduce(reducer, f"{rdc_ins} -> {out_}"))
                )
 
 
 class Switch(HOCBase, nn.ModuleDict):
-
     _wrap_clb = staticmethod(_wrap_clb)
 
     __fname__ = "forward"

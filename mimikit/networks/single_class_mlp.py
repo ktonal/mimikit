@@ -23,4 +23,6 @@ class SingleClassMLP(nn.Module):
         if temperature is None:
             return nn.Softmax(dim=-1)(outpt).argmax(dim=-1, keepdims=True)
         else:
+            if not isinstance(temperature, torch.Tensor):
+                temperature = torch.Tensor([temperature]).reshape(*([1] * (len(outpt.size()))))
             return torch.multinomial(nn.Softmax(dim=-1)(outpt / temperature.to(outpt)), 1)
