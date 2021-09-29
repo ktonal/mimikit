@@ -4,9 +4,9 @@ from typing import Optional, Tuple
 from itertools import accumulate, chain
 import operator as opr
 from functools import partial
-from argparse import Namespace
-
+from pytorch_lightning.utilities import AttributeDict
 from h5mapper import AsSlice
+
 from ..modules.homs import *
 from ..modules.ops import CausalPad, Transpose
 
@@ -65,7 +65,7 @@ class WNLayer(HOM):
         init_ctx = locals()
         init_ctx.pop("self")
         cause = (kernel_size - 1) * dilation
-        self.hp = Namespace(**init_ctx)
+        self.hp = AttributeDict(init_ctx)
         self.hp.cause = cause
         has_gated_units = act_g is not None
         has_residuals = residuals_dim is not None
@@ -224,7 +224,7 @@ class WNBlock(HOM):
         )
         self.shift = shift
         self.rf = rf
-        self.hp = Namespace(**init_ctx)
+        self.hp = AttributeDict(init_ctx)
 
     @staticmethod
     def get_kernels_and_dilation(kernel_sizes, blocks):
@@ -290,7 +290,7 @@ class WNBlock(HOM):
                               stride=stride),
             "targets": AsSlice(shift=(self.shift + shift_error) * hop_length,
                                length=(batch_length if (self.hp.pad_side != 0)
-                                       else batch_length - self.shift) * hop_length,
+                                       else batch_length - self.shift + 1) * hop_length,
                                stride=stride)
         }
 

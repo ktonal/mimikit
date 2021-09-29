@@ -181,6 +181,9 @@ class WrapperModule(nn.Module):
         return str(self.clb)
 
     def __repr__(self):
+        if isinstance(self.clb, MethodType) and isinstance(self.clb.__self__, nn.Module):
+            # we need this to break infinite recursion
+            return repr(self.clb.__func__)
         return repr(self.clb)
 
 

@@ -1,5 +1,6 @@
 from time import time, gmtime
 
+import numpy as np
 from pytorch_lightning import LightningModule
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers import LightningLoggerBase
@@ -101,7 +102,7 @@ class LossLogger(LightningLoggerBase):
     def log_metrics(self, metrics, step):
         # metrics is a dictionary of metric names and values
         # your code to record metrics goes here
-        self.logs_file.add(str(step), metrics)
+        self.logs_file.add(str(step), {k: np.array([v]) for k, v in metrics.items()})
 
     @rank_zero_only
     def save(self):

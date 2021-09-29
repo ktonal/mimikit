@@ -71,18 +71,18 @@ class MMKCheckpoint(Callback):
     format = staticmethod(h5m.TensorDict.format)
 
     def __init__(self,
-                 h5object,
+                 h5_tensor_dict,
                  id_template="epoch={epoch}-step={step}",
                  epochs=None,
                  ):
         super().__init__()
-        self.h5object = h5object
+        self.h5_tensor_dict = h5_tensor_dict
         self.id_template = id_template
         self.epochs = epochs
 
     def on_pretrain_routine_start(self, trainer, pl_module) -> None:
-        self.h5object.h5_.attrs.update(pl_module.net.hp)
-        self.h5object.flush()
+        self.h5_tensor_dict.save_hp(pl_module.net.hp)
+        self.h5_tensor_dict.flush()
 
     def on_train_epoch_end(self, trainer, pl_module, outputs) -> None:
         epoch, global_step = trainer.current_epoch + 1, trainer.global_step
@@ -101,8 +101,8 @@ class MMKCheckpoint(Callback):
 
     def save_checkpoint(self, pl_module, epoch, global_step):
         id_str = self.format_id(epoch, global_step)
-        self.h5object.add(id_str, self.format(pl_module.net.state_dict()))
-        self.h5object.flush()
+        self.h5_tensor_dict.add(id_str, self.format(pl_module.net.state_dict()))
+        self.h5_tensor_dict.flush()
 
     def format_id(self, epoch, step):
         dct = {"epoch": epoch, "step": step}
@@ -110,10 +110,10 @@ class MMKCheckpoint(Callback):
         return dct["out"]
 
     def on_fit_end(self, trainer, pl_module) -> None:
-        self.h5object.close()
+        self.h5_tensor_dict.close()
 
     def teardown(self, trainer, pl_module, stage) -> None:
-        self.h5object.close()
+        self.h5_tensor_dict.close()
 
 
 class GenerateCallback(pl.callbacks.Callback):
