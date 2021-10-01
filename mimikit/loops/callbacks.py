@@ -119,27 +119,18 @@ class MMKCheckpoint(Callback):
 class GenerateCallback(pl.callbacks.Callback):
 
     def __init__(self,
+                 generate_loop=None,
                  every_n_epochs=10,
-                 indices=3,
-                 n_steps=1000,
                  plot_audios=True,
                  play_audios=True,
                  log_audios=False,
-                 log_dir=None,
-                 **gen_kwargs):
+                 log_dir=None):
+        self.loop = generate_loop
         self.every_n_epochs = every_n_epochs
-        self.indices = indices
-        self.n_steps = n_steps
-        self.kwargs = gen_kwargs
         self.log_audios = log_audios
         self.plot_audios = plot_audios
         self.play_audios = play_audios
         self.log_dir = log_dir
-
-    def on_train_epoch_start(self, trainer, model):
-        # TODO : avoid having to do that!
-        dm = trainer.datamodule
-        dm.full_ds = dm._init_ds(dm.full_ds, 'fit')
 
     def on_epoch_end(self, trainer: pl.Trainer, model):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
@@ -165,32 +156,3 @@ class GenerateCallback(pl.callbacks.Callback):
                     os.makedirs(self.log_dir, exist_ok=True)
                     filename = os.path.join(self.log_dir, filename)
                 model.log_audio(filename, output[i].unsqueeze(0), sample_rate=sr)
-
-    def before_generate(self, net, *args, **kwargs):
-        # prepare model
-        self._was_training = net.training
-        self._initial_device = net.device
-        net.eval()
-        net.to("cuda" if torch.cuda.is_available() else "cpu")
-        torch.set_grad_enabled(False)
-
-    def after_generate(self, net, *args, **kwargs):
-        # reset model
-        net.to(self._initial_device)
-        net.train() if self._was_training else None
-        torch.set_grad_enabled(True)
-
-    def generate(self, net, prompt, n_steps=16000,
-                 encode_prompt=False, decode_outputs=False,
-                 **kwargs):
-        # prepare model
-        self.before_generate(net)
-        if encode_prompt:
-            prompt = net.encode_inputs(prompt)
-        output = net.generate_(prompt, n_steps, **kwargs)
-
-        if decode_outputs:
-            output = net.decode_outputs(output)
-
-        self.after_generate(net)
-        return output

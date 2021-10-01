@@ -1,4 +1,5 @@
 import torch.nn as nn
+import numpy as np
 from functools import partial
 
 __all__ = [
@@ -32,6 +33,8 @@ class Conv1dResampler(nn.Module):
         self.tf, self.df = t_factor, d_factor
 
     def forward(self, x):
+        if len(x.size()) > 3:
+            x = x.view(x.size(0), np.prod(x.shape[1:-1]), x.size(-1))
         B, T, D = x.size()
         if self.tf <= 1:
             x = x.view(-1, int(1 / self.tf), D).transpose(1, 2)

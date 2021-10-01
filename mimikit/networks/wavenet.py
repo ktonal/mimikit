@@ -9,6 +9,7 @@ from h5mapper import AsSlice
 
 from ..modules.homs import *
 from ..modules.ops import CausalPad, Transpose
+from ..loops.generate import *
 
 __all__ = [
     'WNLayer',
@@ -195,10 +196,7 @@ class WNBlock(HOM):
             for k, d in zip(kernel_sizes, dilation)
         ]
         rf = sum(layer.hp.cause for layer in layers) + 1
-        if pad_side == 1:
-            shift = 1
-        else:
-            shift = rf
+        shift = 1 if pad_side == 1 else rf
 
         in_sig = ", ".join(["x" + str(i)
                             for i in range(len(dims_dilated) + len(dims_1x1))])
@@ -265,19 +263,18 @@ class WNBlock(HOM):
                            *(feat.input_module(d)
                              for feat, d in zip(input_features,
                                                 chain(self.hp.dims_dilated, self.hp.dims_1x1))))
+        in_pos, in_kw = get_input_signature(inpt_mod.forward)
+        self_in = inpt_mod.s.split(" -> ")[1]
         out_d = self.hp.skips_dim if self.hp.skips_dim is not None else self.hp.dims_dilated[0]
         outpt_mods = tuple(feat.output_module(out_d) for feat in output_features)
         outpt_mod = combine("-<", None, *outpt_mods)
-        in_pos, in_kw = get_input_signature(inpt_mod.forward)
-        self_in = inpt_mod.s.split(" -> ")[1]
         out_kwargs = get_input_signature(outpt_mod.forward)[1]
         out_in_vars = ', '.join([v.split("=")[0] for v in out_kwargs.split(',')])
         out_vars = ", ".join([f"y{i}" for i in range(len(output_features))])
-        elevated = self.elevate()
         # initialize the graph without re-initializing the object :
         super().__init__(f"{', '.join([arg for arg in (in_pos, in_kw, out_kwargs) if arg])} -> {out_vars}",
                          (inpt_mod, f"{', '.join([arg for arg in (in_pos, in_kw) if arg])} -> {self_in}"),
-                         (elevated, f"{self_in} -> y"),
+                         (self.elevate(), f"{self_in} -> y"),
                          (outpt_mod, f"y, {out_in_vars} -> {out_vars}"))
         return self
 
@@ -384,3 +381,50 @@ class WNBlock(HOM):
         for layer in ctx['layers']:
             layer._fast_mode = False
         return final_outputs
+
+    def get_generate_loop(self,
+                          input_proxies=None,
+                          input_features=(),
+                          n_batches=2,
+                          batch_size=8,
+                          prompt_length=32,
+                          n_steps=100,
+                          indices=(),
+                          temperature=None,
+                          fast_method=False,
+                          process_outputs=lambda x, i: None
+                          ):
+        import h5mapper as h5m
+
+        self.use_fast_generate = fast_method
+
+        # Gen DataLoader
+        gen_getters = self.getters(batch_length=prompt_length, stride=1, hop_length=1, shift_error=0)
+        gen_batch = tuple(h5m.Input(proxy=proxy, getter=gen_getters['inputs'], transform=feature.transform)
+                          for proxy, feature in zip(input_proxies, input_features))
+        gen_dl = input_proxies[0].owner.serve(gen_batch, shuffle=False, batch_size=batch_size, sampler=indices)
+
+        # Gen Loop
+        loop = GenerateLoop(
+            network=self,
+            dataloader=gen_dl,
+            interfaces=[
+                *((DynamicDataInterface(
+                    None,
+                    getter=h5m.AsSlice(dim=1, shift=-self.rf, length=self.rf),
+                    setter=Setter(dim=1)
+                ),) * len(input_proxies)),
+                # temperature
+                *((DynamicDataInterface(
+                    None if callable(temperature) else temperature,
+                    prepare=(lambda src: temperature()) if callable(temperature) else lambda src: src,
+                    getter=h5m.AsSlice(dim=1, shift=0, length=1),
+                    setter=None,
+                ),) if temperature is not None else ())
+            ],
+            n_batches=n_batches,
+            n_steps=n_steps,
+            device='cuda' if torch.cuda.is_available() else 'cpu',
+            process_outputs=process_outputs
+        )
+        return loop

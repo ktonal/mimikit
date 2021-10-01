@@ -1,4 +1,4 @@
-from typing import Optional, Any, Callable, Tuple
+from typing import Optional, Any, Callable, Tuple, Iterable
 import numpy as np
 import torch
 import dataclasses as dtc
@@ -48,6 +48,7 @@ class Setter:
         return data
 
 
+# noinspection PyArgumentList
 @dtc.dataclass
 class DynamicDataInterface:
     source: Optional[Any] = None
@@ -85,7 +86,7 @@ class GenerateLoop:
     def __init__(self,
                  network: torch.nn.Module = None,
                  dataloader: torch.utils.data.dataloader.DataLoader = None,
-                 interfaces: Tuple[DynamicDataInterface] = tuple(),
+                 interfaces: Iterable[DynamicDataInterface] = tuple(),
                  n_batches: Optional[int] = None,
                  n_steps: int = 1,
                  hop: int = 1,
@@ -134,9 +135,9 @@ class GenerateLoop:
         for batch_idx, batch in epoch_iterator:
             # prepare
             batch = tuple(x.to(self.device) for x in batch)
-            try:
+            if getattr(self.net, 'before_generate', False):
                 ctx = self.net.before_generate(self, batch, batch_idx)
-            except AttributeError:
+            else:
                 ctx = {}
             prior_t = len(batch[0][0])
             inputs_itf = []
@@ -151,7 +152,7 @@ class GenerateLoop:
             for t in generate_tqdm(range(0, self.n_steps, self.hop)):
                 inputs = tuple(x.get(t + (prior_t if x.setter is not None else 0))
                                for x in inputs_itf)
-                outputs = self.net.generate_step(t, inputs, ctx)
+                outputs = self.net.generate_step(t+prior_t, inputs, ctx)
                 if not isinstance(outputs, tuple):
                     outputs = outputs,
                 for x, out in zip(outputs_itf, outputs):
@@ -159,9 +160,9 @@ class GenerateLoop:
 
             # wrap up
             final_outputs = tuple(x.source for x in outputs_itf)
-            try:
+            if getattr(self.net, 'after_generate', False):
                 self.net.after_generate(final_outputs, ctx, batch_idx)
-            except AttributeError:
+            else:
                 pass
 
             self.process_outputs(final_outputs, batch_idx)

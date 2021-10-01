@@ -33,7 +33,8 @@ def sig2tuple(sig):
     if sig is not None:
         i, o = sig.split("->")
         i, o = i.strip(" "), o.strip(" ")
-        return tuple(x.split('=')[0] if '=' in x else x.strip(',') for x in i.split(", ")), tuple(o.split(", "))
+        return tuple(x.split('=')[0] if '=' in x else x.strip(',').strip("*")
+                     for x in i.split(", ")), tuple(o.split(", "))
     else:
         return ("_",), ("_",)
 
@@ -43,7 +44,7 @@ def tuple2sig(i, o):
     return f"{i} -> {o}"
 
 
-is_optional = re.compile(r"[*=]")
+is_optional = re.compile(r"(\*\*)|[=]")
 
 
 class Signature(str):
@@ -53,8 +54,18 @@ class Signature(str):
         self.in_sig, self.out_sig = signature_str.split(" -> ")
         self.args = tuple(i for i, si in zip(self.in_, self.in_sig.split(", "))
                           if re.search(is_optional, si) is None)
-        self.kwargs = tuple(i for i, si in zip(self.in_, self.in_sig.split(", "))
-                            if re.search(is_optional, si) is not None)
+        self.full_kwargs = tuple(si for si in self.in_sig.split(", ")
+                                  if re.search(is_optional, si) is not None)
+        self.kwargs_names = tuple(si.split("=")[0] if '=' in si else si
+                                  for si in self.full_kwargs)
+        self.default = {i: eval(si.split("=")[1]) if '=' in si else {}
+                        for i, si in zip(self.in_, self.in_sig.split(", "))
+                        if re.search(is_optional, si) is not None}
+
+    def asdict(self, args_val=None):
+        args = {k: args_val for k in self.in_}
+        args.update(self.default)
+        return args
 
 
 def always_tuple(obj):
@@ -247,6 +258,8 @@ def Reduce(clb, sig):
 
 
 def get_input_signature(clb, pos_args_suffix=""):
+    if isinstance(clb, HOCBase):
+        return clb.s.args, clb.s.full_kwargs
     pos, kw = [], []
     for k, v in signature(clb).parameters.items():
         if v.default == Parameter.empty and k not in ('self', 'kwargs'):

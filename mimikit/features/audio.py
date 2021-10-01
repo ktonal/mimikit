@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import numpy as np
@@ -74,6 +76,8 @@ class AudioSignal(Feature):
 @dtc.dataclass(unsafe_hash=True)
 class MuLawSignal(AudioSignal):
     q_levels: int = 256
+    input_mod_dim: Optional[int] = None
+    output_mod_dim: Optional[int] = None
 
     def __post_init__(self):
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
@@ -87,10 +91,10 @@ class MuLawSignal(AudioSignal):
         return self.inverse_transform_(inputs)
 
     def input_module(self, net_dim):
-        return nn.Embedding(self.q_levels, net_dim)
+        return nn.Embedding(self.q_levels, net_dim or self.input_mod_dim)
 
     def output_module(self, net_dim):
-        return SingleClassMLP(net_dim, net_dim, self.q_levels, nn.ReLU())
+        return SingleClassMLP(net_dim, net_dim or self.output_mod_dim, self.q_levels, nn.ReLU())
 
     def loss_fn(self, output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
@@ -102,6 +106,8 @@ class Spectrogram(AudioSignal):
     n_fft: int = 2048
     hop_length: int = 512
     coordinate: str = 'car'
+    input_mod_dim: Optional[int] = None
+    output_mod_dim: Optional[int] = None
 
     def __post_init__(self):
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)

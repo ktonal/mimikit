@@ -15,7 +15,9 @@ class TrainLoop(LoggingHooks,
         self.optim = optim
 
     def forward(self, inputs):
-        return self.net(inputs)
+        if not isinstance(inputs, (tuple, list)):
+            inputs = inputs,
+        return self.net(*inputs)
 
     def configure_optimizers(self):
         return self.optim

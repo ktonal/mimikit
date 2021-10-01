@@ -1,17 +1,188 @@
+import dataclasses
+
 import torch
 import torch.nn as nn
-from argparse import Namespace
 from dataclasses import dataclass
 
+from pytorch_lightning.utilities import AttributeDict
+
+from h5mapper import AsSlice, AsFramedSlice
+from .single_class_mlp import SingleClassMLP
 from ..modules.homs import *
+from .resamplers import *
 
 __all__ = [
     "SampleRNNTier",
-    "SampleRNNNetwork"
+    "SampleRNNTopTier",
+    "SampleRNNBottomTier",
+    "TierNetwork",
+    "SampleRNN"
 ]
 
 
+class TierNetwork(HOM):
+    device = property(lambda self: next(self.parameters()).device)
+
+    def __init__(self, *tiers):
+        in_ = ', '.join([f'x{i}' for i in range(len(tiers))])
+        hidden = ', '.join([f'h{i}' for i in range(len(tiers))])
+        _, kwargs = zip(*[get_input_signature(tier.forward) for tier in tiers])
+        kwargs = set([k for kw in kwargs for k in kw.split(", ") if k != 'h=None'])
+        kwargs = ', '.join(kwargs)
+        super().__init__(
+            f"{in_}, {kwargs} -> z",
+            (lambda self: self.hidden, f"self -> {hidden}"),
+            *[
+                (tier, ', '.join(tier.s.in_).replace("x", f"x{i}").replace("h", f"h{i}") + f" -> z, h{i}")
+                for i, tier in enumerate(tiers)
+            ],
+            (lambda *args: setattr(args[0], 'hidden', args[1:]), f"self, {hidden} -> $")
+        )
+        self.tiers = tiers
+        self.frame_sizes = tuple(tier.hp.frame_size for tier in tiers)
+        self.hidden = (None,) * len(tiers)
+        self.shift = self.frame_sizes[0]
+        self.outputs = []
+
+    def reset_hidden(self):
+        self.hidden = (None,) * len(self.frame_sizes)
+
+    def getters(self, batch_length, shift_error=0):
+        if batch_length - self.shift <= 0:
+            raise ValueError(f"batch_length must be greater than the receptive field of this network ({self.shift}).")
+        return {
+            "inputs": tuple(AsFramedSlice(shift=self.shift - fs,
+                                          length=batch_length,
+                                          frame_size=fs,
+                                          as_strided=False) for fs in self.frame_sizes[:-1]) +
+                      (AsFramedSlice(shift=self.shift - self.frame_sizes[-1],
+                                     length=batch_length,
+                                     frame_size=self.frame_sizes[-1],
+                                     as_strided=True),),
+            "targets": AsSlice(shift=self.shift + shift_error,
+                               length=batch_length)
+        }
+
+    def before_generate(self, loop, batch, batch_idx):
+        self.outputs = [None] * (len(self.frame_sizes) - 1)
+        assert batch[0].size(1) % self.shift == 0, f'batch_length must be divisible by {self.shift} ' \
+                                                   f'(got {batch.size(1)})'
+        self.reset_hidden()
+        self.hidden = list(self.hidden)
+        self.prior_t = len(batch[0][0])
+        # warm-up
+        for t in range(self.shift, self.prior_t):
+            self.generate_step(t, (batch[0][:, t:t + self.shift], ), {})
+
+    def generate_step(self, t, inputs, ctx):
+        tiers = self.tiers
+        hiddens = self.hidden
+        outputs = self.outputs
+        fs = self.frame_sizes
+        # only one tensor in the `inputs` tuple
+        temperature = inputs[1] if len(inputs) > 1 else None
+        inputs = inputs[0]
+        for i in range(len(tiers) - 1):
+            if t % fs[i] == 0:
+                inpt = inputs[:, -fs[i]:].unsqueeze(1)
+                if i == 0:
+                    prev_out = None
+                else:
+                    prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
+                out, h = tiers[i](inpt, prev_out, hiddens[i])
+                hiddens[i] = h
+                outputs[i] = out
+        if t < self.prior_t:
+            return
+        prev_out = outputs[-1]
+        inpt = inputs[:, -fs[-1]:].reshape(-1, 1, fs[-1])
+        out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1), temperature=temperature)
+        return out.squeeze(-1) if len(out.size()) > 2 else out
+
+    def after_generate(self, *args, **kwargs):
+        self.outputs = []
+        self.reset_hidden()
+
+
 class SampleRNNTier(HOM):
+    resampler_cls = None
+    hp = AttributeDict()
+
+    device = property(lambda self: next(self.parameters()).device)
+
+    def linearize(self, qx):
+        """ maps input samples (0 <= qx < 256) to floats (-2. <= x < 2.) """
+        return ((qx.float() / self.hp.q_levels) - .5) * 4
+
+    @staticmethod
+    def add_upper_tier(x, upper):
+        return x if upper is None else (x + upper)
+
+    def reset_hidden(self, x, h):
+        if h is None or x.size(0) != h[0].size(1):
+            B = x.size(0)
+            h0 = torch.zeros(self.hp.n_rnn, B, self.hp.dim).to(x.device)
+            c0 = torch.zeros(self.hp.n_rnn, B, self.hp.dim).to(x.device)
+            return h0, c0
+        else:
+            return tuple(h_.detach() for h_ in h)
+
+
+class SampleRNNTopTier(SampleRNNTier):
+    resampler_cls = LinearResampler
+
+    def __init__(self,
+                 frame_size: int,
+                 dim: int,
+                 up_sampling: int = 1,
+                 n_rnn: int = 2,
+                 q_levels: int = 256,
+                 linearize=True,
+                 ):
+        init_ctx = locals()
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
+        self.hp = AttributeDict(init_ctx)
+        FS = frame_size
+        super().__init__(
+            "x, z=None, h=None -> x, h",
+            *Maybe(linearize,
+                   (self.linearize, "x -> x")),
+            (nn.Linear(FS, dim), "x -> x"),
+            (self.add_upper_tier, "x, z -> x"),
+            (self.reset_hidden, "x, h -> h"),
+            (nn.LSTM(dim, dim, n_rnn, batch_first=True), "x, h -> x, h"),
+            (self.resampler_cls(dim, t_factor=up_sampling, d_factor=1), "x -> x"),
+        )
+
+
+class SampleRNNBottomTier(SampleRNNTier):
+    input_mod_cls = nn.Embedding
+    resampler_cls = Conv1dResampler
+    output_mod_cls = SingleClassMLP
+
+    def __init__(self,
+                 frame_size: int,
+                 top_dim: int,
+                 io_dim: int,
+                 zin_dim: int,
+                 zout_dim: int,
+                 ):
+        init_ctx = locals()
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
+        self.hp = AttributeDict(init_ctx)
+        super().__init__(
+            "x, z=None, h=None, temperature=None -> x, h",
+            (self.input_mod_cls(io_dim, zin_dim), 'x -> x'),
+            (self.resampler_cls(zin_dim, 1 / frame_size, top_dim / zin_dim), 'x -> x'),
+            (self.add_upper_tier, "x, z -> x"),
+            (self.output_mod_cls(top_dim, zout_dim, io_dim), 'x, temperature -> x')
+        )
+
+
+@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
+class SampleRNN(TierNetwork):
     """
     in time-domain :
         - bottom tier has embedding and mlp out
@@ -20,164 +191,26 @@ class SampleRNNTier(HOM):
         - bottom has no embedding (4 embedded samples == same shape as 4 FFT)
         - all others get 1 frame (frame_size == n_fft)
     """
-
-    def __init__(self,
-                 frame_size: int,
-                 dim: int,
-                 up_sampling: int = 1,
-                 n_rnn: int = 2,
-                 q_levels: int = 256,
-                 embedding_dim: int = None,
-                 mlp_dim: int = None,
-                 in_feat=None,
-                 out_feat=None
-                 ):
-        init_ctx = locals()
-        init_ctx.pop("self")
-        init_ctx.pop("__class__")
-        self.hp = Namespace(**init_ctx)
-
-        is_bottom = up_sampling == 1
-
-        def linearize(qx):
-            """ maps input samples (0 <= qx < 256) to floats (-2. <= x < 2.) """
-            return ((qx.float() / q_levels) - .5) * 4
-
-        def reset_hidden(x, h):
-            if h is None or x.size(0) != h[0].size(1):
-                B = x.size(0)
-                h0 = torch.zeros(n_rnn, B, dim).to(x.device)
-                c0 = torch.zeros(n_rnn, B, dim).to(x.device)
-                return h0, c0
-            else:
-                return tuple(h_.detach() for h_ in h)
-
-        FS, E = frame_size, embedding_dim
-
-        super().__init__(
-            "x, upper_out=None, h=None -> x, h",
-            (lambda x: x.size()[:2], "x -> B, T"),
-
-            *Maybe(not is_bottom,
-                   *Maybe(type(in_feat) in (MuLawSignal, ),
-                          (linearize, "x -> x"),),
-                   (nn.Linear(FS, dim), "x -> x"),
-                   ),
-            *Maybe(is_bottom,
-                   (in_feat.input_module(E), "x -> x"),
-                   (lambda x: x.view(-1, FS, E).transpose(1, 2).contiguous(), "x -> x"),
-                   (nn.Conv1d(E, dim, (FS,)), "x -> x"),
-                   (lambda x, B, T: x.squeeze().reshape(B, T, -1), "x, B, T -> x"),
-                   ),
-
-            (lambda x, upper: x if upper is None else (x + upper), "x, upper_out -> x"),
-
-            *Maybe(not is_bottom,
-                   (reset_hidden, "x, h -> h"),
-                   (nn.LSTM(dim, dim, n_rnn, batch_first=True), "x, h -> x, h"),
-                   # upsample T
-                   (nn.Linear(dim, dim * up_sampling), "x -> x"),
-                   (lambda x, B, T: x.reshape(B, T * up_sampling, dim), "x, B, T -> x")
-                   ),
-
-            *Maybe(is_bottom,
-                   (out_feat.output_module(dim),
-                    "x -> x")
-                   )
-        )
-
-
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class SampleRNNNetwork(nn.Module):
     frame_sizes: tuple = (16, 8, 8)  # from top to bottom!
     dim: int = 512
     n_rnn: int = 2
     q_levels: int = 256
     embedding_dim: int = 256
     mlp_dim: int = 512
-    input_features: tuple = ()
-    output_feature: object = None
 
     def __post_init__(self):
-        nn.Module.__init__(self)
-        n_tiers = len(self.frame_sizes)
+        self.hp = AttributeDict(dataclasses.asdict(self))
         tiers = []
-        if n_tiers > 2:
-            for i, fs in enumerate(self.frame_sizes[:-2]):
-                tiers += [SampleRNNTier(fs, self.dim,
-                                        up_sampling=fs // self.frame_sizes[i + 1],
-                                        n_rnn=self.n_rnn,
-                                        q_levels=self.q_levels,
-                                        embedding_dim=None,
-                                        mlp_dim=None,
-                                        in_feat=self.input_features[i])]
-        # before last tier
-        tiers += [SampleRNNTier(self.frame_sizes[-2], self.dim,
-                                up_sampling=self.frame_sizes[-1],
-                                n_rnn=self.n_rnn,
-                                q_levels=self.q_levels,
-                                embedding_dim=None,
-                                mlp_dim=None,
-                                in_feat=self.input_features[-2])]
-        # bottom tier
-        tiers += [SampleRNNTier(self.frame_sizes[-1], self.dim,
-                                up_sampling=1,
-                                n_rnn=self.n_rnn,
-                                q_levels=self.q_levels,
-                                embedding_dim=self.embedding_dim,
-                                mlp_dim=self.mlp_dim,
-                                in_feat=self.input_features[-2],
-                                out_feat=self.output_feature)]
-
-        self.tiers = nn.ModuleList(tiers)
-        self.hidden = [None] * n_tiers
-
-    def forward(self, tiers_inputs):
-        prev_out = None
-        for i, (tier, inpt) in enumerate(zip(self.tiers, tiers_inputs)):
-            prev_out, self.hidden[i] = tier(inpt, prev_out, self.hidden[i])
-        return prev_out
-
-    def reset_h0(self):
-        self.hidden = [None] * len(self.frame_sizes)
-
-    def generate_(self, prompt, n_steps, temperature=1.):
-        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
-        # trim to start with a whole number of top frames
-        output = output[:, prompt.size(1) % self.frame_sizes[0]:]
-        prior_t = prompt.size(1) - (prompt.size(1) % self.frame_sizes[0])
-
-        # init variables
-        fs = [*self.frame_sizes]
-        outputs = [None] * (len(fs) - 1)
-        # hidden are reset if prompt.size(0) != self.hidden.size(0)
-        hiddens = self.hidden
-        tiers = self.tiers
-
-        for t in self.generate_tqdm(range(fs[0], n_steps + prior_t)):
-            for i in range(len(tiers) - 1):
-                if t % fs[i] == 0:
-                    inpt = output[:, t - fs[i]:t].unsqueeze(1)
-
-                    if i == 0:
-                        prev_out = None
-                    else:
-                        prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
-
-                    out, h = tiers[i](inpt, prev_out, hiddens[i])
-                    hiddens[i] = h
-                    outputs[i] = out
-            if t < prior_t:  # only used for warming-up
-                continue
-            prev_out = outputs[-1]
-            inpt = output[:, t - fs[-1]:t].reshape(-1, 1, fs[-1])
-
-            out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1))
-            if temperature is None:
-                pred = (nn.Softmax(dim=-1)(out.squeeze(1))).argmax(dim=-1)
-            else:
-                # great place to implement dynamic cooling/heating !
-                pred = torch.multinomial(nn.Softmax(dim=-1)(out.squeeze(1) / temperature), 1)
-            output.data[:, t] = pred.squeeze()
-
-        return output
+        for i, fs in enumerate(self.frame_sizes[:-1]):
+            tiers += [SampleRNNTopTier(fs, self.dim,
+                                       up_sampling=fs // (self.frame_sizes[i + 1]
+                                                          if fs != self.frame_sizes[i + 1] else 1),
+                                       n_rnn=self.n_rnn,
+                                       q_levels=self.q_levels,
+                                       )]
+        tiers += [SampleRNNBottomTier(self.frame_sizes[-1], self.dim,
+                                      io_dim=self.q_levels,
+                                      zin_dim=self.embedding_dim,
+                                      zout_dim=self.mlp_dim
+                                      )]
+        TierNetwork.__init__(self, *tiers)
