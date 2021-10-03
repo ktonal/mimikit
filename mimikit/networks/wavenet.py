@@ -383,7 +383,7 @@ class WNBlock(HOM):
         return final_outputs
 
     def get_generate_loop(self,
-                          input_proxies=None,
+                          input_proxies=(),
                           input_features=(),
                           n_batches=2,
                           batch_size=8,
@@ -399,10 +399,18 @@ class WNBlock(HOM):
         self.use_fast_generate = fast_method
 
         # Gen DataLoader
-        gen_getters = self.getters(batch_length=prompt_length, stride=1, hop_length=1, shift_error=0)
-        gen_batch = tuple(h5m.Input(proxy=proxy, getter=gen_getters['inputs'], transform=feature.transform)
+        gen_getters = self.getters(batch_length=prompt_length,
+                                   stride=1,
+                                   hop_length=1,
+                                   shift_error=0)
+        gen_batch = tuple(h5m.Input(proxy=proxy,
+                                    getter=gen_getters['inputs'],
+                                    transform=feature.transform)
                           for proxy, feature in zip(input_proxies, input_features))
-        gen_dl = input_proxies[0].owner.serve(gen_batch, shuffle=False, batch_size=batch_size, sampler=indices)
+        gen_dl = input_proxies[0].owner.serve(gen_batch,
+                                              shuffle=False,
+                                              batch_size=batch_size,
+                                              sampler=indices)
 
         # Gen Loop
         loop = GenerateLoop(

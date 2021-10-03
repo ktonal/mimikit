@@ -2,9 +2,7 @@ from typing import Optional, Any, Callable, Tuple, Iterable
 import numpy as np
 import torch
 import dataclasses as dtc
-
 from tqdm import tqdm
-
 from h5mapper import AsSlice, Getter, process_batch
 
 
@@ -89,7 +87,7 @@ class GenerateLoop:
                  interfaces: Iterable[DynamicDataInterface] = tuple(),
                  n_batches: Optional[int] = None,
                  n_steps: int = 1,
-                 hop: int = 1,
+                 time_hop: int = 1,
                  disable_grads: bool = True,
                  device: str = 'cuda:0',
                  process_outputs: Callable[[Tuple[Any], int], None] = lambda x, i: None
@@ -99,7 +97,7 @@ class GenerateLoop:
         self.interfaces = interfaces
         self.n_batches = n_batches
         self.n_steps = n_steps
-        self.hop = hop
+        self.time_hop = time_hop
         self.disable_grads = disable_grads
         self.device = device
         self.process_outputs = process_outputs
@@ -149,7 +147,7 @@ class GenerateLoop:
             outputs_itf = tuple(x for x in inputs_itf if x.setter is not None)
 
             # generate
-            for t in generate_tqdm(range(0, self.n_steps, self.hop)):
+            for t in generate_tqdm(range(0, self.n_steps, self.time_hop)):
                 inputs = tuple(x.get(t + (prior_t if x.setter is not None else 0))
                                for x in inputs_itf)
                 outputs = self.net.generate_step(t+prior_t, inputs, ctx)

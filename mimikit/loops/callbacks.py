@@ -1,5 +1,6 @@
 import os
 from typing import Iterable
+from functools import partial
 import torch
 import pytorch_lightning as pl
 from matplotlib import pyplot as plt
@@ -9,6 +10,7 @@ from pytorch_lightning import Callback
 from IPython import get_ipython
 
 import h5mapper as h5m
+from ..utils import audio
 
 __all__ = [
     'is_notebook',
@@ -17,6 +19,7 @@ __all__ = [
     'MMKCheckpoint',
     'tqdm'
 ]
+
 
 
 def is_notebook():
@@ -124,36 +127,66 @@ class GenerateCallback(pl.callbacks.Callback):
                  plot_audios=True,
                  play_audios=True,
                  filename_template="",
+                 output_features=tuple(),
                  h5_proxy=None):
+        sample_rate = {feat.sr for feat in output_features
+                       if getattr(feat, 'sr', False)}
+        sample_rate = sample_rate.pop() if len(sample_rate) > 0 else None
+        if filename_template and sample_rate is None:
+            raise ValueError("Cannot write audio files if no output_feature has a `sr` attribute")
+        if play_audios and sample_rate is None:
+            raise ValueError("Cannot play audio files if no output_feature has a `sr` attribute")
         self.loop = generate_loop
         self.every_n_epochs = every_n_epochs
         self.plot_audios = plot_audios
         self.play_audios = play_audios
         self.filename_template = filename_template
+        self.output_features = output_features
+        self.sample_rate = sample_rate
+        self.log_dir = None
         self.h5_proxy = h5_proxy
 
-    def log_audios(self, outputs, epoch):
+    def format_filename(self, epoch, batch_idx, step):
+        dct = {"epoch": epoch, "batch": batch_idx, "step": step}
+        exec(f"out = f'{self.filename_template}'", {}, dct)
+        return dct["out"]
+
+    def setup(self, trainer, pl_module, stage=None):
+        self.log_dir = os.path.join(trainer.default_root_dir, 'outputs')
+
+    def log_audios(self, outputs, batch_idx, epoch):
         for i in range(outputs.size(0)):
-            filename = "epoch=%i - prompt=%i" % (epoch, i)
+            filename = self.format_filename(epoch, batch_idx, i)
+            if '.wav' not in filename:
+                filename += '.wav'
             if self.log_dir is not None:
                 os.makedirs(self.log_dir, exist_ok=True)
                 filename = os.path.join(self.log_dir, filename)
-            model.log_audio(filename, output[i].unsqueeze(0), sample_rate=sr)
+            audio_tensor = outputs[i].squeeze().detach().cpu().numpy()
+            sf.write(filename, audio_tensor, self.sample_rate, 'PCM_24')
+
+    def process_outputs(self, outputs, batch_idx, epoch=0):
+        for feature, output in zip(self.output_features, outputs):
+            output = feature.inverse_transform(output)
+            for i, out in enumerate(output):
+                y = out.detach().cpu().numpy()
+                if self.plot_audios:
+                    plt.figure(figsize=(20, 2))
+                    plt.plot(y)
+                    plt.show(block=False)
+                if self.play_audios:
+                    audio(y,
+                          sr=getattr(feature, 'sr', 22050),
+                          hop_length=getattr(feature, 'hop_length', 512))
+                if self.h5_proxy is not None:
+                    self.h5_proxy.add(f"epoch={epoch};batch={batch_idx};output={i}", y)
+            if self.filename_template:
+                self.log_audios(output, batch_idx, epoch)
 
     def on_epoch_end(self, trainer: pl.Trainer, model):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
             return
-        dm = trainer.datamodule
-        prompt = dm.get_prompts(self.indices)
-        output = model.generate(prompt, self.n_steps, decode_outputs=True, **self.kwargs)
-        sr = model.feature.params.get('sr', 22050)
-        hop_length = model.feature.params.get('hop_length', 512)
-        for i in range(output.size(0)):
-            y = output[i].detach().cpu().numpy()
-            if self.plot_audios:
-                plt.figure(figsize=(20, 2))
-                plt.plot(y)
-                plt.show(block=False)
-            # if self.play_audios:
-            #     audio(y, sr=sr, hop_length=hop_length)
+        self.loop.process_outputs = partial(self.process_outputs,
+                                            epoch=trainer.current_epoch+1)
+        self.loop.run()
 
