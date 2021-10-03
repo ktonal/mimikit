@@ -1,8 +1,6 @@
 from typing import Optional
 
-import torch
 import torch.nn as nn
-import numpy as np
 import librosa
 import dataclasses as dtc
 import IPython.display as ipd
@@ -10,6 +8,7 @@ import soundfile as sf
 
 from . import Feature
 from . import audio_fmodules as T
+from ..modules import mean_L1_prop
 from ..networks import SingleClassMLP
 
 
@@ -131,6 +130,7 @@ class Spectrogram(AudioSignal):
         pass
 
     def loss_fn(self, output, target):
-        pass
+        if self.coordinate == 'mag':
+            return mean_L1_prop(output, target)
 
 
