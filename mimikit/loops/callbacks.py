@@ -3,7 +3,7 @@ from typing import Iterable
 import torch
 import pytorch_lightning as pl
 from matplotlib import pyplot as plt
-
+import soundfile as sf
 from pytorch_lightning.trainer.states import TrainerState
 from pytorch_lightning import Callback
 from IPython import get_ipython
@@ -41,7 +41,7 @@ class EpochProgressBarCallback(Callback):
         self.epoch_bar = tqdm(range(1, trainer.max_epochs), unit="epoch",
                               position=0, leave=False, dynamic_ncols=True)
 
-    def on_train_epoch_end(self, trainer, *args):
+    def on_train_epoch_end(self, trainer, pl_module, unused=None):
         if trainer.val_dataloaders is not None and any(trainer.val_dataloaders):
             return
         else:
@@ -84,9 +84,9 @@ class MMKCheckpoint(Callback):
         self.h5_tensor_dict.save_hp(pl_module.net.hp)
         self.h5_tensor_dict.flush()
 
-    def on_train_epoch_end(self, trainer, pl_module, outputs) -> None:
+    def on_train_epoch_end(self, trainer, pl_module, unused=None) -> None:
         epoch, global_step = trainer.current_epoch + 1, trainer.global_step
-        if trainer.state == TrainerState.INTERRUPTED or \
+        if trainer.state == TrainerState.status.INTERRUPTED or \
                 epoch == trainer.max_epochs or self.should_save(epoch, global_step):
             self.save_checkpoint(pl_module, epoch, global_step)
 
@@ -112,7 +112,7 @@ class MMKCheckpoint(Callback):
     def on_fit_end(self, trainer, pl_module) -> None:
         self.h5_tensor_dict.close()
 
-    def teardown(self, trainer, pl_module, stage) -> None:
+    def teardown(self, trainer, pl_module, stage=None) -> None:
         self.h5_tensor_dict.close()
 
 
@@ -123,14 +123,22 @@ class GenerateCallback(pl.callbacks.Callback):
                  every_n_epochs=10,
                  plot_audios=True,
                  play_audios=True,
-                 log_audios=False,
-                 log_dir=None):
+                 filename_template="",
+                 h5_proxy=None):
         self.loop = generate_loop
         self.every_n_epochs = every_n_epochs
-        self.log_audios = log_audios
         self.plot_audios = plot_audios
         self.play_audios = play_audios
-        self.log_dir = log_dir
+        self.filename_template = filename_template
+        self.h5_proxy = h5_proxy
+
+    def log_audios(self, outputs, epoch):
+        for i in range(outputs.size(0)):
+            filename = "epoch=%i - prompt=%i" % (epoch, i)
+            if self.log_dir is not None:
+                os.makedirs(self.log_dir, exist_ok=True)
+                filename = os.path.join(self.log_dir, filename)
+            model.log_audio(filename, output[i].unsqueeze(0), sample_rate=sr)
 
     def on_epoch_end(self, trainer: pl.Trainer, model):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
@@ -149,10 +157,3 @@ class GenerateCallback(pl.callbacks.Callback):
             # if self.play_audios:
             #     audio(y, sr=sr, hop_length=hop_length)
 
-        if self.log_audios:
-            for i in range(output.size(0)):
-                filename = "epoch=%i - prompt=%i" % (trainer.current_epoch, i)
-                if self.log_dir is not None:
-                    os.makedirs(self.log_dir, exist_ok=True)
-                    filename = os.path.join(self.log_dir, filename)
-                model.log_audio(filename, output[i].unsqueeze(0), sample_rate=sr)
