@@ -2,10 +2,11 @@ import torch
 import torch.nn as nn
 from typing import Optional
 import dataclasses as dtc
+
+from mimikit.modules.misc import Abs
 from pytorch_lightning.utilities import AttributeDict
 
 from ..networks.parametrized_gaussian import ParametrizedGaussian
-
 
 __all__ = [
     'EncoderLSTM',
@@ -60,9 +61,9 @@ class EncoderLSTM(nn.Module):
         return self.fc(states), (ht, ct)
 
     def first_and_last_states(self, sequence):
-        rg = torch.arange(sequence.size(1)//self.hop)
+        rg = torch.arange(sequence.size(1) // self.hop)
         first_states = sequence[:, rg * self.hop, :]
-        last_states = sequence[:, (rg+1) * self.hop - 1, :]
+        last_states = sequence[:, (rg + 1) * self.hop - 1, :]
         if self.bottleneck == "add":
             return first_states + last_states
         else:
@@ -120,26 +121,28 @@ class DecoderLSTM(nn.Module):
         return output + output2, (hidden, cells)
 
 
-@dtc.dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class Seq2SeqLSTM(nn.Module):
-    input_dim: int = 513
-    model_dim: int = 1024
-    num_layers: int = 1
-    n_lstm: int = 1
-    bottleneck: str = "add"
-    n_fc: int = 1
-    hop: int = 8
-
     device = property(lambda self: next(self.parameters()).device)
 
-    def __post_init__(self):
-        nn.Module.__init__(self)
-        init_ctx = dtc.asdict(self)
+    def __init__(self,
+                 input_dim: int = 513,
+                 model_dim: int = 1024,
+                 num_layers: int = 1,
+                 n_lstm: int = 1,
+                 bottleneck: str = "add",
+                 n_fc: int = 1,
+                 hop: int = 8,
+                 output_module: Optional[nn.Module] = None,
+                 ):
+        init_ctx = locals()
+        super(Seq2SeqLSTM, self).__init__()
         self.hp = AttributeDict(init_ctx)
-        self.enc = EncoderLSTM(self.input_dim, self.model_dim, self.num_layers, self.n_lstm, self.bottleneck, self.n_fc, hop=self.hop)
-        self.dec = DecoderLSTM(self.model_dim, self.num_layers, self.bottleneck)
-        self.sampler = ParametrizedGaussian(self.model_dim, self.model_dim)
-        self.fc_out = nn.Linear(self.model_dim, self.input_dim, bias=False)
+        self.enc = EncoderLSTM(input_dim, model_dim, num_layers, n_lstm, bottleneck, n_fc, hop=hop)
+        self.dec = DecoderLSTM(model_dim, num_layers, bottleneck)
+        self.sampler = ParametrizedGaussian(model_dim, model_dim)
+        self.outpt_mod = nn.Sequential(
+            nn.Linear(model_dim, input_dim, bias=False), Abs()
+        ) if output_module is None else output_module
 
     def forward(self, x, output_length=None):
         coded, (h_enc, c_enc) = self.enc(x)
@@ -147,12 +150,12 @@ class Seq2SeqLSTM(nn.Module):
 
     def decode(self, x, h_enc, c_enc, output_length=None):
         if output_length is None:
-            output_length = x.size(1) if self.hop is None else self.hop
+            output_length = x.size(1) if self.hp.hop is None else self.hp.hop
         coded = (x.unsqueeze(1) if len(x.shape) < 3 else x).repeat(1, output_length, 1)
         residuals, _, _ = self.sampler(coded)
         coded = coded + residuals
         output, (_, _) = self.dec(coded, h_enc, c_enc)
-        return self.fc_out(output).abs()
+        return self.outpt_mod(output)
 
     def reset_hidden(self):
         self.enc.hidden = None
@@ -162,7 +165,6 @@ class Seq2SeqLSTM(nn.Module):
 
 
 class MultiSeq2SeqLSTM(nn.Module):
-
     device = property(lambda self: next(self.parameters()).device)
 
     def __init__(self):
@@ -182,7 +184,7 @@ class MultiSeq2SeqLSTM(nn.Module):
         if i == len(self.s2s) - 1:
             return self.s2s[i].decode(x, h_enc, c_enc)
         else:
-            return self.s2s[i].decode(self.forward(x, i+1), h_enc, c_enc)
+            return self.s2s[i].decode(self.forward(x, i + 1), h_enc, c_enc)
 
     def reset_hidden(self):
         for s2s in self.s2s:

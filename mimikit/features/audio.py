@@ -1,16 +1,15 @@
-from typing import Optional
-
 import torch.nn as nn
 import librosa
 import dataclasses as dtc
 import IPython.display as ipd
 import soundfile as sf
+import torch
+from mimikit.modules.misc import Chunk, Flatten, Abs
 
 from . import Feature
 from . import audio_fmodules as T
-from ..modules import mean_L1_prop
+from ..modules import mean_L1_prop, mean_2d_diff, HOM
 from ..networks import SingleClassMLP
-
 
 __all__ = [
     'AudioSignal',
@@ -47,10 +46,10 @@ class AudioSignal(Feature):
             inputs = T.Normalize()(inputs)
         return inputs
 
-    def input_module(self, net_dim):
+    def input_module(self, *args, **kwargs):
         return nn.Identity()
 
-    def output_module(self, net_dim):
+    def output_module(self, *args, **kwargs):
         return nn.Identity()
 
     def loss_fn(self, output, target):
@@ -75,8 +74,6 @@ class AudioSignal(Feature):
 @dtc.dataclass(unsafe_hash=True)
 class MuLawSignal(AudioSignal):
     q_levels: int = 256
-    input_mod_dim: Optional[int] = None
-    output_mod_dim: Optional[int] = None
 
     def __post_init__(self):
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
@@ -89,11 +86,11 @@ class MuLawSignal(AudioSignal):
     def inverse_transform(self, inputs):
         return self.inverse_transform_(inputs)
 
-    def input_module(self, net_dim):
-        return nn.Embedding(self.q_levels, net_dim or self.input_mod_dim)
+    def input_module(self, net_in_dim, **kwargs):
+        return nn.Embedding(self.q_levels, net_in_dim, **kwargs)
 
-    def output_module(self, net_dim):
-        return SingleClassMLP(net_dim, net_dim or self.output_mod_dim, self.q_levels, nn.ReLU())
+    def output_module(self, net_dim, mlp_dim):
+        return SingleClassMLP(net_dim, mlp_dim, self.q_levels, nn.ReLU())
 
     def loss_fn(self, output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
@@ -105,8 +102,6 @@ class Spectrogram(AudioSignal):
     n_fft: int = 2048
     hop_length: int = 512
     coordinate: str = 'car'
-    input_mod_dim: Optional[int] = None
-    output_mod_dim: Optional[int] = None
 
     def __post_init__(self):
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
@@ -123,14 +118,43 @@ class Spectrogram(AudioSignal):
     def inverse_transform(self, inputs):
         return self.inverse_transform_(inputs)
 
-    def input_module(self, net_dim):
-        pass
+    def input_module(self, in_dim, net_dim, n_chunks):
+        if self.coordinate == 'mag':
+            return Chunk(nn.Linear(in_dim, net_dim * n_chunks), n_chunks, )
+        elif self.coordinate == 'pol':
+            return HOM('x -> x',
+                       (Flatten(2), 'x -> x'), (Chunk(nn.Linear(in_dim * 2, net_dim * n_chunks), n_chunks)))
+        else:
+            raise NotImplementedError(f"no input module for coordinate '{self.coordinate}'")
 
-    def output_module(self, net_dim):
-        pass
+    def output_module(self, net_dim, out_dim, n_chunks, activation=Abs()):
+        if self.coordinate == 'mag':
+            return nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, ), activation)
+        elif self.coordinate == 'pol':
+            pi = torch.acos(torch.zeros(1)).item()
+
+            class ScaledPhase(HOM):
+                def __init__(self):
+                    super(ScaledPhase, self).__init__(
+                        "x -> phs",
+                        (Chunk(nn.Sequential(nn.Linear(net_dim, out_dim * n_chunks), nn.Tanh()), n_chunks, ), 'x -> phs'),
+                        (lambda self, phs: torch.cos(phs * self.psis.to(phs)) * pi, 'self, phs -> phs'),
+                    )
+                    self.psis = nn.Parameter(torch.ones(1, 1, out_dim))
+            return HOM("x -> y",
+                       # phase module
+                       (ScaledPhase(), 'x -> phs'),
+                       # magnitude module
+                       (Chunk(nn.Sequential(nn.Linear(net_dim, out_dim * n_chunks), Abs()), n_chunks, ), 'x -> mag'),
+                       (lambda mag, phs: torch.stack((mag, phs), dim=-1), "mag, phs -> y")
+                       )
+        else:
+            raise NotImplementedError(f"no default output module for coordinate '{self.coordinate}'")
 
     def loss_fn(self, output, target):
         if self.coordinate == 'mag':
             return mean_L1_prop(output, target)
-
-
+        elif self.coordinate == 'pol':
+            return mean_2d_diff(output, target)
+        else:
+            raise NotImplementedError(f"no default loss function for coordinate '{self.coordinate}'")

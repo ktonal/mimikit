@@ -4,13 +4,21 @@ import torch.nn as nn
 __all__ = [
     'angular_distance',
     'cosine_similarity',
-    'mean_L1_prop'
+    'mean_L1_prop',
+    'mean_2d_diff'
 ]
 
 
 def mean_L1_prop(output, target):
     L = nn.L1Loss(reduction="none")(output, target).sum(dim=(0, -1), keepdim=True)
     return 100 * (L / target.abs().sum(dim=(0, -1), keepdim=True)).mean()
+
+
+def mean_2d_diff(output, target):
+    """compute the mean_L1_prop loss of the differences along the 2 last axes of `output` and `target`"""
+    Lw = mean_L1_prop((output[:, :, 1:] - output[:, :, :-1]), target[:, :, 1:] - target[:, :, :-1])
+    Lh = mean_L1_prop((output[:, 1:] - output[:, :-1]), target[:, 1:] - target[:, :-1])
+    return Lw + Lh
 
 
 def cosine_similarity(X, Y, eps=1e-10):

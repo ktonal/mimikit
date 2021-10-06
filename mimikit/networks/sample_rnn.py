@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Optional
 
 import torch
 import torch.nn as nn
@@ -164,33 +165,37 @@ class SampleRNNBottomTier(SampleRNNTier):
     def __init__(self,
                  frame_size: int,
                  top_dim: int,
-                 io_dim: int,
                  zin_dim: int,
                  zout_dim: int,
+                 io_dim: Optional[int] = None,
                  ):
         init_ctx = locals()
         init_ctx.pop("self")
         init_ctx.pop("__class__")
         self.hp = AttributeDict(init_ctx)
         super().__init__(
-            "x, z=None, h=None, temperature=None -> x, h",
-            (self.input_mod_cls(io_dim, zin_dim), 'x -> x'),
+            f"x, z=None, h=None, temperature=None -> x, h",
+            *Maybe(io_dim is not None,
+                   (self.input_mod_cls(io_dim, zin_dim), 'x -> x'),)
             (self.resampler_cls(zin_dim, 1 / frame_size, top_dim / zin_dim), 'x -> x'),
             (self.add_upper_tier, "x, z -> x"),
-            (self.output_mod_cls(top_dim, zout_dim, io_dim), 'x, temperature -> x')
+            *Maybe(io_dim is not None,
+                   (self.output_mod_cls(top_dim, zout_dim, io_dim), 'x, temperature -> x'))
         )
+
+
+"""
+in time-domain :
+    - bottom tier has embedding and mlp out
+    - all other linearize their inputs
+in the tf-domain :
+    - bottom has no embedding (4 embedded samples == same shape as 4 FFT)
+    - all others get 1 frame (frame_size == n_fft)
+"""
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class SampleRNN(TierNetwork):
-    """
-    in time-domain :
-        - bottom tier has embedding and mlp out
-        - all other linearize their inputs
-    in the tf-domain :
-        - bottom has no embedding (4 embedded samples == same shape as 4 FFT)
-        - all others get 1 frame (frame_size == n_fft)
-    """
     frame_sizes: tuple = (16, 8, 8)  # from top to bottom!
     dim: int = 512
     n_rnn: int = 2
@@ -209,8 +214,37 @@ class SampleRNN(TierNetwork):
                                        q_levels=self.q_levels,
                                        )]
         tiers += [SampleRNNBottomTier(self.frame_sizes[-1], self.dim,
-                                      io_dim=self.q_levels,
                                       zin_dim=self.embedding_dim,
-                                      zout_dim=self.mlp_dim
+                                      zout_dim=self.mlp_dim,
+                                      io_dim=self.q_levels,
+                                      )]
+        TierNetwork.__init__(self, *tiers)
+
+
+@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
+class MixedRNN(TierNetwork):
+    """top tiers get mag-fft inputs, bottom tier get embedded samples"""
+
+    frame_sizes: tuple = (128, 64, 8)  # from top to bottom!
+    dim: int = 512
+    n_rnn: int = 2
+    q_levels: int = 256
+    embedding_dim: int = 256
+    mlp_dim: int = 512
+
+    def __post_init__(self):
+        self.hp = AttributeDict(dataclasses.asdict(self))
+        tiers = []
+        for i, fs in enumerate(self.frame_sizes[:-1]):
+            tiers += [SampleRNNTopTier(fs, self.dim,
+                                       up_sampling=fs // (self.frame_sizes[i + 1]
+                                                          if fs != self.frame_sizes[i + 1] else 1),
+                                       n_rnn=self.n_rnn,
+                                       linearize=False,
+                                       )]
+        tiers += [SampleRNNBottomTier(self.frame_sizes[-1], self.dim,
+                                      zin_dim=self.embedding_dim,
+                                      zout_dim=self.mlp_dim,
+                                      io_dim=self.q_levels,
                                       )]
         TierNetwork.__init__(self, *tiers)

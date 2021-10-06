@@ -3,12 +3,12 @@ import torch.nn as nn
 from typing import Optional, Tuple
 from itertools import accumulate, chain
 import operator as opr
-from functools import partial
+
 from pytorch_lightning.utilities import AttributeDict
 from h5mapper import AsSlice
 
 from ..modules.homs import *
-from ..modules.ops import CausalPad, Transpose
+from ..modules.misc import CausalPad, Transpose, Chunk
 from ..loops.generate import *
 
 __all__ = [
@@ -18,14 +18,6 @@ __all__ = [
 
 
 # some HOM helpers
-
-def Chunk(mod: nn.Module, chunks, dim=-1, sig_in="x"):
-    out_vars = ", ".join(["x" + str(i) for i in range(chunks)])
-    return hom("Chunk",
-               f"{sig_in} -> {out_vars}",
-               (mod, f"{sig_in} -> _tmp_"),
-               (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}")
-               )
 
 
 def GatingUnit(act_f: nn.Module, act_g: nn.Module):
@@ -258,19 +250,14 @@ class WNBlock(HOM):
                                  " Got kernel_sizes={kernel_sizes} ; blocks={blocks}")
         return kernel_sizes, dilation
 
-    def with_io(self, input_features, output_features):
-        inpt_mod = combine("==", None,
-                           *(feat.input_module(d)
-                             for feat, d in zip(input_features,
-                                                chain(self.hp.dims_dilated, self.hp.dims_1x1))))
+    def with_io(self, input_modules, output_modules):
+        inpt_mod = combine("==", None, *input_modules)
         in_pos, in_kw = get_input_signature(inpt_mod.forward)
         self_in = inpt_mod.s.split(" -> ")[1]
-        out_d = self.hp.skips_dim if self.hp.skips_dim is not None else self.hp.dims_dilated[0]
-        outpt_mods = tuple(feat.output_module(out_d) for feat in output_features)
-        outpt_mod = combine("-<", None, *outpt_mods)
+        outpt_mod = combine("-<", None, *output_modules)
         out_kwargs = get_input_signature(outpt_mod.forward)[1]
         out_in_vars = ', '.join([v.split("=")[0] for v in out_kwargs.split(',')])
-        out_vars = ", ".join([f"y{i}" for i in range(len(output_features))])
+        out_vars = ", ".join([f"y{i}" for i in range(len(output_modules))])
         # initialize the graph without re-initializing the object :
         super().__init__(f"{', '.join([arg for arg in (in_pos, in_kw, out_kwargs) if arg])} -> {out_vars}",
                          (inpt_mod, f"{', '.join([arg for arg in (in_pos, in_kw) if arg])} -> {self_in}"),
