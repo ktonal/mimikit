@@ -246,7 +246,7 @@ class ISTFT(FModule):
                 inputs = inputs[..., 0] * np.exp(1j * inputs[..., 1])
             elif self.coordinate == 'car':
                 inputs = inputs[..., 0] * (1j * inputs[..., 1])
-            y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, )
+            y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length)
             return y
 
         def torch_func(inputs):

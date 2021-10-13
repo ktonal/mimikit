@@ -1,9 +1,9 @@
 from functools import partial
-
 import torch.nn.functional as F
-from mimikit import hom, HOM
 from torch import nn
 import torch
+
+from .homs import hom, HOM, Maybe, Sum
 
 __all__ = [
     'Abs',
@@ -13,6 +13,7 @@ __all__ = [
     'ScaledActivation',
     'ScaledSigmoid',
     'ScaledTanh',
+    'ScaledAbs'
 ]
 
 
@@ -74,12 +75,19 @@ class ScaledTanh(ScaledActivation):
         super(ScaledTanh, self).__init__(nn.Tanh(), dim, with_range)
 
 
-def Chunk(mod: nn.Module, chunks, dim=-1, sig_in="x"):
+class ScaledAbs(ScaledActivation):
+    def __init__(self, dim, with_range=True):
+        super(ScaledAbs, self).__init__(Abs(), dim, with_range)
+
+
+def Chunk(mod: nn.Module, chunks, dim=-1, sig_in="x", sum_out=False):
     out_vars = ", ".join(["x" + str(i) for i in range(chunks)])
     return hom("Chunk",
-               f"{sig_in} -> {out_vars}",
+               f"{sig_in} -> {out_vars if not sum_out else 'out'}",
                (mod, f"{sig_in} -> _tmp_"),
-               (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}")
+               (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}"),
+               *Maybe(sum_out,
+                      Sum(f"{out_vars} -> out"))
                )
 
 

@@ -6,6 +6,7 @@ h5py==3.4.0
 tables>=3.6
 torch==1.9.1
 pytorch-lightning==1.4.9
+ffmpeg-python
 tqdm==4.42.1
 matplotlib
 scipy==1.4.1

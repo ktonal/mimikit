@@ -265,17 +265,17 @@ class WNBlock(HOM):
                          (outpt_mod, f"y, {out_in_vars} -> {out_vars}"))
         return self
 
-    def getters(self, batch_length, stride=1, hop_length=1, shift_error=0):
-        if batch_length - self.shift <= 0:
+    def getters(self, batch_length, downsampling=1, hop_length=1, shift_error=0):
+        if batch_length - self.shift < 0:
             raise ValueError(f"batch_length must be greater than the receptive field of this network ({self.shift}).")
         return {
             "inputs": AsSlice(shift=0,
-                              length=batch_length * hop_length,
-                              stride=stride),
+                              length=(batch_length - int(hop_length > 1)) * hop_length,
+                              downsampling=downsampling),
             "targets": AsSlice(shift=(self.shift + shift_error) * hop_length,
                                length=(batch_length if (self.hp.pad_side != 0)
-                                       else batch_length - self.shift + 1) * hop_length,
-                               stride=stride)
+                                       else batch_length - self.shift + int(hop_length == 1)) * hop_length,
+                               downsampling=downsampling)
         }
 
     use_fast_generate = False
@@ -387,7 +387,7 @@ class WNBlock(HOM):
 
         # Gen DataLoader
         gen_getters = self.getters(batch_length=prompt_length,
-                                   stride=1,
+                                   downsampling=1,
                                    hop_length=1,
                                    shift_error=0)
         gen_batch = tuple(h5m.Input(proxy=proxy,

@@ -4,5 +4,6 @@
 dist/*
 build/*
 docs/_build/
+notebooks/
 *egg-info*
 .idea

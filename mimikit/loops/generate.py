@@ -2,9 +2,9 @@ from typing import Optional, Any, Callable, Tuple, Iterable
 import numpy as np
 import torch
 import dataclasses as dtc
-from tqdm import tqdm
 from h5mapper import AsSlice, Getter, process_batch
 
+from .callbacks import tqdm
 
 __all__ = [
     'DynamicDataInterface',
@@ -143,7 +143,10 @@ class GenerateLoop:
                                     self.interfaces):
                 if isinstance(x, torch.Tensor):
                     x = prepare_prompt(self.device, x, self.n_steps, len(x.shape))
-                inputs_itf += [interface.wrap(x)]
+                    inputs_itf += [interface.wrap(x)]
+                elif x is None and interface.source is not None:  # e.g. parameter
+                    inputs_itf += [interface]
+
             outputs_itf = tuple(x for x in inputs_itf if x.setter is not None)
 
             # generate

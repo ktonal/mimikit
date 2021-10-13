@@ -42,13 +42,13 @@ class TierNetwork(HOM):
         self.tiers = tiers
         self.frame_sizes = tuple(tier.hp.frame_size for tier in tiers)
         self.hidden = (None,) * len(tiers)
-        self.shift = self.frame_sizes[0]
+        self.shift = self.rf = self.frame_sizes[0]
         self.outputs = []
 
     def reset_hidden(self):
         self.hidden = (None,) * len(self.frame_sizes)
 
-    def getters(self, batch_length, shift_error=0):
+    def getters(self, batch_length, shift_error=0, **kwargs):
         if batch_length - self.shift <= 0:
             raise ValueError(f"batch_length must be greater than the receptive field of this network ({self.shift}).")
         return {

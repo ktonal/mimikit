@@ -1,6 +1,14 @@
 from time import time, gmtime
+import dataclasses as dtc
+from typing import Optional
 
+import ffmpeg
+import h5mapper
+import soundfile as sf
 import numpy as np
+import os
+
+import torch
 from pytorch_lightning import LightningModule
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning.loggers import LightningLoggerBase
@@ -8,7 +16,9 @@ from pytorch_lightning.loggers.base import rank_zero_experiment
 
 __all__ = [
     "LoggingHooks",
-    "LossLogger"
+    "LossLogger",
+    'AudioLogger',
+    'convert_to_mp3'
 ]
 
 
@@ -117,3 +127,54 @@ class LossLogger(LightningLoggerBase):
         # Optional. Any code that needs to be run after training
         # finishes goes here
         pass
+
+
+@dtc.dataclass
+class AudioLogger:
+    sr: int = 16000
+    hop_length: int = 512
+    filename_template: Optional[str] = None
+    target_dir: Optional[str] = None
+    id_template: Optional[str] = None
+    proxy_template: Optional[str] = None
+    target_bank: Optional[h5mapper.TypedFile] = None
+
+    @staticmethod
+    def format_template(template, **parameters):
+        exec(f"out = f'{template}'", {}, parameters)
+        return parameters["out"]
+
+    def log_mp3(self, audio, **params):
+        filename = self.format_template(self.filename_template, **params)
+        if '.wav' not in filename:
+            filename += '.wav'
+        if self.target_dir:
+            os.makedirs(self.target_dir, exist_ok=True)
+            if self.target_dir not in filename:
+                filename = os.path.join(self.target_dir, filename)
+        if isinstance(audio, torch.Tensor):
+            audio = audio.squeeze().detach().cpu().numpy()
+        sf.write(filename, audio, self.sr, 'PCM_24')
+        convert_to_mp3(filename)
+
+    def log_h5(self, audio, **params):
+        if isinstance(audio, torch.Tensor):
+            audio = audio.squeeze().detach().cpu().numpy()
+        src = self.format_template(self.id_template, **params)
+        proxy = self.format_template(self.proxy_template, **params)
+        self.target_bank.add(src, {proxy: audio})
+        self.target_bank.flush()
+
+    def write(self, audio, **params):
+        if self.filename_template and self.target_dir:
+            self.log_mp3(audio, **params)
+        if self.id_template and self.proxy_template and self.target_bank:
+            self.log_h5(audio, **params)
+
+
+def convert_to_mp3(file_path, exists_ok=True):
+    if exists_ok and os.path.isfile(os.path.splitext(file_path)[0] + ".mp3"):
+        os.remove(os.path.splitext(file_path)[0] + ".mp3")
+    stream = ffmpeg.input(file_path)
+    stream.output(os.path.splitext(file_path)[0] + ".mp3").run()
+    os.remove(file_path)

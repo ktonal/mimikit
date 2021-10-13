@@ -8,7 +8,7 @@ from mimikit.modules.misc import Chunk, Flatten, Abs
 
 from . import Feature
 from . import audio_fmodules as T
-from ..modules import mean_L1_prop, mean_2d_diff, HOM
+from ..modules import mean_L1_prop, mean_2d_diff, HOM, ScaledTanh, ScaledSigmoid, ScaledAbs
 from ..networks import SingleClassMLP
 
 __all__ = [
@@ -94,7 +94,7 @@ class MuLawSignal(AudioSignal):
 
     def loss_fn(self, output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
-        return criterion(output.view(-1, output.size(-1)), target.view(-1))
+        return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
 
 
 @dtc.dataclass(unsafe_hash=True)
@@ -120,32 +120,39 @@ class Spectrogram(AudioSignal):
 
     def input_module(self, in_dim, net_dim, n_chunks):
         if self.coordinate == 'mag':
-            return Chunk(nn.Linear(in_dim, net_dim * n_chunks), n_chunks, )
+            return Chunk(nn.Linear(in_dim, net_dim * n_chunks), n_chunks, sum_out=True)
         elif self.coordinate == 'pol':
             return HOM('x -> x',
-                       (Flatten(2), 'x -> x'), (Chunk(nn.Linear(in_dim * 2, net_dim * n_chunks), n_chunks)))
+                       (Flatten(2), 'x -> x'),
+                       (Chunk(nn.Linear(in_dim * 2, net_dim * n_chunks), n_chunks, sum_out=True), 'x -> x'))
         else:
             raise NotImplementedError(f"no input module for coordinate '{self.coordinate}'")
 
-    def output_module(self, net_dim, out_dim, n_chunks, activation=Abs()):
+    def output_module(self, net_dim, out_dim, n_chunks, scaled_activation=False):
         if self.coordinate == 'mag':
-            return nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, ), activation)
+            return nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, sum_out=True),
+                                 ScaledSigmoid(out_dim, with_range=False) if scaled_activation else Abs())
         elif self.coordinate == 'pol':
             pi = torch.acos(torch.zeros(1)).item()
+            act_phs = ScaledTanh(out_dim, with_range=False) if scaled_activation else nn.Tanh()
+            act_mag = ScaledSigmoid(out_dim, with_range=False) if scaled_activation else Abs()
 
             class ScaledPhase(HOM):
                 def __init__(self):
                     super(ScaledPhase, self).__init__(
                         "x -> phs",
-                        (Chunk(nn.Sequential(nn.Linear(net_dim, out_dim * n_chunks), nn.Tanh()), n_chunks, ), 'x -> phs'),
-                        (lambda self, phs: torch.cos(phs * self.psis.to(phs)) * pi, 'self, phs -> phs'),
+                        (nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, sum_out=True), act_phs),
+                         'x -> phs'),
+                        (lambda self, phs: torch.cos(phs * self.psis.to(phs).view(*([1] * (len(phs.shape)-1)), -1)) * pi,
+                         'self, phs -> phs'),
                     )
-                    self.psis = nn.Parameter(torch.ones(1, 1, out_dim))
+                    self.psis = nn.Parameter(torch.ones(out_dim))
             return HOM("x -> y",
                        # phase module
                        (ScaledPhase(), 'x -> phs'),
                        # magnitude module
-                       (Chunk(nn.Sequential(nn.Linear(net_dim, out_dim * n_chunks), Abs()), n_chunks, ), 'x -> mag'),
+                       (nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, sum_out=True), act_mag),
+                        'x -> mag'),
                        (lambda mag, phs: torch.stack((mag, phs), dim=-1), "mag, phs -> y")
                        )
         else:
@@ -153,8 +160,10 @@ class Spectrogram(AudioSignal):
 
     def loss_fn(self, output, target):
         if self.coordinate == 'mag':
-            return mean_L1_prop(output, target)
+            return {"loss": mean_L1_prop(output, target)}
         elif self.coordinate == 'pol':
-            return mean_2d_diff(output, target)
+            mag = mean_L1_prop(output[..., 0], target[..., 0])
+            phs = mean_2d_diff(output[..., 1], target[..., 1])
+            return {"loss": mag + phs, 'mag': mag.detach(), "phs": phs.detach()}
         else:
             raise NotImplementedError(f"no default loss function for coordinate '{self.coordinate}'")
