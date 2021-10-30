@@ -96,7 +96,7 @@ def get_trainer(root_dir=None,
 
     # add epoch progress bar
     kwargs.setdefault("callbacks", []).append(EpochProgressBarCallback())
-    kwargs.setdefault("progress_bar_refresh_rate", 5)
+    kwargs.setdefault("progress_bar_refresh_rate", 10)
     kwargs.setdefault("process_position", 1)
     kwargs.setdefault("logger", False)
     kwargs.setdefault("checkpoint_callback", False)

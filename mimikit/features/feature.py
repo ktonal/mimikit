@@ -32,6 +32,9 @@ class Feature:
     def output_module(self, net_dim):
         pass
 
+    def batch_item(self, *args, **kwargs):
+        pass
+
     def loss_fn(self, output, target):
         pass
 

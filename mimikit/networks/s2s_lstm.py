@@ -43,9 +43,10 @@ class EncoderLSTM(nn.Module):
             nn.Linear(self.model_dim, self.model_dim, bias=False),  # NO ACTIVATION !
         )
         if self.weight_norm:
-            for name, p in dict(self.lstms.named_parameters()).items():
-                if "weight" in name:
-                    torch.nn.utils.weight_norm(self.lstms, name)
+            for lstm in self.lstms:
+                for name, p in dict(lstm.named_parameters()).items():
+                    if "weight" in name:
+                        torch.nn.utils.weight_norm(lstm, name)
         self.hidden = None
 
     def forward(self, x):
@@ -57,6 +58,7 @@ class EncoderLSTM(nn.Module):
             out = out.view(*out.size()[:-1], self.model_dim, 2).sum(dim=-1)
             # take residuals AFTER the first lstm
             x = out if i == 0 else x + out
+            # self.hidden = ht, ct
         states = self.first_and_last_states(x)
         return self.fc(states), (ht, ct)
 
@@ -121,6 +123,15 @@ class DecoderLSTM(nn.Module):
         return output + output2, (hidden, cells)
 
 
+def tile(a, dim, n_tile):
+    init_dim = a.size(dim)
+    repeat_idx = [1] * a.dim()
+    repeat_idx[dim] = n_tile
+    a = a.repeat(*(repeat_idx,))
+    order_index = torch.LongTensor(torch.cat([init_dim * torch.arange(n_tile) + i for i in range(init_dim)]))
+    return torch.index_select(a, dim, order_index.to(a.device))
+
+
 class Seq2SeqLSTM(nn.Module):
     device = property(lambda self: next(self.parameters()).device)
 
@@ -132,26 +143,36 @@ class Seq2SeqLSTM(nn.Module):
                  bottleneck: str = "add",
                  n_fc: int = 1,
                  hop: int = 8,
+                 bias: Optional[bool] = False,
+                 weight_norm: bool = False,
+                 input_module: Optional[nn.Module] = None,
                  output_module: Optional[nn.Module] = None,
                  ):
         init_ctx = locals()
         super(Seq2SeqLSTM, self).__init__()
+        init_ctx.pop("output_module")
+        init_ctx.pop("input_module")
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
         self.hp = AttributeDict(init_ctx)
-        self.enc = EncoderLSTM(input_dim, model_dim, num_layers, n_lstm, bottleneck, n_fc, hop=hop)
-        self.dec = DecoderLSTM(model_dim, num_layers, bottleneck)
+        self.inpt_mod = input_module if input_module is not None else nn.Identity()
+        self.enc = EncoderLSTM(model_dim if input_module is not None else input_dim,
+                               model_dim, num_layers, n_lstm, bottleneck, n_fc,
+                               bias=bias, weight_norm=weight_norm, hop=hop)
+        self.dec = DecoderLSTM(model_dim, num_layers, bottleneck,
+                               bias=bias, weight_norm=(weight_norm,)*2)
         self.sampler = ParametrizedGaussian(model_dim, model_dim)
         self.outpt_mod = nn.Sequential(
             nn.Linear(model_dim, input_dim, bias=False), Abs()
         ) if output_module is None else output_module
 
-    def forward(self, x, output_length=None):
+    def forward(self, x):
+        x = self.inpt_mod(x)
         coded, (h_enc, c_enc) = self.enc(x)
-        return self.decode(coded, h_enc, c_enc, output_length)
+        return self.decode(coded, h_enc, c_enc)
 
-    def decode(self, x, h_enc, c_enc, output_length=None):
-        if output_length is None:
-            output_length = x.size(1) if self.hp.hop is None else self.hp.hop
-        coded = (x.unsqueeze(1) if len(x.shape) < 3 else x).repeat(1, output_length, 1)
+    def decode(self, x, h_enc, c_enc):
+        coded = tile((x.unsqueeze(1) if len(x.shape) < 3 else x), 1, self.hp.hop)
         residuals, _, _ = self.sampler(coded)
         coded = coded + residuals
         output, (_, _) = self.dec(coded, h_enc, c_enc)
@@ -160,8 +181,16 @@ class Seq2SeqLSTM(nn.Module):
     def reset_hidden(self):
         self.enc.hidden = None
 
+    def before_generate(self, loop, batch, batch_idx):
+        self.reset_hidden()
+        self.forward(*batch)
+        return {}
+
     def generate_step(self, t, inputs, ctx):
         return self.forward(*inputs)
+
+    def after_generate(self, outputs, ctx, batch_idx):
+        self.reset_hidden()
 
 
 class MultiSeq2SeqLSTM(nn.Module):

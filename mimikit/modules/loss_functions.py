@@ -11,7 +11,8 @@ __all__ = [
 
 def mean_L1_prop(output, target):
     L = nn.L1Loss(reduction="none")(output, target).sum(dim=(0, -1), keepdim=True)
-    return 100 * (L / target.abs().sum(dim=(0, -1), keepdim=True)).mean()
+    return 100 * (L / torch.maximum(target.abs().sum(dim=(0, -1), keepdim=True),
+                                    torch.tensor(1e-12))).mean()
 
 
 def mean_2d_diff(output, target):

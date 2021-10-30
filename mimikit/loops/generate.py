@@ -142,22 +142,25 @@ class GenerateLoop:
             for x, interface in zip(batch + ((None,) * (len(self.interfaces) - len(batch))),
                                     self.interfaces):
                 if isinstance(x, torch.Tensor):
-                    x = prepare_prompt(self.device, x, self.n_steps, len(x.shape))
+                    x = prepare_prompt(self.device, x, self.n_steps * self.time_hop, len(x.shape))
                     inputs_itf += [interface.wrap(x)]
                 elif x is None and interface.source is not None:  # e.g. parameter
                     inputs_itf += [interface]
 
             outputs_itf = tuple(x for x in inputs_itf if x.setter is not None)
-
+            # for letting generate_step manage the output_transform (e.g. chains, ensemble of models)
+            ctx["outputs_itf"] = outputs_itf
             # generate
-            for t in generate_tqdm(range(0, self.n_steps, self.time_hop)):
+            for t in generate_tqdm(range(0, self.n_steps * self.time_hop, self.time_hop)):
                 inputs = tuple(x.get(t + (prior_t if x.setter is not None else 0))
                                for x in inputs_itf)
                 outputs = self.net.generate_step(t+prior_t, inputs, ctx)
                 if not isinstance(outputs, tuple):
                     outputs = outputs,
                 for x, out in zip(outputs_itf, outputs):
-                    x.set(t+prior_t, out)
+                    # let the net return None when ignoring this step
+                    if out is not None:
+                        x.set(t+prior_t, out)
 
             # wrap up
             final_outputs = tuple(x.source for x in outputs_itf)

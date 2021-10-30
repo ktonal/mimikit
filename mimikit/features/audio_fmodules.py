@@ -172,8 +172,8 @@ class MuLawCompress(FModule):
             return qx
 
         def torch_func(inputs):
-            mod = T.MuLawEncoding(self.q_levels)
-            return mod(inputs)
+            # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
+            return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
 
         return {
             np.ndarray: np_func,
@@ -191,8 +191,8 @@ class MuLawExpand(FModule):
             return librosa.mu_expand(inputs - self.q_levels // 2, self.q_levels - 1, quantize=True)
 
         def torch_func(inputs):
-            mod = T.MuLawDecoding(self.q_levels)
-            return mod(inputs)
+            # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
+            return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
 
         return {
             np.ndarray: np_func,
@@ -205,12 +205,14 @@ class STFT(FModule):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     coordinate: str = 'pol'
+    center: bool = True
 
     @property
     def functions(self):
         def np_func(inputs):
             # returned shape is (time x freq)
-            S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length).T
+            S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
+                             center=self.center,).T
             if self.coordinate == 'pol':
                 S = np.stack((abs(S), np.angle(S)), axis=-1)
             elif self.coordinate == 'car':
@@ -219,6 +221,7 @@ class STFT(FModule):
 
         def torch_func(inputs):
             S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
+                           center=self.center,
                            window=torch.hann_window(self.n_fft, device=inputs.device)).transpose(-1, -2).contiguous()
             if self.coordinate == 'pol':
                 S = torch.stack((abs(S), torch.angle(S)), dim=-1)
@@ -237,6 +240,7 @@ class ISTFT(FModule):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     coordinate: str = 'pol'
+    center: bool = True
 
     @property
     def functions(self):
@@ -246,7 +250,7 @@ class ISTFT(FModule):
                 inputs = inputs[..., 0] * np.exp(1j * inputs[..., 1])
             elif self.coordinate == 'car':
                 inputs = inputs[..., 0] * (1j * inputs[..., 1])
-            y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length)
+            y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, center=self.center)
             return y
 
         def torch_func(inputs):
@@ -256,6 +260,7 @@ class ISTFT(FModule):
                 inputs = inputs[..., 0] * (1j * inputs[..., 1])
             y = torch.istft(inputs.transpose(1, 2).contiguous(),
                             n_fft=self.n_fft, hop_length=self.hop_length,
+                            # center=self.center,
                             window=torch.hann_window(self.n_fft, device=inputs.device))
             return y
 
@@ -284,14 +289,16 @@ class GLA(FModule):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     n_iter: int = 32
+    center: bool = True
 
     @property
     def functions(self):
         def np_func(inputs):
             # inputs is of shape (time x freq)
-            return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter)
+            return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center)
 
         def torch_func(inputs):
+            # TODO : pull request for center=False support?
             gla = T.GriffinLim(n_fft=self.n_fft, hop_length=self.hop_length, power=1.,
                                wkwargs=dict(device=inputs.device))
             # inputs is of shape (time x freq)

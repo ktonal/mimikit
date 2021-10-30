@@ -1,3 +1,4 @@
+import h5mapper
 import torch.nn as nn
 import librosa
 import dataclasses as dtc
@@ -26,7 +27,7 @@ class AudioSignal(Feature):
     __ext__ = 'audio'
 
     sr: int = 22050
-    normalize: bool = True
+    normalize: bool = False
     emphasis: float = 0.
 
     def __post_init__(self):
@@ -45,6 +46,15 @@ class AudioSignal(Feature):
         if self.normalize:
             inputs = T.Normalize()(inputs)
         return inputs
+
+    def batch_item(self, shift=0, length=1, frame_size=None, as_strided=False, downsampling=1, **kwargs):
+        if frame_size is None:
+            getter = h5mapper.AsSlice(shift=shift, length=length, downsampling=downsampling)
+        else:
+            getter = h5mapper.AsFramedSlice(shift=shift, length=length,
+                                            frame_size=frame_size, as_strided=as_strided,
+                                            downsampling=downsampling)
+        return h5mapper.Input(key="snd", getter=getter, transform=self.transform)
 
     def input_module(self, *args, **kwargs):
         return nn.Identity()
@@ -101,22 +111,31 @@ class MuLawSignal(AudioSignal):
 class Spectrogram(AudioSignal):
     n_fft: int = 2048
     hop_length: int = 512
-    coordinate: str = 'car'
+    coordinate: str = 'pol'
+    center: bool = True
 
     def __post_init__(self):
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
         if self.coordinate == 'mag':
-            self.transform_ = T.MagSpec(self.n_fft, self.hop_length)
-            self.inverse_transform_ = T.GLA(self.n_fft, self.hop_length, n_iter=32)
+            self.transform_ = T.MagSpec(self.n_fft, self.hop_length, center=self.center)
+            self.inverse_transform_ = T.GLA(self.n_fft, self.hop_length, center=self.center, n_iter=32)
         else:
-            self.transform_ = T.STFT(self.n_fft, self.hop_length, self.coordinate)
-            self.inverse_transform_ = T.ISTFT(self.n_fft, self.hop_length, self.coordinate)
+            self.transform_ = T.STFT(self.n_fft, self.hop_length, self.coordinate, center=self.center)
+            self.inverse_transform_ = T.ISTFT(self.n_fft, self.hop_length, self.coordinate, center=self.center)
 
     def transform(self, inputs):
         return self.transform_(inputs)
 
     def inverse_transform(self, inputs):
         return self.inverse_transform_(inputs)
+
+    def batch_item(self, shift=0, length=1, downsampling=1, **kwargs):
+        extra = -self.hop_length if self.center else \
+            ((self.n_fft // self.hop_length) - 1) * self.hop_length
+        getter = h5mapper.AsSlice(shift=shift * self.hop_length,
+                                  length=self.hop_length * length + extra,
+                                  downsampling=downsampling)
+        return h5mapper.Input(key='snd', getter=getter, transform=self.transform)
 
     def input_module(self, in_dim, net_dim, n_chunks):
         if self.coordinate == 'mag':
@@ -143,10 +162,12 @@ class Spectrogram(AudioSignal):
                         "x -> phs",
                         (nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, sum_out=True), act_phs),
                          'x -> phs'),
-                        (lambda self, phs: torch.cos(phs * self.psis.to(phs).view(*([1] * (len(phs.shape)-1)), -1)) * pi,
+                        (lambda self, phs: torch.cos(
+                            phs * self.psis.to(phs).view(*([1] * (len(phs.shape) - 1)), -1)) * pi,
                          'self, phs -> phs'),
                     )
                     self.psis = nn.Parameter(torch.ones(out_dim))
+
             return HOM("x -> y",
                        # phase module
                        (ScaledPhase(), 'x -> phs'),

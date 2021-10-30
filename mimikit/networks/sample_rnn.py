@@ -17,7 +17,8 @@ __all__ = [
     "SampleRNNTopTier",
     "SampleRNNBottomTier",
     "TierNetwork",
-    "SampleRNN"
+    "SampleRNN",
+    "MixedRNN",
 ]
 
 
@@ -48,22 +49,6 @@ class TierNetwork(HOM):
     def reset_hidden(self):
         self.hidden = (None,) * len(self.frame_sizes)
 
-    def getters(self, batch_length, shift_error=0, **kwargs):
-        if batch_length - self.shift <= 0:
-            raise ValueError(f"batch_length must be greater than the receptive field of this network ({self.shift}).")
-        return {
-            "inputs": tuple(AsFramedSlice(shift=self.shift - fs,
-                                          length=batch_length,
-                                          frame_size=fs,
-                                          as_strided=False) for fs in self.frame_sizes[:-1]) +
-                      (AsFramedSlice(shift=self.shift - self.frame_sizes[-1],
-                                     length=batch_length,
-                                     frame_size=self.frame_sizes[-1],
-                                     as_strided=True),),
-            "targets": AsSlice(shift=self.shift + shift_error,
-                               length=batch_length)
-        }
-
     def before_generate(self, loop, batch, batch_idx):
         self.outputs = [None] * (len(self.frame_sizes) - 1)
         assert batch[0].size(1) % self.shift == 0, f'batch_length must be divisible by {self.shift} ' \
@@ -73,7 +58,8 @@ class TierNetwork(HOM):
         self.prior_t = len(batch[0][0])
         # warm-up
         for t in range(self.shift, self.prior_t):
-            self.generate_step(t, (batch[0][:, t:t + self.shift], ), {})
+            self.generate_step(t, (batch[0][:, t - self.shift:t], ), {})
+        return {}
 
     def generate_step(self, t, inputs, ctx):
         tiers = self.tiers
@@ -176,7 +162,7 @@ class SampleRNNBottomTier(SampleRNNTier):
         super().__init__(
             f"x, z=None, h=None, temperature=None -> x, h",
             *Maybe(io_dim is not None,
-                   (self.input_mod_cls(io_dim, zin_dim), 'x -> x'),)
+                   (self.input_mod_cls(io_dim, zin_dim), 'x -> x'),),
             (self.resampler_cls(zin_dim, 1 / frame_size, top_dim / zin_dim), 'x -> x'),
             (self.add_upper_tier, "x, z -> x"),
             *Maybe(io_dim is not None,

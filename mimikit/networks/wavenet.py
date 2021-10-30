@@ -5,7 +5,6 @@ from itertools import accumulate, chain
 import operator as opr
 
 from pytorch_lightning.utilities import AttributeDict
-from h5mapper import AsSlice
 
 from ..modules.homs import *
 from ..modules.misc import CausalPad, Transpose, Chunk
@@ -265,19 +264,6 @@ class WNBlock(HOM):
                          (outpt_mod, f"y, {out_in_vars} -> {out_vars}"))
         return self
 
-    def getters(self, batch_length, downsampling=1, hop_length=1, shift_error=0):
-        if batch_length - self.shift < 0:
-            raise ValueError(f"batch_length must be greater than the receptive field of this network ({self.shift}).")
-        return {
-            "inputs": AsSlice(shift=0,
-                              length=(batch_length - int(hop_length > 1)) * hop_length,
-                              downsampling=downsampling),
-            "targets": AsSlice(shift=(self.shift + shift_error) * hop_length,
-                               length=(batch_length if (self.hp.pad_side != 0)
-                                       else batch_length - self.shift + int(hop_length == 1)) * hop_length,
-                               downsampling=downsampling)
-        }
-
     use_fast_generate = False
 
     def before_generate(self, g_loop, batch, batch_idx):
@@ -296,7 +282,8 @@ class WNBlock(HOM):
             rf = d * k
             if self.hp.pad_side == 0:
                 size = (self.rf - layer.hp.cause)
-                indices = [size - n for n in range(0, rf, d)][::-1]
+                # indices = [size - n for n in range(0, rf, d)][::-1]
+                indices = [*range(-layer.hp.cause-1, 0, d)]
             else:
                 size = (self.rf - 1)
                 indices = [size - n for n in range(0, rf, d)][::-1]
@@ -315,7 +302,7 @@ class WNBlock(HOM):
                     q = q.roll(-1, 2)
                     q[:, :, -1:] = inpt[0][:, :, -1:]
                     qs[0] = (q, None)
-                return tuple(torch.index_select(x, 2, lyr_slices[i])
+                return tuple(x[:, :, lyr_slices[i]]
                              if x is not None else x for x in inpt)
 
             handles += [layer.register_forward_pre_hook(pre_hook)]
@@ -344,7 +331,7 @@ class WNBlock(HOM):
                         skp[:, :, -1:] = skips
 
                     qs[i + 1] = (q, skp)
-                    return qs.get(i + 1, outpt)
+                return qs.get(i + 1, outpt)
 
             handles += [layer.register_forward_hook(hook)]
         # save those for later

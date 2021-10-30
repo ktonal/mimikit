@@ -55,13 +55,13 @@ class ScaledActivation(nn.Module):
     def __init__(self, activation, dim, with_range=True):
         super(ScaledActivation, self).__init__()
         self.activation = activation
-        self.scales = nn.Parameter(torch.ones(dim,), )
+        self.scales = nn.Parameter(torch.ones(dim, ), )
         self.rg = nn.Parameter(torch.ones(dim if with_range else 1, ), )
         self.dim = dim
 
     def forward(self, x):
-        self.rg.to(x).expand(*(1,)*(len(x.size())-1), self.dim)
-        self.scales.to(x).expand(*(1,)*(len(x.size())-1), self.dim)
+        self.rg.to(x).expand(*(1,) * (len(x.size()) - 1), self.dim)
+        self.scales.to(x).expand(*(1,) * (len(x.size()) - 1), self.dim)
         return self.activation(self.rg * x / self.scales) * self.scales
 
 
@@ -80,19 +80,21 @@ class ScaledAbs(ScaledActivation):
         super(ScaledAbs, self).__init__(Abs(), dim, with_range)
 
 
-def Chunk(mod: nn.Module, chunks, dim=-1, sig_in="x", sum_out=False):
-    out_vars = ", ".join(["x" + str(i) for i in range(chunks)])
-    return hom("Chunk",
-               f"{sig_in} -> {out_vars if not sum_out else 'out'}",
-               (mod, f"{sig_in} -> _tmp_"),
-               (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}"),
-               *Maybe(sum_out,
-                      Sum(f"{out_vars} -> out"))
-               )
+class Chunk(HOM):
+    def __init__(self, mod: nn.Module, chunks, dim=-1, sig_in="x", sum_out=False):
+        out_vars = ", ".join(["x" + str(i) for i in range(chunks)])
+        super(Chunk, self).__init__(
+            f"{sig_in} -> {out_vars if not sum_out else 'out'}",
+            (mod, f"{sig_in} -> _tmp_"),
+            (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}"),
+            *Maybe(sum_out,
+                   Sum(f"{out_vars} -> out"))
+        )
 
 
 class Flatten(HOM):
     """flatten `n_dims` dimensions of a tensor counting from the last"""
+
     def __init__(self, n_dims):
         super(Flatten, self).__init__(
             "x -> x",
