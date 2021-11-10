@@ -165,6 +165,8 @@ class Seq2SeqLSTM(nn.Module):
         self.outpt_mod = nn.Sequential(
             nn.Linear(model_dim, input_dim, bias=False), Abs()
         ) if output_module is None else output_module
+        self.hop = self.rf = self.shift = self.hp.hop
+        self.output_length = lambda n: n
 
     def forward(self, x):
         x = self.inpt_mod(x)

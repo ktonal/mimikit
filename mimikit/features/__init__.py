@@ -1,5 +1,6 @@
 from .abstract import *
 from .audio import *
+from .audio_fmodules import *
 from .midi import *
 from .feature import *
 

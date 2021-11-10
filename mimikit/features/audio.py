@@ -15,7 +15,8 @@ from ..networks import SingleClassMLP
 __all__ = [
     'AudioSignal',
     'MuLawSignal',
-    'Spectrogram'
+    'Spectrogram',
+    'MultiScale',
 ]
 
 
@@ -25,6 +26,7 @@ class AudioSignal(Feature):
     audio signal managers
     """
     __ext__ = 'audio'
+    domain = "time"
 
     sr: int = 22050
     normalize: bool = False
@@ -47,14 +49,17 @@ class AudioSignal(Feature):
             inputs = T.Normalize()(inputs)
         return inputs
 
-    def batch_item(self, shift=0, length=1, frame_size=None, as_strided=False, downsampling=1, **kwargs):
+    def batch_item(self, data='snd', shift=0, length=1,
+                   frame_size=None, hop_length=None, center=False, pad_mode="reflect",
+                   downsampling=1, **kwargs):
         if frame_size is None:
             getter = h5mapper.AsSlice(shift=shift, length=length, downsampling=downsampling)
         else:
             getter = h5mapper.AsFramedSlice(shift=shift, length=length,
-                                            frame_size=frame_size, as_strided=as_strided,
+                                            frame_size=frame_size, hop_length=hop_length,
+                                            center=center, pad_mode=pad_mode,
                                             downsampling=downsampling)
-        return h5mapper.Input(key="snd", getter=getter, transform=self.transform)
+        return h5mapper.Input(data=data, getter=getter, transform=self.transform)
 
     def input_module(self, *args, **kwargs):
         return nn.Identity()
@@ -107,8 +112,38 @@ class MuLawSignal(AudioSignal):
         return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
 
 
+class MultiScale(Feature):
+
+    def __init__(self, base, frame_sizes, hop_lengths):
+        self.base = base
+        self.frame_sizes = frame_sizes
+        self.hop_lengths = hop_lengths
+
+    def transform(self, inputs):
+        return self.base.transform(inputs)
+
+    def inverse_transform(self, inputs):
+        return self.base.inverse_transform(inputs)
+
+    def batch_item(self, data='snd', shift=0, length=1,
+                   frame_size=None, hop_length=None, center=False, pad_mode="reflect",
+                   training=True, **kwargs):
+        if training:
+            return tuple(
+                self.base.batch_item(data, self.frame_sizes[0]-fs, length, frame_size=fs, hop_length=hop)
+                for fs, hop in zip(self.frame_sizes, self.hop_lengths)
+            )
+        else:
+            return self.base.batch_item(data, shift, length)
+
+    def loss_fn(self, output, target):
+        return self.base.loss_fn(output, target)
+
+
 @dtc.dataclass(unsafe_hash=True)
 class Spectrogram(AudioSignal):
+    domain = "time-freq"
+
     n_fft: int = 2048
     hop_length: int = 512
     coordinate: str = 'pol'
@@ -129,13 +164,12 @@ class Spectrogram(AudioSignal):
     def inverse_transform(self, inputs):
         return self.inverse_transform_(inputs)
 
-    def batch_item(self, shift=0, length=1, downsampling=1, **kwargs):
-        extra = -self.hop_length if self.center else \
-            ((self.n_fft // self.hop_length) - 1) * self.hop_length
-        getter = h5mapper.AsSlice(shift=shift * self.hop_length,
-                                  length=self.hop_length * length + extra,
-                                  downsampling=downsampling)
-        return h5mapper.Input(key='snd', getter=getter, transform=self.transform)
+    def batch_item(self, data='snd', shift=0, length=1, downsampling=1, **kwargs):
+        getter = h5mapper.AsSlice(shift=shift, length=length, downsampling=downsampling)
+        getter.shift, getter.length = getter.shift_and_length_to_samples(
+            self.n_fft, self.hop_length, self.center
+        )
+        return h5mapper.Input(data=data, getter=getter, transform=self.transform)
 
     def input_module(self, in_dim, net_dim, n_chunks):
         if self.coordinate == 'mag':

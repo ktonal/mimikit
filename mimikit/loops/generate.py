@@ -1,31 +1,31 @@
 from typing import Optional, Any, Callable, Tuple, Iterable
 import numpy as np
 import torch
-import dataclasses as dtc
-from h5mapper import AsSlice, Getter, process_batch
+import h5mapper as h5m
 
 from .callbacks import tqdm
 
 __all__ = [
-    'DynamicDataInterface',
     'GenerateLoop',
-    'Setter',
     'prepare_prompt',
     'generate_tqdm',
 ]
 
 
-def prepare_prompt(device, prompt, n_steps, at_least_nd=2):
+def prepare_prompt(device, prompt, n_blanks, at_least_nd=2):
     def _prepare(prmpt):
         if isinstance(prmpt, np.ndarray):
             prmpt = torch.from_numpy(prmpt)
         while len(prmpt.shape) < at_least_nd:
             prmpt = prmpt.unsqueeze(0)
         prmpt = prmpt.to(device)
-        blank_shapes = prmpt.size(0), n_steps, *prmpt.size()[2:]
-        return torch.cat((prmpt, torch.zeros(*blank_shapes).to(prmpt)), dim=1)
+        if n_blanks > 0:
+            blank_shapes = prmpt.size(0), n_blanks, *prmpt.size()[2:]
+            return torch.cat((prmpt, torch.zeros(*blank_shapes).to(prmpt)), dim=1)
+        else:
+            return prmpt
 
-    return process_batch(prompt, lambda x: isinstance(x, (np.ndarray, torch.Tensor)), _prepare)
+    return h5m.process_batch(prompt, lambda x: isinstance(x, (np.ndarray, torch.Tensor)), _prepare)
 
 
 def generate_tqdm(rng):
@@ -33,46 +33,20 @@ def generate_tqdm(rng):
                 leave=False, unit="step", mininterval=0.25)
 
 
-@dtc.dataclass
-class Setter:
-
-    dim: int = 0
-
-    def __post_init__(self):
-        self.pre_slices = (slice(None),) * self.dim
-
-    def __call__(self, data, item, value):
-        data.data[self.pre_slices + (slice(item, item + value.shape[self.dim]),)] = value
-        return data
+class GenInput(h5m.Input):
+    def __init__(self, data=None, length=1, transform=lambda x: x):
+        super(GenInput, self).__init__(
+            data=data, getter=h5m.AsSlice(dim=1, shift=-length, length=length),
+            setter=h5m.Setter(dim=1),
+            transform=transform
+        )
 
 
-# noinspection PyArgumentList
-@dtc.dataclass
-class DynamicDataInterface:
-    source: Optional[Any] = None
-
-    prepare: Callable[[Any], Any] = lambda src: None
-
-    getter: Getter = AsSlice(shift=-1, length=1)
-    input_transform: Optional[Callable] = lambda x: x
-
-    output_transform: Optional[Callable] = lambda x: x
-    setter: Optional[Setter] = None
-
-    def __post_init__(self):
-        result = self.prepare(self.source)
-        if result is not None:
-            self.source = result
-
-    def get(self, t):
-        return self.input_transform(self.getter(self.source, t))
-
-    def set(self, t, value):
-        return self.setter(self.source, t, self.output_transform(value))
-
-    def wrap(self, source):
-        return DynamicDataInterface(source, self.prepare, self.getter, self.input_transform,
-                                    self.output_transform, self.setter)
+class Parameter(h5m.Input):
+    def __init__(self, data):
+        super(Parameter, self).__init__(
+            data=data, getter=h5m.AsSlice(dim=1, length=1)
+        )
 
 
 class GenerateLoop:
@@ -84,24 +58,25 @@ class GenerateLoop:
     def __init__(self,
                  network: torch.nn.Module = None,
                  dataloader: torch.utils.data.dataloader.DataLoader = None,
-                 interfaces: Iterable[DynamicDataInterface] = tuple(),
+                 inputs: Iterable[h5m.Input] = tuple(),
                  n_batches: Optional[int] = None,
                  n_steps: int = 1,
                  time_hop: int = 1,
                  disable_grads: bool = True,
                  device: str = 'cuda:0',
-                 process_outputs: Callable[[Tuple[Any], int], None] = lambda x, i: None
+                 process_outputs: Callable[[Tuple[Any], int], None] = lambda x, i: None,
+                 add_blank=True,
                  ):
         self.net = network
         self.dataloader = dataloader
-        self.interfaces = interfaces
+        self.inputs = inputs
         self.n_batches = n_batches
         self.n_steps = n_steps
         self.time_hop = time_hop
         self.disable_grads = disable_grads
         self.device = device
         self.process_outputs = process_outputs
-
+        self.add_blank = add_blank
         self._was_training = False
         self._initial_device = device
 
@@ -137,33 +112,36 @@ class GenerateLoop:
                 ctx = self.net.before_generate(self, batch, batch_idx)
             else:
                 ctx = {}
-            prior_t = len(batch[0][0])
+
+            prior_t = len(batch[0][0]) if self.add_blank else getattr(self.net, 'shift', 0)
             inputs_itf = []
-            for x, interface in zip(batch + ((None,) * (len(self.interfaces) - len(batch))),
-                                    self.interfaces):
+            for x, interface in zip(batch + ((None,) * (len(self.inputs) - len(batch))), self.inputs):
                 if isinstance(x, torch.Tensor):
-                    x = prepare_prompt(self.device, x, self.n_steps * self.time_hop, len(x.shape))
-                    inputs_itf += [interface.wrap(x)]
-                elif x is None and interface.source is not None:  # e.g. parameter
+                    x = prepare_prompt(self.device, x,
+                                       self.n_steps * self.time_hop if self.add_blank else 0,
+                                       len(x.shape))
+                    interface.data = x
+                    inputs_itf += [interface]
+                elif x is None and interface.data is not None:  # e.g. parameter
                     inputs_itf += [interface]
 
-            outputs_itf = tuple(x for x in inputs_itf if x.setter is not None)
-            # for letting generate_step manage the output_transform (e.g. chains, ensemble of models)
-            ctx["outputs_itf"] = outputs_itf
+            outputs_itf = tuple(interface for interface in self.inputs if interface.setter is not None)
             # generate
+            until = 0
             for t in generate_tqdm(range(0, self.n_steps * self.time_hop, self.time_hop)):
-                inputs = tuple(x.get(t + (prior_t if x.setter is not None else 0))
-                               for x in inputs_itf)
+                if t < until:
+                    continue
+                inputs = tuple(input(t + (prior_t if input.setter is not None else 0)) for input in inputs_itf)
                 outputs = self.net.generate_step(t+prior_t, inputs, ctx)
                 if not isinstance(outputs, tuple):
                     outputs = outputs,
-                for x, out in zip(outputs_itf, outputs):
+                for interface, out in zip(outputs_itf, outputs):
                     # let the net return None when ignoring this step
                     if out is not None:
-                        x.set(t+prior_t, out)
+                        until = interface.set(t+prior_t, out) + t
 
             # wrap up
-            final_outputs = tuple(x.source for x in outputs_itf)
+            final_outputs = tuple(x.data for x in inputs_itf[:len(outputs_itf)])
             if getattr(self.net, 'after_generate', False):
                 self.net.after_generate(final_outputs, ctx, batch_idx)
             else:

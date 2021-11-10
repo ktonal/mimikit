@@ -20,30 +20,30 @@ class TBPTTSampler(Sampler):
                  batch_size=64,  # nbr of "tracks" per batch
                  chunk_length=8 * 16000,  # total length of a track
                  seq_len=512,  # nbr of samples per backward pass
-                 downsampling=1,
+                 oversampling=1,
                  ):
         super().__init__(None)
         self.n_samples = n_samples
-        self.chunk_length = chunk_length
+        self.chunk_length = min(chunk_length, n_samples)
         self.seq_len = seq_len
         self.n_chunks = self.n_samples // self.chunk_length
         self.remainder = self.n_samples % self.chunk_length
         self.n_per_chunk = self.chunk_length // self.seq_len
         self.batch_size = min(batch_size, self.n_chunks)
-        self.downsampling = downsampling
+        self.oversampling = oversampling
 
     def __iter__(self):
-        smp = RandomSampler(torch.arange(self.n_chunks-1, ))
+        smp = RandomSampler(torch.arange(max(1, self.n_chunks-1), ))
         for top in BatchSampler(smp, self.batch_size, False):  # don't drop last!
-            for _ in range(self.downsampling):
-                offsets = torch.randint(0, self.chunk_length, (self.batch_size,))
+            for _ in range(self.oversampling):
+                offsets = torch.randint(0, self.chunk_length, (self.batch_size,)) * int(self.n_chunks > 1)
                 top_idx = tuple(o + (t * self.chunk_length) for t, o in zip(top, offsets))
                 for start in range(self.n_per_chunk):
                     # start indices of the batch
                     yield tuple(t + (start * self.seq_len) for t in top_idx)
 
     def __len__(self):
-        return self.downsampling * int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
+        return self.oversampling * int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
 
 
 class IndicesSampler(Sampler):

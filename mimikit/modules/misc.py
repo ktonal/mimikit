@@ -8,6 +8,7 @@ from .homs import hom, HOM, Maybe, Sum
 __all__ = [
     'Abs',
     'Chunk',
+    'Flatten',
     'Transpose',
     'CausalPad',
     'ScaledActivation',

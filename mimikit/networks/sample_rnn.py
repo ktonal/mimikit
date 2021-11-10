@@ -45,6 +45,8 @@ class TierNetwork(HOM):
         self.hidden = (None,) * len(tiers)
         self.shift = self.rf = self.frame_sizes[0]
         self.outputs = []
+        self.rf = self.shift = self.frame_sizes[0]
+        self.output_length = lambda n: n
 
     def reset_hidden(self):
         self.hidden = (None,) * len(self.frame_sizes)
@@ -52,7 +54,7 @@ class TierNetwork(HOM):
     def before_generate(self, loop, batch, batch_idx):
         self.outputs = [None] * (len(self.frame_sizes) - 1)
         assert batch[0].size(1) % self.shift == 0, f'batch_length must be divisible by {self.shift} ' \
-                                                   f'(got {batch.size(1)})'
+                                                   f'(got {batch[0].size(1)})'
         self.reset_hidden()
         self.hidden = list(self.hidden)
         self.prior_t = len(batch[0][0])
@@ -130,7 +132,7 @@ class SampleRNNTopTier(SampleRNNTier):
         init_ctx.pop("self")
         init_ctx.pop("__class__")
         self.hp = AttributeDict(init_ctx)
-        FS = frame_size
+        self.frame_size = FS = frame_size
         super().__init__(
             "x, z=None, h=None -> x, h",
             *Maybe(linearize,
@@ -159,6 +161,7 @@ class SampleRNNBottomTier(SampleRNNTier):
         init_ctx.pop("self")
         init_ctx.pop("__class__")
         self.hp = AttributeDict(init_ctx)
+        self.frame_size = frame_size
         super().__init__(
             f"x, z=None, h=None, temperature=None -> x, h",
             *Maybe(io_dim is not None,

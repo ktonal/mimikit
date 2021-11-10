@@ -12,7 +12,7 @@ __all__ = [
 def mean_L1_prop(output, target):
     L = nn.L1Loss(reduction="none")(output, target).sum(dim=(0, -1), keepdim=True)
     return 100 * (L / torch.maximum(target.abs().sum(dim=(0, -1), keepdim=True),
-                                    torch.tensor(1e-12))).mean()
+                                    torch.tensor(1.))).mean()
 
 
 def mean_2d_diff(output, target):
@@ -42,7 +42,7 @@ def cosine_similarity(X, Y, eps=1e-10):
 
     dot_prod = torch.matmul(X, Y.transpose(-2, -1))
     norms = torch.norm(X, p=2, dim=-1).unsqueeze(-1) * torch.norm(Y, p=2, dim=-1).unsqueeze(-2)
-    cos_theta = dot_prod / torch.maximum(norms, eps)
+    cos_theta = torch.div(dot_prod, torch.maximum(norms, eps), out=dot_prod)
     return cos_theta
 
 

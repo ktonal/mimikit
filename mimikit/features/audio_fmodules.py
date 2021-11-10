@@ -11,6 +11,7 @@ __all__ = [
     'Normalize',
     'Emphasis',
     'Deemphasis',
+    'Resample',
     'MuLawCompress',
     'MuLawExpand',
     'STFT',
@@ -154,6 +155,25 @@ class Deemphasis(FModule):
                              torch.tensor([1, - self.emphasis]).to(inputs),  # a0, a1
                              torch.tensor([1 - self.emphasis, 0]).to(inputs))  # b0, b1
 
+        return {
+            np.ndarray: np_func,
+            torch.Tensor: torch_func
+        }
+
+
+@dtc.dataclass
+class Resample(FModule):
+
+    orig_sr: int = 22050
+    target_sr: int = 16000
+
+    @property
+    def functions(self) -> dict:
+        def np_func(inputs):
+            return librosa.resample(inputs, orig_sr=self.orig_sr, target_sr=self.target_sr)
+
+        def torch_func(inputs):
+            return F.resample(inputs, self.orig_sr, self.target_sr)
         return {
             np.ndarray: np_func,
             torch.Tensor: torch_func

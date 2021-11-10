@@ -201,7 +201,7 @@ class WNBlock(HOM):
             def forward(self, x):
                 if self.training:
                     return x
-                return x[:, -1 if pad_side == 1 else 0]
+                return x[:, slice(-1, None) if pad_side == 1 else slice(0, 1)]
 
         # all shapes in and out are Batch x Time x Dim
         super().__init__(
@@ -213,6 +213,7 @@ class WNBlock(HOM):
         )
         self.shift = shift
         self.rf = rf
+        self.output_length = (lambda n: n if (self.hp.pad_side != 0) else (n - self.shift + 1))
         self.hp = AttributeDict(init_ctx)
 
     @staticmethod
@@ -355,58 +356,3 @@ class WNBlock(HOM):
         for layer in ctx['layers']:
             layer._fast_mode = False
         return final_outputs
-
-    def get_generate_loop(self,
-                          input_proxies=(),
-                          input_features=(),
-                          n_batches=2,
-                          batch_size=8,
-                          prompt_length=32,
-                          n_steps=100,
-                          indices=(),
-                          temperature=None,
-                          fast_method=False,
-                          process_outputs=lambda x, i: None
-                          ):
-        import h5mapper as h5m
-
-        self.use_fast_generate = fast_method
-
-        # Gen DataLoader
-        gen_getters = self.getters(batch_length=prompt_length,
-                                   downsampling=1,
-                                   hop_length=1,
-                                   shift_error=0)
-        gen_batch = tuple(h5m.Input(proxy=proxy,
-                                    getter=gen_getters['inputs'],
-                                    transform=feature.transform)
-                          for proxy, feature in zip(input_proxies, input_features))
-        gen_dl = input_proxies[0].owner.serve(gen_batch,
-                                              shuffle=False,
-                                              batch_size=batch_size,
-                                              sampler=indices)
-
-        # Gen Loop
-        loop = GenerateLoop(
-            network=self,
-            dataloader=gen_dl,
-            interfaces=[
-                *((DynamicDataInterface(
-                    None,
-                    getter=h5m.AsSlice(dim=1, shift=-self.rf, length=self.rf),
-                    setter=Setter(dim=1)
-                ),) * len(input_proxies)),
-                # temperature
-                *((DynamicDataInterface(
-                    None if callable(temperature) else temperature,
-                    prepare=(lambda src: temperature()) if callable(temperature) else lambda src: src,
-                    getter=h5m.AsSlice(dim=1, shift=0, length=1),
-                    setter=None,
-                ),) if temperature is not None else ())
-            ],
-            n_batches=n_batches,
-            n_steps=n_steps,
-            device='cuda' if torch.cuda.is_available() else 'cpu',
-            process_outputs=process_outputs
-        )
-        return loop
