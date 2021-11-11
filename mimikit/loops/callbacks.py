@@ -84,7 +84,9 @@ class MMKCheckpoint(Callback):
         self.epochs = epochs
 
     def on_pretrain_routine_start(self, trainer, pl_module) -> None:
-        self.h5_tensor_dict.save_hp(pl_module.net.hp)
+        hp = pl_module.net.hp
+        hp.update({"cls": type(pl_module.net)})
+        self.h5_tensor_dict.save_hp(hp)
         self.h5_tensor_dict.flush()
 
     def on_train_epoch_end(self, trainer, pl_module, unused=None) -> None:
