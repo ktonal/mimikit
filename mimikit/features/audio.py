@@ -9,7 +9,7 @@ from mimikit.modules.misc import Chunk, Flatten, Abs
 
 from . import Feature
 from . import audio_fmodules as T
-from ..modules import mean_L1_prop, mean_2d_diff, HOM, ScaledTanh, ScaledSigmoid, ScaledAbs
+from ..modules import mean_L1_prop, mean_2d_diff, HOM, ScaledTanh, ScaledSigmoid, ScaledAbs, Maybe
 from ..networks import SingleClassMLP
 
 __all__ = [
@@ -130,7 +130,7 @@ class MultiScale(Feature):
                    training=True, **kwargs):
         if training:
             return tuple(
-                self.base.batch_item(data, self.frame_sizes[0]-fs, length, frame_size=fs, hop_length=hop)
+                self.base.batch_item(data, self.frame_sizes[0] - fs, length, frame_size=fs, hop_length=hop)
                 for fs, hop in zip(self.frame_sizes, self.hop_lengths)
             )
         else:
@@ -181,26 +181,32 @@ class Spectrogram(AudioSignal):
         else:
             raise NotImplementedError(f"no input module for coordinate '{self.coordinate}'")
 
-    def output_module(self, net_dim, out_dim, n_chunks, scaled_activation=False):
+    def output_module(self, net_dim, out_dim, n_chunks, scaled_activation=False, phs='a'):
         if self.coordinate == 'mag':
             return nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, sum_out=True),
                                  ScaledSigmoid(out_dim, with_range=False) if scaled_activation else Abs())
         elif self.coordinate == 'pol':
             pi = torch.acos(torch.zeros(1)).item()
-            act_phs = ScaledTanh(out_dim, with_range=False) if scaled_activation else nn.Tanh()
+            # act_phs = ScaledTanh(out_dim, with_range=False) if scaled_activation else nn.Tanh()
+            # act_phs = nn.Tanh()
+            act_phs = nn.Identity() if phs in ("a", "b") else nn.Tanh()
             act_mag = ScaledSigmoid(out_dim, with_range=False) if scaled_activation else Abs()
 
             class ScaledPhase(HOM):
                 def __init__(self):
                     super(ScaledPhase, self).__init__(
                         "x -> phs",
-                        (nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, sum_out=True), act_phs),
-                         'x -> phs'),
-                        (lambda self, phs: torch.cos(
-                            phs * self.psis.to(phs).view(*([1] * (len(phs.shape) - 1)), -1)) * pi,
-                         'self, phs -> phs'),
-                    )
-                    self.psis = nn.Parameter(torch.ones(out_dim))
+                        *(Maybe(phs == "b",
+                                (lambda self, x: torch.cos(self.psis.to(x) * x) * pi, "self, x -> x"))),
+                        (nn.Sequential(Chunk(nn.Linear(net_dim, out_dim * n_chunks), n_chunks, sum_out=True), act_phs), 'x -> phs'),
+                        *(Maybe(phs == "a",
+                                (lambda self, phs: torch.cos(
+                                    phs * self.psis.to(phs).view(*([1] * (len(phs.shape) - 1)), -1)) * pi,
+                                 'self, phs -> phs'))),
+                        *(Maybe(phs in ("b", "c"),
+                                (lambda self, phs: phs * pi, 'self, phs -> phs'))),
+                          )
+                    self.psis = nn.Parameter(torch.ones(*((out_dim, ) if phs in ("a", "c") else (1, net_dim))))
 
             return HOM("x -> y",
                        # phase module
