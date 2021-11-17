@@ -99,5 +99,5 @@ class Flatten(HOM):
     def __init__(self, n_dims):
         super(Flatten, self).__init__(
             "x -> x",
-            (lambda x: x.view(*x.shape[:n_dims], -1), 'x -> x')
+            (lambda x: x.view(*x.shape[:-n_dims], -1), 'x -> x')
         )

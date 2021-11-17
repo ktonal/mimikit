@@ -27,6 +27,7 @@ class EncoderLSTM(nn.Module):
     bias: Optional[bool] = False
     weight_norm: Optional[bool] = False
     hop: int = 8
+    with_tbptt: bool = False
 
     def __post_init__(self):
         nn.Module.__init__(self)
@@ -58,9 +59,11 @@ class EncoderLSTM(nn.Module):
             out = out.view(*out.size()[:-1], self.model_dim, 2).sum(dim=-1)
             # take residuals AFTER the first lstm
             x = out if i == 0 else x + out
-            # self.hidden = ht, ct
+            if self.with_tbptt:
+                self.hidden = ht, ct
         states = self.first_and_last_states(x)
-        return self.fc(states), (ht, ct)
+        out = self.fc(states)
+        return out, (ht, ct)
 
     def first_and_last_states(self, sequence):
         rg = torch.arange(sequence.size(1) // self.hop)
@@ -111,14 +114,12 @@ class DecoderLSTM(nn.Module):
             output, (_, _) = self.lstm1(x, (hidden, cells))
         # sum forward and backward nets
         output = output.view(*output.size()[:-1], self.model_dim, 2).sum(dim=-1)
-
         if hidden is None or cells is None:
             output2, (hidden, cells) = self.lstm2(output)
         else:
             output2, (hidden, cells) = self.lstm2(output, (hidden, cells))
         # sum forward and backward nets
         output2 = output2.view(*output2.size()[:-1], self.model_dim, 2).sum(dim=-1)
-
         # sum the outputs
         return output + output2, (hidden, cells)
 
@@ -147,6 +148,8 @@ class Seq2SeqLSTM(nn.Module):
                  weight_norm: bool = False,
                  input_module: Optional[nn.Module] = None,
                  output_module: Optional[nn.Module] = None,
+                 with_tbptt: bool = False,
+                 with_sampler: bool = True
                  ):
         init_ctx = locals()
         super(Seq2SeqLSTM, self).__init__()
@@ -156,29 +159,32 @@ class Seq2SeqLSTM(nn.Module):
         init_ctx.pop("__class__")
         self.hp = AttributeDict(init_ctx)
         self.inpt_mod = input_module if input_module is not None else nn.Identity()
-        self.enc = EncoderLSTM(model_dim if input_module is not None else input_dim,
+        self.enc = EncoderLSTM(input_dim,
                                model_dim, num_layers, n_lstm, bottleneck, n_fc,
-                               bias=bias, weight_norm=weight_norm, hop=hop)
+                               bias=bias, weight_norm=weight_norm, hop=hop,
+                               with_tbptt=with_tbptt)
         self.dec = DecoderLSTM(model_dim, num_layers, bottleneck,
-                               bias=bias, weight_norm=(weight_norm,)*2)
-        self.sampler = ParametrizedGaussian(model_dim, model_dim)
+                               bias=bias, weight_norm=(weight_norm,) * 2)
+        if with_sampler:
+            self.sampler = ParametrizedGaussian(model_dim, model_dim, bias=bias)
         self.outpt_mod = nn.Sequential(
             nn.Linear(model_dim, input_dim, bias=False), Abs()
         ) if output_module is None else output_module
         self.hop = self.rf = self.shift = self.hp.hop
         self.output_length = lambda n: n
 
-    def forward(self, x):
+    def forward(self, x, temperature=None):
         x = self.inpt_mod(x)
         coded, (h_enc, c_enc) = self.enc(x)
-        return self.decode(coded, h_enc, c_enc)
+        return self.decode(coded, h_enc, c_enc, temperature)
 
-    def decode(self, x, h_enc, c_enc):
+    def decode(self, x, h_enc, c_enc, temperature=None):
         coded = tile((x.unsqueeze(1) if len(x.shape) < 3 else x), 1, self.hp.hop)
-        residuals, _, _ = self.sampler(coded)
-        coded = coded + residuals
+        if self.hp.with_sampler:
+            residuals, _, _ = self.sampler(coded)
+            coded = coded + residuals
         output, (_, _) = self.dec(coded, h_enc, c_enc)
-        return self.outpt_mod(output)
+        return self.outpt_mod(output, *((temperature,) if temperature is not None else ()))
 
     def reset_hidden(self):
         self.enc.hidden = None

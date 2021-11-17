@@ -26,4 +26,8 @@ class SingleClassMLP(nn.Module):
             if not isinstance(temperature, torch.Tensor):
                 temperature = torch.Tensor([temperature]).reshape(*([1] * (len(outpt.size()))))
             probas = nn.Softmax(dim=-1)(outpt.squeeze() / temperature.to(outpt))
+            if probas.dim() > 2:
+                o_shape = probas.shape
+                probas = probas.view(-1, o_shape[-1])
+                return torch.multinomial(probas, 1).reshape(*o_shape[:-1])
             return torch.multinomial(probas, 1)
