@@ -187,6 +187,8 @@ class MuLawCompress(FModule):
     @property
     def functions(self):
         def np_func(inputs):
+            if np.any(inputs < -1) or np.any(inputs > 1):
+                inputs = Normalize()(inputs)
             qx = librosa.mu_compress(inputs, self.q_levels - 1, quantize=True)
             qx = qx + self.q_levels // 2
             return qx
