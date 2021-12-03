@@ -9,16 +9,24 @@ __all__ = [
 ]
 
 
-def mean_L1_prop(output, target):
-    L = nn.L1Loss(reduction="none")(output, target).sum(dim=(0, -1), keepdim=True)
-    return 100 * (L / torch.maximum(target.abs().sum(dim=(0, -1), keepdim=True),
-                                    torch.tensor(1.))).mean()
+def mean_L1_prop(output, target, denom=1e-8):
+    if torch.any(torch.isnan(output)):
+        print("NAN OUTPUT")
+    L = nn.L1Loss(reduction="none")(output, target).sum(dim=(0, -1,), keepdim=True)
+    target_sums = target.abs().sum(dim=(0, -1,), keepdim=True)
+    # make the upcoming division safe
+    target_sums = target_sums + (target_sums < 1.).float() * torch.maximum(L.detach(),
+                                                                           torch.tensor(1e-16).to(L.device))
+    if torch.any(torch.isnan(target_sums)):
+        print("NAN TARGET")
+    L = (L / target_sums).mean()
+    return L
 
 
 def mean_2d_diff(output, target):
     """compute the mean_L1_prop loss of the differences along the 2 last axes of `output` and `target`"""
-    Lw = mean_L1_prop((output[:, :, 1:] - output[:, :, :-1]), target[:, :, 1:] - target[:, :, :-1])
-    Lh = mean_L1_prop((output[:, 1:] - output[:, :-1]), target[:, 1:] - target[:, :-1])
+    Lw = mean_L1_prop((output[:, :, 1:] - output[:, :, :-1]), target[:, :, 1:] - target[:, :, :-1], )
+    Lh = mean_L1_prop((output[:, 1:] - output[:, :-1]), target[:, 1:] - target[:, :-1], )
     return Lw + Lh
 
 
@@ -42,7 +50,7 @@ def cosine_similarity(X, Y, eps=1e-10):
 
     dot_prod = torch.matmul(X, Y.transpose(-2, -1))
     norms = torch.norm(X, p=2, dim=-1).unsqueeze(-1) * torch.norm(Y, p=2, dim=-1).unsqueeze(-2)
-    cos_theta = torch.div(dot_prod, torch.maximum(norms, eps), out=dot_prod)
+    cos_theta = dot_prod.div_(torch.maximum(norms, eps, out=norms))
     return cos_theta
 
 

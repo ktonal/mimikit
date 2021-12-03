@@ -3,14 +3,13 @@ from typing import Iterable
 from functools import partial
 import pytorch_lightning as pl
 from matplotlib import pyplot as plt
-import soundfile as sf
 from pytorch_lightning.trainer.states import TrainerState
 from pytorch_lightning import Callback
 from IPython import get_ipython
 
 import h5mapper as h5m
 from ..utils import audio
-from mimikit.loops.logger import convert_to_mp3
+
 
 __all__ = [
     'is_notebook',
@@ -74,20 +73,29 @@ class MMKCheckpoint(Callback):
     format = staticmethod(h5m.TensorDict.format)
 
     def __init__(self,
-                 h5_tensor_dict,
+                 h5_tensor_dict=None,
                  id_template="epoch={epoch}-step={step}",
                  epochs=None,
+                 root_dir=''
                  ):
         super().__init__()
         self.h5_tensor_dict = h5_tensor_dict
         self.id_template = id_template
         self.epochs = epochs
+        self.root_dir = root_dir
+        self.tp_cls = None
+        self.hp = {}
 
     def on_pretrain_routine_start(self, trainer, pl_module) -> None:
-        hp = pl_module.net.hp
-        hp.update({"cls": type(pl_module.net)})
-        self.h5_tensor_dict.save_hp(hp)
-        self.h5_tensor_dict.flush()
+        if not self.root_dir:
+            self.root_dir = trainer.default_root_dir
+        self.hp = pl_module.net.hp
+        self.hp.update({"cls": type(pl_module.net)})
+
+        class CkptBank(h5m.TypedFile):
+            ckpt = h5m.TensorDict(pl_module.net.state_dict())
+
+        self.tp_cls = CkptBank
 
     def on_train_epoch_end(self, trainer, pl_module, unused=None) -> None:
         epoch, global_step = trainer.current_epoch + 1, trainer.global_step
@@ -105,9 +113,14 @@ class MMKCheckpoint(Callback):
         return False
 
     def save_checkpoint(self, pl_module, epoch, global_step):
-        id_str = self.format_id(epoch, global_step)
-        self.h5_tensor_dict.add(id_str, self.format(pl_module.net.state_dict()))
-        self.h5_tensor_dict.flush()
+        new = self.tp_cls(os.path.join(self.root_dir, f"epoch={epoch}.h5"), "w")
+        new.ckpt.save_hp(self.hp)
+        new.ckpt.add("state_dict", self.format(pl_module.net.state_dict()))
+        new.flush()
+        new.close()
+        # id_str = self.format_id(epoch, global_step)
+        # self.h5_tensor_dict.add(id_str, self.format(pl_module.net.state_dict()))
+        # self.h5_tensor_dict.flush()
 
     def format_id(self, epoch, step):
         dct = {"epoch": epoch, "step": step}
@@ -115,10 +128,12 @@ class MMKCheckpoint(Callback):
         return dct["out"]
 
     def on_fit_end(self, trainer, pl_module) -> None:
-        self.h5_tensor_dict.close()
+        # self.h5_tensor_dict.close()
+        pass
 
     def teardown(self, trainer, pl_module, stage=None) -> None:
-        self.h5_tensor_dict.close()
+        # self.h5_tensor_dict.close()
+        pass
 
 
 class GenerateCallback(pl.callbacks.Callback):
