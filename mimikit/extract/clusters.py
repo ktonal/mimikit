@@ -10,3 +10,5 @@ def k_neighbors_pack(X, k, metric="euclidean"):
     adj = kn.fit_transform(D)
     dists, idx = kn.kneighbors(X, k, return_distance=True)
     return D, adj, dists, idx
+
+

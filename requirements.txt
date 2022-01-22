@@ -15,11 +15,10 @@ soundfile>=0.10.2
 neptune-client==0.4.130
 neptune-contrib==0.24.9
 test-tube>=0.7.5
-ipython==5.5.0
+# ipython==5.5.0
 muspy==0.3.0
 PyYAML!=5.4.*,>=5.1
 chardet==3.0.4
 
 imgaug<0.2.7,>=0.2.5
 folium==0.2.1
-prompt-toolkit<2.0.0,>=1.0.0

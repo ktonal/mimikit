@@ -24,7 +24,7 @@ class SegmentLabels(Feature):
     @property
     def encoders(self):
         return {np.ndarray: lambda X: \
-            from_recurrence_matrix(X.T, L=self.L, k=self.k, sym=self.sym,
+            from_recurrence_matrix(X.T, kernel_size=self.L, k=self.k, sym=self.sym,
                                    bandwidth=self.bandwidth, thresh=self.thresh,
                                    min_dur=self.min_dur)}
 

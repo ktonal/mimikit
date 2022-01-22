@@ -55,6 +55,8 @@ kwargs = {
     'packages': PACKAGES,
     "entry_points": {
         'console_scripts': [
+            'segment=mimikit.extract.segment:segment',
+            'stretch=mimikit.extract.segment:re_stretch',
             'samplernn=mimikit.models.sample_rnn:demo',
             'freqnet=mimikit.models.freqnet:demo',
             'seq2seq=mimikit.models.s2s_lstm:demo',
