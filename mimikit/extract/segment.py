@@ -134,7 +134,11 @@ def segment(input_file: str,
     Parallel(n_jobs=-1, backend='multiprocessing') \
         (delayed(export)(s, f"{target_dir}/{i}", sr, n_fft, hop_length)
          for i, s in enumerate(segments))
-    durs = [s.shape[0] for s in segments]
+    durs, counts = np.unique([s.shape[0] for s in segments], return_counts=True)
+    distrib_str = "\n    ".join([f"{d}  :  {c}"
+                                 for d, c in zip(durs[(-counts).argsort()[:10]],
+                                                 counts[(-counts).argsort()[:10]])]) + \
+                  "\n    [  ...  ]\n"
     print(
         f"""
     Original data shape       = {S.shape}
@@ -149,7 +153,9 @@ def segment(input_file: str,
     MAX  segment duration     = {max(durs)} frames ({np.max(durs) * hop_length / sr:.3f} sec)
     MEAN segment duration     = {np.mean(durs):.1f} frames ({np.mean(durs) * hop_length / sr:.3f} sec)
     STD  segment duration     = {np.std(durs):.3f} frames ({np.std(durs) * hop_length / sr:.3f} sec)
-    """
+
+    Dur : Count
+    """ + distrib_str
     )
     if export_durations:
         with open(os.path.join(target_dir, "durations.json"), 'w') as f:
@@ -206,7 +212,7 @@ def x_pand(x, ga):
 @click.option("--xpand", "-x", default=None, type=float,
               help="expand (>1.) or compress (<1.) durations around their mean")
 @click.option("--manual", "-m", is_flag=True,
-              help="if specified, expects `source-dir` to contain a `duration.json` file "
+              help="if specified, expects `source-dir` to contain a `durations.json` file "
                    "containing target durations for each segment")
 @click.option("--verbose", "-v", is_flag=True,
               help="whether to print out the transformation durations")
