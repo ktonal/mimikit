@@ -93,15 +93,15 @@ def export(S, target_path, sr, n_fft, hop_length):
 
 @click.command()
 @click.option("-f", "--input-file", help="file to be segmented")
-@click.option("--sr", "-r", default=22050, help="the sample rate used for loading the file")
-@click.option("--n-fft", "-d", default=2048, help="size of the fft")
-@click.option("--hop-length", "-h", default=512, help="hop length of the stft")
+@click.option("--sr", "-r", default=22050, help="the sample rate used for loading the file (default=22050)")
+@click.option("--n-fft", "-d", default=2048, help="size of the fft (default=2048)")
+@click.option("--hop-length", "-h", default=512, help="hop length of the stft (default=512)")
 @click.option("--kernel-size", "-s", default=None, type=int,
               help="half size in frames of the kernel "
                    "(if not specified, tempo of the file is estimated and kernel-size is set to 1 beat)")
 @click.option("--min-dur", "-m", default=None, type=int,
               help="minimum number of frames per segment "
-              "(if not specified, default to kernel-size / 2)")
+              "(if not specified, default to kernel-size)")
 @click.option("--export-durations", "-x", is_flag=True, help="whether to write the durations as a text file")
 @click.option("--plot", "-p", is_flag=True, help="whether to plot the results")
 def segment(input_file: str,
@@ -123,7 +123,7 @@ def segment(input_file: str,
     else:
         tmp = None
     if min_dur is None:
-        min_dur = kernel_size // 2
+        min_dur = kernel_size
     stops = from_recurrence_matrix(S, kernel_size=kernel_size, min_dur=min_dur, plot=plot)
     segments = np.split(S, stops, axis=0)
     target_dir = os.path.splitext(input_file)[0]
