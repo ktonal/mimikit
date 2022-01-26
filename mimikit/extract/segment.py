@@ -1,11 +1,14 @@
+from typing import List
+
 import numpy as np
 from librosa.util import peak_pick
 from librosa.beat import tempo
 from librosa import griffinlim
+from librosa.sequence import dtw
 from scipy.interpolate import RectBivariateSpline as RBS
+from sklearn.metrics import pairwise_distances as pwd
 from joblib import Parallel, delayed
 import json
-from sklearn.metrics import pairwise_distances as pwd
 import matplotlib.pyplot as plt
 import click
 import os
@@ -17,6 +20,22 @@ __all__ = [
 ]
 
 
+def optimal_path(x, y):
+    """
+    Parameters
+    ----------
+    x: np.ndarray
+        shape: (Time x Dim)
+    y: np.ndarray
+        shape: (Time x Dim)
+
+    Returns
+    -------
+    path: np.ndarray
+    """
+    return dtw(C=pwd(abs(x), abs(y), metric='cosine'), subseq=True)[1][::-1]
+
+
 def etl(input_file, sr, n_fft, hop_length):
     """STFT Extract-Transform-Load"""
     from mimikit import FileToSignal, MagSpec
@@ -26,7 +45,7 @@ def etl(input_file, sr, n_fft, hop_length):
     return y, S
 
 
-def checker(N):
+def checker(N, normalize=True):
     """
     checker(2)
     =>  [[-1, -1, 0,  1,  1],
@@ -39,11 +58,13 @@ def checker(N):
     for k in range(-N, N + 1):
         for l in range(-N, N + 1):
             block[k + N, l + N] = - np.sign(k) * np.sign(l)
+    if normalize:
+        block = block / np.abs(block).sum()
     return block
 
 
 def from_recurrence_matrix(X,
-                           kernel_size=6,
+                           kernel_sizes=[6],
                            min_dur=4,
                            plot=False):
     """
@@ -61,20 +82,28 @@ def from_recurrence_matrix(X,
     indices of the segments
     """
     R = pwd(X, metric='cosine', n_jobs=1)
-    # intensify checker-board-like entries
-    K = checker(kernel_size)
-    # convolve R with K manually is more efficient
-    # since we only need to convolve along the diag
-    R_hat = np.pad(R, kernel_size, mode="constant")
-    R_hat = np.stack([R_hat[i:i + 2 * kernel_size + 1, i:i + 2 * kernel_size + 1].flat[:]
-                      for i in range(X.shape[0])])
-    dg = (R_hat @ K.flat[:].reshape(-1, 1)).reshape(-1)
-    dg = dg - dg.min()
+    diagonals = np.zeros((len(kernel_sizes), R.shape[0]))
+    for scale, kernel_size in enumerate(kernel_sizes):
+        # intensify checker-board-like entries
+        K = checker(kernel_size)
+        # convolve R with K manually is more efficient
+        # since we only need to convolve along the diag
+        R_hat = np.pad(R, kernel_size, mode="constant")
+        R_hat = np.stack([R_hat[i:i + 2 * kernel_size + 1, i:i + 2 * kernel_size + 1].flat[:]
+                          for i in range(X.shape[0])])
+        dg = (R_hat @ K.flat[:].reshape(-1, 1)).reshape(-1)
+        dg = dg - dg.min()
+        diagonals[scale] = dg
+    dg = diagonals.mean(axis=0)
+    print(R.shape, diagonals.shape, dg.shape)
     mx = peak_pick(dg, min_dur // 2, min_dur // 2, min_dur // 2, min_dur // 2, 0., min_dur)
     mx = mx[(mx > min_dur) & (mx < R.shape[0] - min_dur)]
     if plot:
-        plt.figure(figsize=(dg.size//100, 10))
-        plt.plot(dg)
+        plt.figure(figsize=(dg.size, 10))
+        for k, d in zip(kernel_sizes, diagonals):
+            plt.plot(d, label=f'kernel_size={k}', linestyle='--', alpha=0.75)
+        plt.plot(dg, label=f'mean diagonal')
+        plt.legend()
         plt.vlines(mx, dg.min(), dg.max(), linestyles='-')
         plt.show()
     return mx
@@ -99,6 +128,9 @@ def export(S, target_path, sr, n_fft, hop_length):
 @click.option("--kernel-size", "-s", default=None, type=int,
               help="half size in frames of the kernel "
                    "(if not specified, tempo of the file is estimated and kernel-size is set to 1 beat)")
+@click.option("--factor", "-r", multiple=True, type=float,
+              help="factor for the kernel size "
+                   "(default to 1., can be specified multiple times)")
 @click.option("--min-dur", "-m", default=None, type=int,
               help="minimum number of frames per segment "
               "(if not specified, default to kernel-size)")
@@ -109,6 +141,7 @@ def segment(input_file: str,
             n_fft=2048,
             hop_length=512,
             kernel_size=None,
+            factor=[],
             min_dur=None,
             export_durations=False,
             plot=False
@@ -116,7 +149,7 @@ def segment(input_file: str,
     """extract segments from an audio file"""
 
     y, S = etl(input_file, sr, n_fft, hop_length)
-
+    S = S[:2000]
     if kernel_size is None:
         tmp = tempo(y, sr)[0]
         kernel_size = int((60 / tmp) * sr) // hop_length
@@ -124,7 +157,11 @@ def segment(input_file: str,
         tmp = None
     if min_dur is None:
         min_dur = kernel_size
-    stops = from_recurrence_matrix(S, kernel_size=kernel_size, min_dur=min_dur, plot=plot)
+    if not factor:
+        factor = (1.,)
+    stops = from_recurrence_matrix(S,
+                                   kernel_sizes=[int(f*kernel_size) for f in factor],
+                                   min_dur=min_dur, plot=plot)
     segments = np.split(S, stops, axis=0)
     target_dir = os.path.splitext(input_file)[0]
     print(f"writing segments to target directory '{target_dir}/'")
