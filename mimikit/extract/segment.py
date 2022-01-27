@@ -149,7 +149,6 @@ def segment(input_file: str,
     """extract segments from an audio file"""
 
     y, S = etl(input_file, sr, n_fft, hop_length)
-    S = S[:2000]
     if kernel_size is None:
         tmp = tempo(y, sr)[0]
         kernel_size = int((60 / tmp) * sr) // hop_length
@@ -273,13 +272,16 @@ def re_stretch(source_dir: str,
     durations = np.r_[[s.shape[0] for s in segments]]
     if nmm is not None:
         targets = nearest_multiple(durations, nmm)
+        arg_str = f"_n{nmm}"
     elif xpand is not None:
         targets = x_pand(durations, xpand)
+        arg_str = f"_x{xpand}"
     elif manual and os.path.isfile(os.path.join(source_dir, "durations.json")):
         dct = json.load(open(os.path.join(source_dir, "durations.json"), 'r'))
         targets = np.zeros((durations.size,), dtype=np.int)
         for i, data in dct.items():
             targets[int(i)] = data['target']
+        arg_str = f"_manual"
     else:
         raise ValueError("`nmm` and `xpand` are None, `manual` is False. Cannot stretch without targets.")
     if verbose:
@@ -290,5 +292,5 @@ def re_stretch(source_dir: str,
         for s, target in zip(segments, targets)
     )
     stretched = np.concatenate(stretched, axis=0)
-    export(stretched, os.path.join(source_dir, "stretched"), sr, n_fft, hop_length)
+    export(stretched, os.path.join(source_dir, f"stretched{arg_str}"), sr, n_fft, hop_length)
     return
