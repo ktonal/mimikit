@@ -1,11 +1,10 @@
-from typing import List
-
 import numpy as np
-from librosa.util import peak_pick
+from librosa.util import peak_pick, localmax
 from librosa.beat import tempo
 from librosa import griffinlim
 from librosa.sequence import dtw
 from scipy.interpolate import RectBivariateSpline as RBS
+from scipy.ndimage.filters import minimum_filter1d
 from sklearn.metrics import pairwise_distances as pwd
 from joblib import Parallel, delayed
 import json
@@ -63,9 +62,38 @@ def checker(N, normalize=True):
     return block
 
 
+def pick_globally_sorted_maxes(x, wait_before, wait_after, min_strength=0.02):
+    mn = minimum_filter1d(
+        x, wait_before+wait_after, mode='constant', cval=x.min()
+    )
+    glob_rg = x.max() - x.min()
+    strength = (x - mn) / glob_rg
+    # filter out peaks with too few contrasts
+    mx = localmax(x) & (strength >= min_strength)
+
+    mx_indices = mx.nonzero()[0][np.argsort(-x[mx])]
+
+    final_maxes = np.zeros_like(x, dtype=np.bool)
+
+    for m in mx_indices:
+        i, j = max(0, m - wait_before), min(x.shape[0], m + wait_after)
+        if np.any(final_maxes[i:j]):
+            continue
+        else:
+            # make sure the max dominates left and right
+            # aka we are not globally increasing/decreasing around it
+            mu_l = x[i:m].mean()
+            mu_r = x[m:j].mean()
+            mx = x[m]
+            if mx > mu_l and mx > mu_r:
+                final_maxes[m] = True
+    return final_maxes.nonzero()[0]
+
+
 def from_recurrence_matrix(X,
                            kernel_sizes=[6],
                            min_dur=4,
+                           min_strength=0.03,
                            plot=False):
     """
 
@@ -73,8 +101,9 @@ def from_recurrence_matrix(X,
     ----------
     X: np.ndarray
         shape: T x D
-    kernel_size
+    kernel_sizes
     min_dur
+    min_strength
     plot
 
     Returns
@@ -95,8 +124,8 @@ def from_recurrence_matrix(X,
         dg = dg - dg.min()
         diagonals[scale] = dg
     dg = diagonals.mean(axis=0)
-    print(R.shape, diagonals.shape, dg.shape)
-    mx = peak_pick(dg, min_dur // 2, min_dur // 2, min_dur // 2, min_dur // 2, 0., min_dur)
+    mx2 = peak_pick(dg, min_dur // 2, min_dur // 2, min_dur // 2, min_dur // 2, 0., min_dur)
+    mx = pick_globally_sorted_maxes(dg, min_dur, min_dur, min_strength)
     mx = mx[(mx > min_dur) & (mx < R.shape[0] - min_dur)]
     if plot:
         plt.figure(figsize=(dg.size, 10))
@@ -104,7 +133,9 @@ def from_recurrence_matrix(X,
             plt.plot(d, label=f'kernel_size={k}', linestyle='--', alpha=0.75)
         plt.plot(dg, label=f'mean diagonal')
         plt.legend()
-        plt.vlines(mx, dg.min(), dg.max(), linestyles='-')
+        plt.vlines(mx, dg.min(), dg.max(), linestyles='-', alpha=.5, colors='green', label='new method')
+        plt.vlines(mx2, dg.min(), dg.max(), linestyles='dotted', alpha=.75, colors='blue', label='old method')
+        plt.legend()
         plt.show()
     return mx
 
@@ -115,7 +146,9 @@ def export(S, target_path, sr, n_fft, hop_length):
     if S.shape[0] <= 1:
         print("!!!!!", target_path)
         return
-    y = gla(S)
+    # if S is too long, joblib sends it as np.memmap
+    # which messes with gla()...
+    y = gla(np.asarray(S))
     sf.write(f"{target_path}.wav", y, sr, 'PCM_24')
     return
 
@@ -125,13 +158,16 @@ def export(S, target_path, sr, n_fft, hop_length):
 @click.option("--sr", "-r", default=22050, help="the sample rate used for loading the file (default=22050)")
 @click.option("--n-fft", "-d", default=2048, help="size of the fft (default=2048)")
 @click.option("--hop-length", "-h", default=512, help="hop length of the stft (default=512)")
-@click.option("--kernel-size", "-s", default=None, type=int,
+@click.option("--kernel-size", "-k", default=None, type=int,
               help="half size in frames of the kernel "
                    "(if not specified, tempo of the file is estimated and kernel-size is set to 1 beat)")
 @click.option("--factor", "-r", multiple=True, type=float,
               help="factor for the kernel size "
                    "(default to 1., can be specified multiple times)")
 @click.option("--min-dur", "-m", default=None, type=int,
+              help="minimum number of frames per segment "
+              "(if not specified, default to kernel-size)")
+@click.option("--min-strength", "-s", default=0.03, type=float,
               help="minimum number of frames per segment "
               "(if not specified, default to kernel-size)")
 @click.option("--export-durations", "-x", is_flag=True, help="whether to write the durations as a text file")
@@ -143,6 +179,7 @@ def segment(input_file: str,
             kernel_size=None,
             factor=[],
             min_dur=None,
+            min_strength=0.03,
             export_durations=False,
             plot=False
             ):
@@ -160,7 +197,7 @@ def segment(input_file: str,
         factor = (1.,)
     stops = from_recurrence_matrix(S,
                                    kernel_sizes=[int(f*kernel_size) for f in factor],
-                                   min_dur=min_dur, plot=plot)
+                                   min_dur=min_dur, min_strength=min_strength, plot=plot)
     segments = np.split(S, stops, axis=0)
     target_dir = os.path.splitext(input_file)[0]
     print(f"writing segments to target directory '{target_dir}/'")
