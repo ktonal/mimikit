@@ -168,8 +168,8 @@ def export(S, target_path, sr, n_fft, hop_length):
               help="minimum number of frames per segment "
               "(if not specified, default to kernel-size)")
 @click.option("--min-strength", "-s", default=0.03, type=float,
-              help="minimum number of frames per segment "
-              "(if not specified, default to kernel-size)")
+              help="minimum strength for a peak to be selected "
+              "(default=0.03, must be between 0. and 1.)")
 @click.option("--export-durations", "-x", is_flag=True, help="whether to write the durations as a text file")
 @click.option("--plot", "-p", is_flag=True, help="whether to plot the results")
 def segment(input_file: str,
