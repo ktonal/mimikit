@@ -1,3 +1,5 @@
+import matplotlib as mpl
+mpl.rcParams['agg.path.chunksize'] = 10000
 import numpy as np
 from librosa.util import peak_pick, localmax
 from librosa.beat import tempo
@@ -64,7 +66,7 @@ def checker(N, normalize=True):
 
 def pick_globally_sorted_maxes(x, wait_before, wait_after, min_strength=0.02):
     mn = minimum_filter1d(
-        x, wait_before+wait_after, mode='constant', cval=x.min()
+        x, wait_before + wait_after, mode='constant', cval=x.min()
     )
     glob_rg = x.max() - x.min()
     strength = (x - mn) / glob_rg
@@ -128,16 +130,20 @@ def from_recurrence_matrix(X,
     mx = pick_globally_sorted_maxes(dg, min_dur, min_dur, min_strength)
     mx = mx[(mx > min_dur) & (mx < R.shape[0] - min_dur)]
     if plot:
-        plt.figure(figsize=(dg.size, 10))
-        for k, d in zip(kernel_sizes, diagonals):
-            plt.plot(d, label=f'kernel_size={k}', linestyle='--', alpha=0.75)
-        plt.plot(dg, label=f'mean diagonal')
-        plt.legend()
-        plt.vlines(mx, dg.min(), dg.max(), linestyles='-', alpha=.5, colors='green', label='new method')
-        plt.vlines(mx2, dg.min(), dg.max(), linestyles='dotted', alpha=.75, colors='blue', label='old method')
-        plt.legend()
-        plt.show()
-    return mx
+        def plot_diagonals():
+            plt.figure(figsize=(dg.size // 500, 10))
+            for k, d in zip(kernel_sizes, diagonals):
+                plt.plot(d, label=f'kernel_size={k}', linestyle='--', alpha=0.75)
+            plt.plot(dg, label=f'mean diagonal')
+            plt.legend()
+            plt.vlines(mx, dg.min(), dg.max(), linestyles='-', alpha=.5, colors='green', label='new method')
+            plt.vlines(mx2, dg.min(), dg.max(), linestyles='dotted', alpha=.75, colors='blue', label='old method')
+            plt.legend()
+            plt.show()
+    else:
+        def plot_diagonals():
+            return
+    return mx, plot_diagonals
 
 
 def export(S, target_path, sr, n_fft, hop_length):
@@ -166,10 +172,10 @@ def export(S, target_path, sr, n_fft, hop_length):
                    "(default to 1., can be specified multiple times)")
 @click.option("--min-dur", "-m", default=None, type=int,
               help="minimum number of frames per segment "
-              "(if not specified, default to kernel-size)")
+                   "(if not specified, default to kernel-size)")
 @click.option("--min-strength", "-s", default=0.03, type=float,
               help="minimum strength for a peak to be selected "
-              "(default=0.03, must be between 0. and 1.)")
+                   "(default=0.03, must be between 0. and 1.)")
 @click.option("--export-durations", "-x", is_flag=True, help="whether to write the durations as a text file")
 @click.option("--plot", "-p", is_flag=True, help="whether to plot the results")
 def segment(input_file: str,
@@ -195,18 +201,13 @@ def segment(input_file: str,
         min_dur = kernel_size
     if not factor:
         factor = (1.,)
-    stops = from_recurrence_matrix(S,
-                                   kernel_sizes=[int(f*kernel_size) for f in factor],
-                                   min_dur=min_dur, min_strength=min_strength, plot=plot)
+    stops, plot_diagonals = from_recurrence_matrix(
+        S,
+        kernel_sizes=[int(f * kernel_size) for f in factor],
+        min_dur=min_dur, min_strength=min_strength, plot=plot
+    )
     segments = np.split(S, stops, axis=0)
     target_dir = os.path.splitext(input_file)[0]
-    print(f"writing segments to target directory '{target_dir}/'")
-    if os.path.exists(target_dir):
-        shutil.rmtree(target_dir)
-    os.makedirs(target_dir, exist_ok=True)
-    Parallel(n_jobs=-1, backend='multiprocessing') \
-        (delayed(export)(s, f"{target_dir}/{i}", sr, n_fft, hop_length)
-         for i, s in enumerate(segments))
     durs, counts = np.unique([s.shape[0] for s in segments], return_counts=True)
     distrib_str = "\n    ".join([f"{d}  :  {c}"
                                  for d, c in zip(durs[(-counts).argsort()[:10]],
@@ -230,11 +231,20 @@ def segment(input_file: str,
     Dur : Count
     """ + distrib_str
     )
+    print(f"writing segments to target directory '{target_dir}/'")
+    if os.path.exists(target_dir):
+        shutil.rmtree(target_dir)
+    os.makedirs(target_dir, exist_ok=True)
+    Parallel(n_jobs=-1, backend='multiprocessing', batch_size=16) \
+        (delayed(export)(s, f"{target_dir}/{i}", sr, n_fft, hop_length)
+         for i, s in enumerate(segments))
     if export_durations:
         with open(os.path.join(target_dir, "durations.json"), 'w') as f:
-            f.write(json.dumps({i: {"o_dur": s.shape[0], "target": s.shape[0]} for i, s in enumerate(segments)}, indent=1))
+            f.write(
+                json.dumps({i: {"o_dur": s.shape[0], "target": s.shape[0]} for i, s in enumerate(segments)}, indent=1))
     if plot:
-        plt.figure(figsize=(y.shape[0]//sr, 10))
+        plot_diagonals()
+        plt.figure(figsize=(60, 10))
         plt.plot(y)
         plt.vlines(np.cumsum([s.shape[0] * hop_length for s in segments]), -1, 1, linestyles='--',
                    alpha=.5, colors='green')
@@ -245,7 +255,7 @@ def segment(input_file: str,
 def _stretch_rbs(S, ratio):
     if S.shape[1] <= 1 or S.shape[0] <= 1:
         return S
-    time_indices = np.linspace(0, S.shape[1]-1, int(np.rint(S.shape[1] * ratio)))
+    time_indices = np.linspace(0, S.shape[1] - 1, int(np.rint(S.shape[1] * ratio)))
     if S.dtype in (np.complex64, np.complex128):
         mag, phase = abs(S), np.imag(S)
     else:
