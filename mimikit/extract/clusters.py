@@ -1,7 +1,8 @@
 import numpy as np
 from scipy.sparse.csgraph import connected_components
 from sklearn.metrics import pairwise_distances as pwd
-from sklearn.neighbors import KNeighborsTransformer
+from sklearn.neighbors import KNeighborsTransformer, NearestNeighbors
+import sklearn.cluster as C
 import torch
 import torch.nn as nn
 from joblib import Parallel, delayed
@@ -9,6 +10,9 @@ import click
 import os
 import soundfile as sf
 import shutil
+from functools import partial
+
+from ..modules import angular_distance
 
 
 class QCluster:
@@ -55,12 +59,20 @@ class QCluster:
 
 
 class GCluster:
-    def __init__(self, n_means, n_iter=128, lr=0.025, betas=(0.05, 0.05), metric="cosine"):
+    def __init__(self,
+                 n_means,
+                 n_iter=128,
+                 lr=0.025,
+                 betas=(0.05, 0.05),
+                 metric="cosine",
+                 eps=1e-6):
         self.n_means = n_means
         self.n_iter = n_iter
         self.lr = lr
         self.betas = betas
         self.metric = metric
+        self.d_func = dict(euclidean=torch.cdist,
+                           cosine=partial(angular_distance, eps=eps))[metric]
         self.K_ = None
         self.labels_ = None
         self.losses_ = None
@@ -72,8 +84,8 @@ class GCluster:
         losses = []
         for _ in range(self.n_iter):
             opt.zero_grad()
-            L = torch.cdist(H, X).mean()
-            L = L - .5 * torch.cdist(H, H).mean()
+            L = self.d_func(H, X).mean()
+            L = L - .5 * self.d_func(H, H).mean()
             L.backward()
             opt.step()
             losses += [L.item()]
@@ -115,18 +127,93 @@ class HCluster:
             if i == 0:
                 LBS[:, 0] = labels
             else:
-                LBS[:, i] = np.r_[[labels[LBS[n, i-1]] for n in range(x.shape[0])]]
+                LBS[:, i] = np.r_[[labels[LBS[n, i - 1]] for n in range(x.shape[0])]]
 
             xa = np.stack([xa[labels == k].mean(axis=0) for k in range(K)])
             Da = pwd(xa, xa, metric=self.metric)
             Da[Da == 0] = np.inf
             if K == 1:
-                LBS = LBS[:, :i+1]
-                self.K_ = i+1
+                LBS = LBS[:, :i + 1]
+                self.K_ = i + 1
                 break
 
         self.labels_ = LBS
         return self
+
+
+def distance_matrices(X, metric="euclidean", n_neighbors=1, radius=1e-3):
+    Dx = pwd(X, X, metric=metric, n_jobs=-1)
+    NN = NearestNeighbors(n_neighbors=n_neighbors, radius=radius, metric="precomputed", n_jobs=-1)
+    NN.fit(Dx)
+    Kx = NN.kneighbors_graph(n_neighbors=n_neighbors, mode='connectivity')
+    Rx = NN.radius_neighbors_graph(radius=radius, mode='connectivity')
+    return Dx, Kx, Rx
+
+
+class ArgMax(object):
+    def __init__(self):
+        self.labels_ = None
+        self.K_ = None
+
+    def fit(self, X):
+        maxes = np.argmax(X, axis=1)
+        uniques, self.labels_ = np.unique(maxes, return_inverse=True)
+        self.K_ = len(uniques)
+        return self
+
+
+def sk_cluster(X, Dx=None, n_clusters=128, metric="euclidean", estimator="argmax"):
+    estimators = {
+
+        "argmax": ArgMax(),
+
+        "kmeans": C.KMeans(n_clusters=n_clusters,
+                           n_init=4,
+                           max_iter=200,
+                           n_jobs=-1),
+
+        "spectral": C.SpectralClustering(n_clusters=n_clusters,
+                                         affinity="nearest_neighbors",
+                                         n_neighbors=32,
+                                         assign_labels="discretize",
+                                         n_jobs=-1),
+
+        "agglo_ward": C.AgglomerativeClustering(
+            n_clusters=n_clusters,
+            affinity="euclidean",
+            compute_full_tree='auto',
+            linkage='ward',
+            distance_threshold=None, ),
+
+        "agglo_single": C.AgglomerativeClustering(
+            n_clusters=n_clusters,
+            affinity="precomputed",
+            compute_full_tree='auto',
+            linkage='single',
+            distance_threshold=None, ),
+
+        "agglo_complete": C.AgglomerativeClustering(
+            n_clusters=n_clusters,
+            affinity="precomputed",
+            compute_full_tree='auto',
+            linkage='complete',
+            distance_threshold=None, )
+
+    }
+
+    needs_distances = estimator in {"agglo_single", "agglo_complete"}
+
+    if needs_distances:
+        if Dx is None:
+            Dx, _, _ = distance_matrices(X, metric=metric)
+        X_ = Dx
+    else:
+        X_ = X
+
+    cls = estimators[estimator]
+    cls.fit(X_)
+
+    return cls
 
 
 def etl(input_file, sr, n_fft, hop_length):
@@ -156,16 +243,17 @@ def export(S, target_path, sr, n_fft, hop_length):
 @click.option("--sr", "-r", default=22050, help="the sample rate used for loading the file (default=22050)")
 @click.option("--n-fft", "-d", default=2048, help="size of the fft (default=2048)")
 @click.option("--hop-length", "-h", default=512, help="hop length of the stft (default=512)")
-@click.option("--n-neighbs", "-n", default=None, type=int, help="size of the neighborhood used to estimate point-density")
+@click.option("--n-neighbs", "-n", default=None, type=int,
+              help="size of the neighborhood used to estimate point-density")
 @click.option("--qe", "-q", default=0.5, type=float,
               help="proportion of edge-points")
 @click.option("--k", "-k", default=1, type=int,
               help="proportion of connecting core points")
 def cluster(input_file: str,
             sr: int = 22050,
-            n_fft: int =2048,
-            hop_length: int =512,
-            n_neighbs: int =None,
+            n_fft: int = 2048,
+            hop_length: int = 512,
+            n_neighbs: int = None,
             qe: float = 0.5,
             k: int = 1
             ):
@@ -185,7 +273,7 @@ Data shape : {S.shape}
 Parameters : n_neighbs={est.n_neighbs} ; k={est.k} ; qe={qe}
 ========>   found {est.K_} clusters
     """ + distrib_str
-    )
+          )
 
     target_dir = os.path.splitext(input_file)[0]
     if os.path.exists(target_dir):

@@ -30,7 +30,7 @@ def mean_2d_diff(output, target):
     return Lw + Lh
 
 
-def cosine_similarity(X, Y, eps=1e-10):
+def cosine_similarity(X, Y, eps=1e-6):
     """
     safely computes the cosine similarity between matrices X and Y.
 
@@ -50,11 +50,11 @@ def cosine_similarity(X, Y, eps=1e-10):
 
     dot_prod = torch.matmul(X, Y.transpose(-2, -1))
     norms = torch.norm(X, p=2, dim=-1).unsqueeze(-1) * torch.norm(Y, p=2, dim=-1).unsqueeze(-2)
-    cos_theta = dot_prod.div_(torch.maximum(norms, eps, out=norms))
+    cos_theta = dot_prod.div_(torch.maximum(norms, eps))
     return cos_theta
 
 
-def angular_distance(X, Y, eps=1e-20):
+def angular_distance(X, Y, eps=1e-6):
     """
     angular distance is a valid distance metric based on the cosine similarity
     see https://en.wikipedia.org/wiki/Cosine_similarity#Angular_distance_and_similarity

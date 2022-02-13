@@ -56,17 +56,3 @@ def hist_transform(neighbors, bins=256):
         h = torch.stack([torch.histc(xi, bins=bins) for xi in neighbors.view(-1, neighbors.size(-1))]).reshape(*x_dims, bins)
         return h
     return torch.histc(neighbors, bins=bins)
-
-
-def centro_grid(X, n_means=8, lr=0.025, n_iter=128, dist_func=torch.cdist):
-    H = torch.nn.Parameter(X[torch.randint(0, X.shape[0], (n_means,))].clone())
-    opt = torch.optim.Adam([H], lr=lr, betas=(.05, .05))
-    losses = []
-    for _ in range(n_iter):
-        opt.zero_grad()
-        L = dist_func(H, X).mean()
-        L = L - .5 * dist_func(H, H).mean()
-        L.backward()
-        opt.step()
-        losses += [L.item()]
-    return H.detach()

@@ -50,8 +50,12 @@ class AudioSignal(Feature):
         return inputs
 
     def batch_item(self, data='snd', shift=0, length=1,
-                   frame_size=None, hop_length=None, center=False, pad_mode="reflect",
-                   downsampling=1, **kwargs):
+                   frame_size=None,
+                   hop_length=None,
+                   center=False,
+                   pad_mode="reflect",
+                   downsampling=1,
+                   **kwargs):
         if frame_size is None:
             getter = h5mapper.AsSlice(shift=shift, length=length, downsampling=downsampling)
         else:
