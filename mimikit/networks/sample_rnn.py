@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 from pytorch_lightning.utilities import AttributeDict
 
-from h5mapper import AsSlice, AsFramedSlice
 from .single_class_mlp import SingleClassMLP
 from ..modules.homs import *
 from .resamplers import *

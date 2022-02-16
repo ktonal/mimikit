@@ -238,10 +238,14 @@ def segment(input_file: str,
     Parallel(n_jobs=-1, backend='multiprocessing', batch_size=16) \
         (delayed(export)(s, f"{target_dir}/{i}", sr, n_fft, hop_length)
          for i, s in enumerate(segments))
+
+    params = dict(k=kernel_size, r=factor, m=min_dur)
+    with open(os.path.join(target_dir, "params.json"), 'w') as f:
+        f.write(json.dumps(params))
     if export_durations:
         with open(os.path.join(target_dir, "durations.json"), 'w') as f:
-            f.write(
-                json.dumps({i: {"o_dur": s.shape[0], "target": s.shape[0]} for i, s in enumerate(segments)}, indent=1))
+            f.write(json.dumps({i: {"o_dur": s.shape[0], "target": s.shape[0]} for i, s in enumerate(segments)}, indent=1))
+
     if plot:
         plot_diagonals()
         plt.figure(figsize=(60, 10))
@@ -317,18 +321,20 @@ def re_stretch(source_dir: str,
     )
     segments = [s[1] for s in segments]
     durations = np.r_[[s.shape[0] for s in segments]]
+    with open(os.path.join(source_dir, "params.json"), 'r') as f:
+        arg_str = "_".join([k+str(v) for k, v in json.loads(f.read()).items()])
     if nmm is not None:
         targets = nearest_multiple(durations, nmm)
-        arg_str = f"_n{nmm}"
+        arg_str += f"_n{nmm}"
     elif xpand is not None:
         targets = x_pand(durations, xpand)
-        arg_str = f"_x{xpand}"
+        arg_str += f"_x{xpand}"
     elif manual and os.path.isfile(os.path.join(source_dir, "durations.json")):
         dct = json.load(open(os.path.join(source_dir, "durations.json"), 'r'))
         targets = np.zeros((durations.size,), dtype=np.int)
         for i, data in dct.items():
             targets[int(i)] = data['target']
-        arg_str = f"_manual"
+        arg_str += f"_manual"
     else:
         raise ValueError("`nmm` and `xpand` are None, `manual` is False. Cannot stretch without targets.")
     if verbose:
@@ -339,5 +345,5 @@ def re_stretch(source_dir: str,
         for s, target in zip(segments, targets)
     )
     stretched = np.concatenate(stretched, axis=0)
-    export(stretched, os.path.join(source_dir, f"stretched{arg_str}"), sr, n_fft, hop_length)
+    export(stretched, os.path.join(source_dir, f"stretched_{arg_str}"), sr, n_fft, hop_length)
     return
