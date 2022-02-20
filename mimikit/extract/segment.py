@@ -1,5 +1,3 @@
-import matplotlib as mpl
-mpl.rcParams['agg.path.chunksize'] = 10000
 import numpy as np
 from librosa.util import peak_pick, localmax
 from librosa.beat import tempo
@@ -9,12 +7,17 @@ from scipy.interpolate import RectBivariateSpline as RBS
 from scipy.ndimage.filters import minimum_filter1d
 from sklearn.metrics import pairwise_distances as pwd
 from joblib import Parallel, delayed
+from typing import List
+from numba import njit, prange, float64, intp
 import json
 import matplotlib.pyplot as plt
 import click
 import os
 import soundfile as sf
 import shutil
+from time import time
+import matplotlib as mpl
+mpl.rcParams['agg.path.chunksize'] = 10000
 
 __all__ = [
     'from_recurrence_matrix'
@@ -46,6 +49,77 @@ def etl(input_file, sr, n_fft, hop_length):
     return y, S
 
 
+@njit(float64[:, :](float64[:, :], intp), fastmath=True, cache=True, parallel=True)
+def pwdk_cosine(X, k):
+    """
+    pairwise distance within a kernel size - cosine version
+
+    Parameters
+    ----------
+    X: np.ndarray (shape = T x D)
+        Matrix of observations in time
+    k: int
+        kernel size - must be odd and > 0
+
+    Returns
+    -------
+    diags: np.ndarray (shape = T x k)
+        cosine distance between observations t
+        and t-(k//2) to t+(k//2)
+    """
+    T = X.shape[0]
+    dist = np.zeros((T, 2 * k - 1))
+    kdiv2 = k
+    # for angular distance:
+    # has_negatives = int(np.any(A < 0))
+    for i in prange(X.shape[0]):
+        for j in prange(max(i - kdiv2, 0), min(i + kdiv2 + 1, T)):
+            if i == j:
+                continue
+            Xi, Xj = np.ascontiguousarray(X[i]), np.ascontiguousarray(X[j])
+            # compute cosine distance
+            dij = np.dot(Xi, Xj)
+            denom = (np.linalg.norm(Xi) * np.linalg.norm(Xj))
+            if denom == 0:
+                dij = 1.
+            else:
+                dij = 1 - (dij / denom)
+            # for angular distance:
+            # dij = (1 + has_negatives) * np.arccos(dij) / np.pi
+            dist[i, kdiv2 + (j - i)] = dij
+    return dist
+
+
+@njit(float64[:](float64[:, :], float64[:, :]), fastmath=True, cache=True, parallel=True)
+def convolve_diagonals(diagonals, kernel):
+    """
+    convolve `diagonals` with `kernel`
+
+    Parameters
+    ----------
+    diagonals: np.ndarray (T x k)
+    kernel: np.ndarray (k x k)
+
+    Returns
+    -------
+    c: np.ndarray (T, )
+
+    """
+    K = kernel.shape[0]
+    N = diagonals.shape[0] - K + 1
+    out = np.zeros((N,), dtype=np.float64)
+    # outer loop is parallel, inner sequential
+    for i in prange(N):
+        s = 0.
+        for j in range(K):
+            xi = diagonals[i + j:i + j + 1, K - j - 1:(2 * K) - j - 1]
+            xi = np.ascontiguousarray(xi)
+            kj = np.ascontiguousarray(kernel[j])
+            s = s + np.dot(xi, kj)[0]
+        out[i] = s
+    return out
+
+
 def checker(N, normalize=True):
     """
     checker(2)
@@ -61,7 +135,32 @@ def checker(N, normalize=True):
             block[k + N, l + N] = - np.sign(k) * np.sign(l)
     if normalize:
         block = block / np.abs(block).sum()
-    return block
+    return block.astype(np.float64)
+
+
+def discontinuity_scores(
+        X: np.ndarray,
+        kernel_sizes: List[int],
+):
+    # make the kernels odd
+    kernel_sizes = [(k*2)+1 for k in kernel_sizes]
+    max_kernel = max(kernel_sizes)
+    X = np.ascontiguousarray(X, dtype=np.float)
+    N = X.shape[0]
+    scores = np.zeros((len(kernel_sizes), N))
+    diagonals = pwdk_cosine(X, max_kernel)
+    for i, k in enumerate(kernel_sizes):
+        kd2 = k // 2
+        if k < max_kernel:
+            extra = max_kernel - k
+            dk = diagonals[:, extra:-extra]
+        else:
+            dk = diagonals.copy()
+        dk = np.pad(dk, ((kd2, kd2), (0, 0)))
+        kernel = checker(kd2, normalize=True)
+        scr = convolve_diagonals(dk, kernel)
+        scores[i] = scr - scr.min()
+    return scores
 
 
 def pick_globally_sorted_maxes(x, wait_before, wait_after, min_strength=0.02):
@@ -97,38 +196,12 @@ def from_recurrence_matrix(X,
                            min_dur=4,
                            min_strength=0.03,
                            plot=False):
-    """
-
-    Parameters
-    ----------
-    X: np.ndarray
-        shape: T x D
-    kernel_sizes
-    min_dur
-    min_strength
-    plot
-
-    Returns
-    -------
-    indices of the segments
-    """
-    R = pwd(X, metric='cosine', n_jobs=1)
-    diagonals = np.zeros((len(kernel_sizes), R.shape[0]))
-    for scale, kernel_size in enumerate(kernel_sizes):
-        # intensify checker-board-like entries
-        K = checker(kernel_size)
-        # convolve R with K manually is more efficient
-        # since we only need to convolve along the diag
-        R_hat = np.pad(R, kernel_size, mode="constant")
-        R_hat = np.stack([R_hat[i:i + 2 * kernel_size + 1, i:i + 2 * kernel_size + 1].flat[:]
-                          for i in range(X.shape[0])])
-        dg = (R_hat @ K.flat[:].reshape(-1, 1)).reshape(-1)
-        dg = dg - dg.min()
-        diagonals[scale] = dg
+    N = X.shape[0]
+    diagonals = discontinuity_scores(X, kernel_sizes)
     dg = diagonals.mean(axis=0)
     mx2 = peak_pick(dg, min_dur // 2, min_dur // 2, min_dur // 2, min_dur // 2, 0., min_dur)
     mx = pick_globally_sorted_maxes(dg, min_dur, min_dur, min_strength)
-    mx = mx[(mx > min_dur) & (mx < R.shape[0] - min_dur)]
+    mx = mx[(mx > min_dur) & (mx < (N - min_dur))]
     if plot:
         def plot_diagonals():
             plt.figure(figsize=(dg.size // 500, 10))
@@ -201,11 +274,13 @@ def segment(input_file: str,
         min_dur = kernel_size
     if not factor:
         factor = (1.,)
+    start = time()
     stops, plot_diagonals = from_recurrence_matrix(
         S,
         kernel_sizes=[int(f * kernel_size) for f in factor],
         min_dur=min_dur, min_strength=min_strength, plot=plot
     )
+    duration = time() - start
     segments = np.split(S, stops, axis=0)
     target_dir = os.path.splitext(input_file)[0]
     durs, counts = np.unique([s.shape[0] for s in segments], return_counts=True)
@@ -215,6 +290,8 @@ def segment(input_file: str,
                   "\n    [  ...  ]\n"
     print(
         f"""
+    Segmented '{input_file}' in {duration:.3f} seconds
+
     Original data shape       = {S.shape}
     {f'estimated tempo           = {tmp:.3f} BPM' if tmp is not None else ""}
     1 frame                   = {hop_length / sr:.3f} sec
@@ -248,6 +325,7 @@ def segment(input_file: str,
 
     if plot:
         plot_diagonals()
+        plt.show()
         plt.figure(figsize=(60, 10))
         plt.plot(y)
         plt.vlines(np.cumsum([s.shape[0] * hop_length for s in segments]), -1, 1, linestyles='--',
