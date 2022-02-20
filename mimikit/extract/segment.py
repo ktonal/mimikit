@@ -367,13 +367,13 @@ def x_pand(x, ga):
     return np.maximum(np.minimum(y, x.max()), 2)
 
 
-def _kde_stretch(S, target_dur, n_components=16, grid_size=16, smoother_size=2):
+def _kde_stretch(S, target_dur, n_components=32, grid_size=16, smoother_size=2):
     from sklearn.neighbors import KernelDensity
     from sklearn.decomposition import PCA
     from sklearn.model_selection import GridSearchCV
 
     # project the data to a lower dimension
-    pca = PCA(n_components=n_components, whiten=False)
+    pca = PCA(n_components=min(n_components, S.shape[0]), whiten=False)
     data = pca.fit_transform(S)
 
     # use grid search cross-validation to optimize the bandwidth
@@ -388,7 +388,10 @@ def _kde_stretch(S, target_dur, n_components=16, grid_size=16, smoother_size=2):
 
     # sample 44 new points from the data
     new_data = kde.sample(target_dur)
-    new_data = median_filter(new_data, size=(smoother_size, smoother_size))
+    d = pwd(new_data, data, metric='cosine')
+    idx = np.argsort(d.argmin(axis=1))
+    new_data = new_data[idx]
+    # new_data = median_filter(new_data, size=(smoother_size, smoother_size))
     return pca.inverse_transform(new_data)
 
 
