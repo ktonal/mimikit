@@ -4,7 +4,7 @@ from librosa.beat import tempo
 from librosa import griffinlim
 from librosa.sequence import dtw
 from scipy.interpolate import RectBivariateSpline as RBS
-from scipy.ndimage.filters import minimum_filter1d
+from scipy.ndimage.filters import minimum_filter1d, median_filter
 from sklearn.metrics import pairwise_distances as pwd
 from joblib import Parallel, delayed
 from typing import List
@@ -367,6 +367,31 @@ def x_pand(x, ga):
     return np.maximum(np.minimum(y, x.max()), 2)
 
 
+def _kde_stretch(S, target_dur, n_components=16, grid_size=16, smoother_size=2):
+    from sklearn.neighbors import KernelDensity
+    from sklearn.decomposition import PCA
+    from sklearn.model_selection import GridSearchCV
+
+    # project the data to a lower dimension
+    pca = PCA(n_components=n_components, whiten=False)
+    data = pca.fit_transform(S)
+
+    # use grid search cross-validation to optimize the bandwidth
+    params = {"bandwidth": np.logspace(-1, 1, grid_size)}
+    grid = GridSearchCV(KernelDensity(), params)
+    grid.fit(data)
+
+    print("best bandwidth: {0}".format(grid.best_estimator_.bandwidth))
+
+    # use the best estimator to compute the kernel density estimate
+    kde = grid.best_estimator_
+
+    # sample 44 new points from the data
+    new_data = kde.sample(target_dur)
+    new_data = median_filter(new_data, size=(smoother_size, smoother_size))
+    return pca.inverse_transform(new_data)
+
+
 @click.command()
 @click.option("-s", "--source-dir", help="file to be segmented")
 @click.option("--sr", "-r", default=22050, help="the sample rate used for loading the file")
@@ -379,6 +404,8 @@ def x_pand(x, ga):
 @click.option("--manual", "-m", is_flag=True,
               help="if specified, expects `source-dir` to contain a `durations.json` file "
                    "containing target durations for each segment")
+@click.option("--stretcher", "-t", type=str, help="method to use for stretching. One of 'rbs', 'kde'",
+              default='rbs')
 @click.option("--verbose", "-v", is_flag=True,
               help="whether to print out the transformation durations")
 def re_stretch(source_dir: str,
@@ -388,6 +415,7 @@ def re_stretch(source_dir: str,
                nmm=None,
                xpand=None,
                manual=False,
+               stretcher='rbs',
                verbose=False):
     from h5mapper import FileWalker
 
@@ -397,7 +425,7 @@ def re_stretch(source_dir: str,
         delayed(etl)(f, sr, n_fft, hop_length)
         for f in files
     )
-    segments = [s[1] for s in segments]
+    segments = [s[1] for s in segments][:32]
     durations = np.r_[[s.shape[0] for s in segments]]
     with open(os.path.join(source_dir, "params.json"), 'r') as f:
         arg_str = "_".join([k+str(v) for k, v in json.loads(f.read()).items()])
@@ -415,11 +443,15 @@ def re_stretch(source_dir: str,
         arg_str += f"_manual"
     else:
         raise ValueError("`nmm` and `xpand` are None, `manual` is False. Cannot stretch without targets.")
+    if stretcher == 'rbs':
+        stretch_func = _stretch
+    else:
+        stretch_func = _kde_stretch
     if verbose:
         for i, (o, t) in enumerate(zip(durations, targets)):
             print(f"{i}: {o} -> {t}")
     stretched = Parallel(n_jobs=-1, backend="multiprocessing")(
-        delayed(_stretch)(s, target)
+        delayed(stretch_func)(s, target)
         for s, target in zip(segments, targets)
     )
     stretched = np.concatenate(stretched, axis=0)
