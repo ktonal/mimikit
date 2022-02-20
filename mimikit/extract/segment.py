@@ -428,7 +428,7 @@ def re_stretch(source_dir: str,
         delayed(etl)(f, sr, n_fft, hop_length)
         for f in files
     )
-    segments = [s[1] for s in segments][:32]
+    segments = [s[1] for s in segments]
     durations = np.r_[[s.shape[0] for s in segments]]
     with open(os.path.join(source_dir, "params.json"), 'r') as f:
         arg_str = "_".join([k+str(v) for k, v in json.loads(f.read()).items()])
