@@ -1,8 +1,12 @@
 import h5mapper as h5m
-import mimikit as mmk
 import torch
+import torch.nn as nn
 
 from .io_modules import *
+from ..features import Spectrogram, MuLawSignal
+from ..networks import Seq2SeqLSTM as S2SNet, MultiSeq2SeqLSTM
+from ..modules import Flatten
+
 
 __all__ = [
     "Seq2SeqLSTMv0",
@@ -11,8 +15,8 @@ __all__ = [
 ]
 
 
-class Seq2SeqLSTMv0(mmk.Seq2SeqLSTM):
-    feature = mmk.Spectrogram(sr=22050, n_fft=2048, hop_length=512, coordinate='mag')
+class Seq2SeqLSTMv0(S2SNet):
+    feature = Spectrogram(sr=22050, n_fft=2048, hop_length=512, coordinate='mag')
     """no input module"""
     def __init__(self,
                  feature=None,
@@ -26,7 +30,7 @@ class Seq2SeqLSTMv0(mmk.Seq2SeqLSTM):
             _, outpt_mod = mag_spec_io(fft_dim, model_dim, 1, output_heads, scaled_activation)
         elif feature.coordinate == "pol":
             _, outpt_mod = pol_spec_io(fft_dim//2, model_dim, 1, output_heads, scaled_activation, phs)
-            net_hp["input_module"] = mmk.Flatten(2)
+            net_hp["input_module"] = Flatten(2)
         else:
             raise ValueError(f"Seq2SeqLSTM doesn't support coordinate of type {feature.coordinate}")
         net_hp["input_dim"] = fft_dim
@@ -38,8 +42,8 @@ class Seq2SeqLSTMv0(mmk.Seq2SeqLSTM):
         self.hp.phs = phs
 
 
-class Seq2SeqLSTM(mmk.Seq2SeqLSTM):
-    feature = mmk.Spectrogram(sr=22050, n_fft=2048, hop_length=512, coordinate='mag')
+class Seq2SeqLSTM(S2SNet):
+    feature = Spectrogram(sr=22050, n_fft=2048, hop_length=512, coordinate='mag')
 
     def __init__(self,
                  feature=None,
@@ -67,8 +71,8 @@ class Seq2SeqLSTM(mmk.Seq2SeqLSTM):
         self.hp.phs = phs
 
 
-class Seq2SeqMuLaw(mmk.Seq2SeqLSTM):
-    feature = mmk.MuLawSignal(sr=16000, q_levels=256, normalize=True)
+class Seq2SeqMuLaw(Seq2SeqLSTM):
+    feature = MuLawSignal(sr=16000, q_levels=256, normalize=True)
 
     def __init__(self, feature=None, mlp_dim=128, **net_hp):
         net_hp["input_module"] = feature.input_module(net_hp["input_dim"])
@@ -79,11 +83,11 @@ class Seq2SeqMuLaw(mmk.Seq2SeqLSTM):
         self.hp.mlp_dim = mlp_dim
 
 
-class MultiSeq2SeqFFT(mmk.MultiSeq2SeqLSTM):
+class MultiSeq2SeqFFT(MultiSeq2SeqLSTM):
     pass
 
 
-class MultiSeq2SeqMuLaw(mmk.MultiSeq2SeqLSTM):
+class MultiSeq2SeqMuLaw(MultiSeq2SeqLSTM):
     pass
 
 

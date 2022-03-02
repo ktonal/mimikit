@@ -22,6 +22,12 @@ with open('README.md', 'r', encoding='utf-8') as f:
 with open(os.path.join(os.path.dirname(__file__), 'requirements.txt'), "r", encoding="utf-8") as f:
     REQUIRES = [ln.strip() for ln in f.readlines() if ln.strip()]
 
+with open(os.path.join(os.path.dirname(__file__), 'requirements-colab.txt'), "r", encoding="utf-8") as f:
+    colab_requires = [ln.strip() for ln in f.readlines() if ln.strip()]
+
+with open(os.path.join(os.path.dirname(__file__), 'requirements-torch.txt'), "r", encoding="utf-8") as f:
+    torch_requires = [ln.strip() for ln in f.readlines() if ln.strip()]
+
 PACKAGES = find_packages(exclude=('tests', 'tests.*'))
 
 kwargs = {
@@ -51,6 +57,9 @@ kwargs = {
     "keywords": "audio music sound deep-learning",
     'python_requires': '>=3.6',
     'install_requires': REQUIRES,
+    'extras_require': {
+      "torch": torch_requires,
+    },
     'tests_require': ['coverage', 'pytest'],
     'packages': PACKAGES,
     "entry_points": {

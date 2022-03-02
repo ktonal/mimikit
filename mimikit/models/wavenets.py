@@ -1,6 +1,7 @@
-import mimikit as mmk
 
-from .io_modules import *
+from ..networks import WNBlock
+from ..features import MuLawSignal, Spectrogram
+from .io_modules import mag_spec_io, qx_io, pol_spec_io
 
 
 __all__ = [
@@ -9,8 +10,8 @@ __all__ = [
 ]
 
 
-class WaveNetQx(mmk.WNBlock):
-    feature = mmk.MuLawSignal(sr=16000, q_levels=256, normalize=True)
+class WaveNetQx(WNBlock):
+    feature = MuLawSignal(sr=16000, q_levels=256, normalize=True)
 
     def __init__(self, feature=None, mlp_dim=128, **block_hp):
         super(WaveNetQx, self).__init__(**block_hp)
@@ -21,11 +22,11 @@ class WaveNetQx(mmk.WNBlock):
         self.with_io([inpt_mod], [outpt_mod])
 
 
-class WaveNetFFT(mmk.WNBlock):
-    feature = mmk.Spectrogram(sr=22050, n_fft=2048, hop_length=512, coordinate='mag')
+class WaveNetFFT(WNBlock):
+    feature = Spectrogram(sr=22050, n_fft=2048, hop_length=512, coordinate='mag')
 
     def __init__(self,
-                 feature: mmk.Spectrogram,
+                 feature: Spectrogram,
                  input_heads=2,
                  output_heads=4,
                  scaled_activation=True,
