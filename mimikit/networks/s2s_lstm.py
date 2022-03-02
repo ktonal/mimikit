@@ -1,20 +1,22 @@
 import torch
 import torch.nn as nn
 from typing import Optional
-from dataclasses import dataclass
+import dataclasses as dtc
+
+from mimikit.modules.misc import Abs
+from pytorch_lightning.utilities import AttributeDict
 
 from ..networks.parametrized_gaussian import ParametrizedGaussian
-from .generating_net import GeneratingNetwork
-
 
 __all__ = [
     'EncoderLSTM',
     'DecoderLSTM',
     'Seq2SeqLSTM',
+    'MultiSeq2SeqLSTM'
 ]
 
 
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
+@dtc.dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class EncoderLSTM(nn.Module):
     input_d: int = 512
     model_dim: int = 512
@@ -24,6 +26,8 @@ class EncoderLSTM(nn.Module):
     n_fc: Optional[int] = 1
     bias: Optional[bool] = False
     weight_norm: Optional[bool] = False
+    hop: int = 8
+    with_tbptt: bool = False
 
     def __post_init__(self):
         nn.Module.__init__(self)
@@ -40,35 +44,47 @@ class EncoderLSTM(nn.Module):
             nn.Linear(self.model_dim, self.model_dim, bias=False),  # NO ACTIVATION !
         )
         if self.weight_norm:
-            for name, p in dict(self.lstms.named_parameters()).items():
-                if "weight" in name:
-                    torch.nn.utils.weight_norm(self.lstms, name)
+            for lstm in self.lstms:
+                for name, p in dict(lstm.named_parameters()).items():
+                    if "weight" in name:
+                        torch.nn.utils.weight_norm(lstm, name)
+        self.hidden = None
 
-    def forward(self, x, h0=None, c0=None):
-        if h0 is None or c0 is None:
-            hidden = tuple()
-        else:
-            hidden = (h0, c0)
+    def forward(self, x):
         ht, ct = None, None
+        hidden = self.reset_hidden(x, self.hidden)
         for i, lstm in enumerate(self.lstms):
-            out, (ht, ct) = lstm(x, *hidden)
+            out, (ht, ct) = lstm(x, hidden)
             # sum forward and backward nets
             out = out.view(*out.size()[:-1], self.model_dim, 2).sum(dim=-1)
             # take residuals AFTER the first lstm
             x = out if i == 0 else x + out
+            if self.with_tbptt:
+                self.hidden = ht, ct
         states = self.first_and_last_states(x)
-        return self.fc(states), (ht, ct)
+        out = self.fc(states)
+        return out, (ht, ct)
 
     def first_and_last_states(self, sequence):
-        first_states = sequence[:, 0, :]
-        last_states = sequence[:, -1, :]
+        rg = torch.arange(sequence.size(1) // self.hop)
+        first_states = sequence[:, rg * self.hop, :]
+        last_states = sequence[:, (rg + 1) * self.hop - 1, :]
         if self.bottleneck == "add":
             return first_states + last_states
         else:
             return torch.cat((first_states, last_states), dim=-1)
 
+    def reset_hidden(self, x, h):
+        if h is None or x.size(0) != h[0].size(1):
+            B = x.size(0)
+            h0 = torch.zeros(self.num_layers * 2, B, self.model_dim).to(x.device)
+            c0 = torch.zeros(self.num_layers * 2, B, self.model_dim).to(x.device)
+            return h0, c0
+        else:
+            return tuple(h_.detach() for h_ in h)
 
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
+
+@dtc.dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class DecoderLSTM(nn.Module):
     model_dim: int = 512
     num_layers: int = 1
@@ -90,59 +106,126 @@ class DecoderLSTM(nn.Module):
                     if "weight" in name:
                         torch.nn.utils.weight_norm(lstm, name)
 
-    def forward(self, x, hiddens, cells):
-        if hiddens is None or cells is None:
+    def forward(self, x, hidden, cells):
+        if hidden is None or cells is None:
             output, (_, _) = self.lstm1(x)
         else:
             # ALL decoders get hidden states from encoder
-            output, (_, _) = self.lstm1(x, (hiddens, cells))
+            output, (_, _) = self.lstm1(x, (hidden, cells))
         # sum forward and backward nets
         output = output.view(*output.size()[:-1], self.model_dim, 2).sum(dim=-1)
-
-        if hiddens is None or cells is None:
-            output2, (hiddens, cells) = self.lstm2(output)
+        if hidden is None or cells is None:
+            output2, (hidden, cells) = self.lstm2(output)
         else:
-            output2, (hiddens, cells) = self.lstm2(output, (hiddens, cells))
+            output2, (hidden, cells) = self.lstm2(output, (hidden, cells))
         # sum forward and backward nets
         output2 = output2.view(*output2.size()[:-1], self.model_dim, 2).sum(dim=-1)
-
         # sum the outputs
-        return output + output2, (hiddens, cells)
+        return output + output2, (hidden, cells)
 
 
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class Seq2SeqLSTM(GeneratingNetwork, nn.Module):
-    input_dim: int = 513
-    model_dim: int = 1024
-    num_layers: int = 1
-    n_lstm: int = 1
-    bottleneck: str = "add"
-    n_fc: int = 1
+def tile(a, dim, n_tile):
+    init_dim = a.size(dim)
+    repeat_idx = [1] * a.dim()
+    repeat_idx[dim] = n_tile
+    a = a.repeat(*(repeat_idx,))
+    order_index = torch.LongTensor(torch.cat([init_dim * torch.arange(n_tile) + i for i in range(init_dim)]))
+    return torch.index_select(a, dim, order_index.to(a.device))
 
-    def __post_init__(self):
-        nn.Module.__init__(self)
-        GeneratingNetwork.__init__(self)
-        self.enc = EncoderLSTM(self.input_dim, self.model_dim, self.num_layers, self.n_lstm, self.bottleneck, self.n_fc)
-        self.dec = DecoderLSTM(self.model_dim, self.num_layers, self.bottleneck)
-        self.sampler = ParametrizedGaussian(self.model_dim, self.model_dim)
-        self.fc_out = nn.Linear(self.model_dim, self.input_dim, bias=False)
 
-    def forward(self, x, output_length=None):
+class Seq2SeqLSTM(nn.Module):
+    device = property(lambda self: next(self.parameters()).device)
+
+    def __init__(self,
+                 input_dim: int = 513,
+                 model_dim: int = 1024,
+                 num_layers: int = 1,
+                 n_lstm: int = 1,
+                 bottleneck: str = "add",
+                 n_fc: int = 1,
+                 hop: int = 8,
+                 bias: Optional[bool] = False,
+                 weight_norm: bool = False,
+                 input_module: Optional[nn.Module] = None,
+                 output_module: Optional[nn.Module] = None,
+                 with_tbptt: bool = False,
+                 with_sampler: bool = True
+                 ):
+        init_ctx = locals()
+        super(Seq2SeqLSTM, self).__init__()
+        init_ctx.pop("output_module")
+        init_ctx.pop("input_module")
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
+        self.hp = AttributeDict(init_ctx)
+        self.inpt_mod = input_module if input_module is not None else nn.Identity()
+        self.enc = EncoderLSTM(input_dim,
+                               model_dim, num_layers, n_lstm, bottleneck, n_fc,
+                               bias=bias, weight_norm=weight_norm, hop=hop,
+                               with_tbptt=with_tbptt)
+        self.dec = DecoderLSTM(model_dim, num_layers, bottleneck,
+                               bias=bias, weight_norm=(weight_norm,) * 2)
+        if with_sampler:
+            self.sampler = ParametrizedGaussian(model_dim, model_dim, bias=bias)
+        self.outpt_mod = nn.Sequential(
+            nn.Linear(model_dim, input_dim, bias=False), Abs()
+        ) if output_module is None else output_module
+        self.hop = self.rf = self.shift = self.hp.hop
+        self.output_length = lambda n: n
+
+    def forward(self, x, temperature=None):
+        x = self.inpt_mod(x)
         coded, (h_enc, c_enc) = self.enc(x)
-        if output_length is None:
-            output_length = x.size(1)
-        coded = coded.unsqueeze(1).repeat(1, output_length, 1)
-        residuals, _, _ = self.sampler(coded)
-        coded = coded + residuals
+        return self.decode(coded, h_enc, c_enc, temperature)
+
+    def decode(self, x, h_enc, c_enc, temperature=None):
+        coded = tile((x.unsqueeze(1) if len(x.shape) < 3 else x), 1, self.hp.hop)
+        if self.hp.with_sampler:
+            residuals, _, _ = self.sampler(coded)
+            coded = coded + residuals
         output, (_, _) = self.dec(coded, h_enc, c_enc)
-        return self.fc_out(output).abs()
+        return self.outpt_mod(output, *((temperature,) if temperature is not None else ()))
 
-    def generate_(self, prompt, n_steps):
-        shift = self.hparams.shift
-        output = self.prepare_prompt(prompt, shift * n_steps, at_least_nd=3)
-        prior_t = prompt.size(1)
+    def reset_hidden(self):
+        self.enc.hidden = None
 
-        for t in self.generate_tqdm(range(prior_t, prior_t + (shift * n_steps), shift)):
-            output.data[:, t:t+shift] = self.forward(output[:, t-shift:t])
+    def before_generate(self, loop, batch, batch_idx):
+        self.reset_hidden()
+        self.forward(*batch)
+        return {}
 
-        return output
+    def generate_step(self, t, inputs, ctx):
+        return self.forward(*inputs)
+
+    def after_generate(self, outputs, ctx, batch_idx):
+        self.reset_hidden()
+
+
+class MultiSeq2SeqLSTM(nn.Module):
+    device = property(lambda self: next(self.parameters()).device)
+
+    def __init__(self):
+        super(MultiSeq2SeqLSTM, self).__init__()
+        self.hp = {}
+        lstms = []
+        for i in range(3):
+            lstms += [Seq2SeqLSTM(
+                input_dim=256 if i > 0 else 513,
+                model_dim=256,
+                hop=4
+            )]
+        self.s2s = nn.ModuleList(lstms)
+
+    def forward(self, x, i=0):
+        x, (h_enc, c_enc) = self.s2s[i].enc(x)
+        if i == len(self.s2s) - 1:
+            return self.s2s[i].decode(x, h_enc, c_enc)
+        else:
+            return self.s2s[i].decode(self.forward(x, i + 1), h_enc, c_enc)
+
+    def reset_hidden(self):
+        for s2s in self.s2s:
+            s2s.enc.hidden = None
+
+    def generate_step(self, t, inputs, ctx):
+        return self.forward(*inputs)

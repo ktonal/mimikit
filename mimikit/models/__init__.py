@@ -1,10 +1,7 @@
-from .freqnet import *
-from .model import *
-from .parts import *
-from .sample_rnn import *
-from .s2s_lstm import *
-from .wavenet import *
+from .io_modules import *
+from .srnns import *
+from .wavenets import *
+from .s2s import *
+from .nnn import *
 
 __all__ = [_ for _ in dir() if not _.startswith("_")]
-
-

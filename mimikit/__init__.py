@@ -1,24 +1,20 @@
 __version__ = '0.2.6'
 
-from . import audios
-from . import data
 from . import extract
-from . import midi
-from . import models
+from . import features
+from . import loops
 from . import modules
+from . import models
 from . import networks
 
-from .audios import *
-from .data import *
 from .extract import *
-from .midi import *
-from .models.parts import *
-from .models import *
+from .features import *
+from .loops import *
 from .modules import *
+from .models import *
 from .networks import *
 
-from .file_walker import *
-from .get_trainer import *
+from .train import *
 from .utils import *
 
 

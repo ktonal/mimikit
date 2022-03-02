@@ -59,4 +59,3 @@ def show(S, figsize=(), db_scale=True, title="", **kwargs):
     plt.tight_layout()
     plt.title(title)
     return ax
-

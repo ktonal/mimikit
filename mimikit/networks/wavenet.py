@@ -1,357 +1,358 @@
-import math
 import torch
 import torch.nn as nn
-from dataclasses import dataclass
-from typing import Optional
-from itertools import accumulate
-import operator
+from typing import Optional, Tuple
+from itertools import accumulate, chain
+import operator as opr
 
-from ..modules import homs as H, ops as Ops
-from .generating_net import GeneratingNetwork
+from pytorch_lightning.utilities import AttributeDict
+
+from ..modules.homs import *
+from ..modules.misc import CausalPad, Transpose, Chunk
+from ..loops.generate import *
 
 __all__ = [
-    'WaveNetLayer',
-    'WNNetwork'
+    'WNLayer',
+    "WNBlock",
 ]
 
 
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class WaveNetLayer(nn.Module):
-    layer_i: int
-    gate_dim: int = 128
-    residuals_dim: Optional[int] = None
-    skip_dim: Optional[int] = None
-    kernel_size: int = 2
-    groups: int = 1
-    cin_dim: Optional[int] = None
-    gin_dim: Optional[int] = None
-    gated_units: bool = True
-    pad_input: int = 1
-    accum_outputs: int = -1
+# some HOM helpers
 
-    stride: int = 1
-    bias: bool = True
 
-    dilation: int = 1
+def GatingUnit(act_f: nn.Module, act_g: nn.Module):
+    return hom("GatingUnit",
+               "x, y -> z",
+               (act_f, "x -> x"),
+               (act_g, "y -> y"),
+               (opr.mul, "x, y -> z")
+               )
 
-    shift_diff = property(
-        lambda self:
-        (self.kernel_size - 1) * self.dilation if self.pad_input == 0 else 0
-    )
-    input_padding = property(
-        lambda self:
-        self.pad_input * (self.kernel_size - 1) * self.dilation if self.pad_input else 0
-    )
-    output_padding = property(
-        lambda self:
-        - self.accum_outputs * self.shift_diff
-    )
-    receptive_field = property(
-        lambda self:
-        self.kernel_size * self.dilation
-    )
 
-    @property
-    def conv_kwargs(self):
-        return dict(kernel_size=self.kernel_size, dilation=self.dilation,
-                    stride=self.stride, bias=self.bias, groups=self.groups)
+def Skips(skipper: nn.Module):
+    return hom("Skips",
+               "x, skips=None -> skips",
+               (skipper, "x -> x"),
+               (lambda x, s: x if s is None else x + s, "x, skips -> skips")
+               )
 
-    @property
-    def kwargs_1x1(self):
-        return dict(kernel_size=1, bias=self.bias, groups=self.groups)
 
-    def gcu_(self):
-        mod = H.AddPaths(
-            # core
-            nn.Conv1d(self.gate_dim, self.residuals_dim, **self.conv_kwargs),
-            # conditioning parameters :
-            nn.Conv1d(self.cin_dim, self.residuals_dim, **self.conv_kwargs) if self.cin_dim else None,
-            nn.Conv1d(self.gin_dim, self.residuals_dim, **self.conv_kwargs) if self.gin_dim else None
-        )
-        return H.GatedUnit(mod) if self.gated_units else nn.Sequential(mod, nn.Tanh())
+class WNLayer(HOM):
 
-    def residuals_(self):
-        return nn.Conv1d(self.residuals_dim, self.gate_dim, **self.kwargs_1x1)
-
-    def skips_(self):
-        return H.Skips(
-            nn.Conv1d(self.residuals_dim, self.skip_dim, **self.kwargs_1x1)
-        )
-
-    def accumulator(self):
-        return H.AddPaths(nn.Identity(), nn.Identity())
-
-    def __post_init__(self):
-        nn.Module.__init__(self)
-
-        with_residuals = self.residuals_dim is not None
-        if not with_residuals:
-            self.residuals_dim = self.gate_dim
-
-        self.gcu = self.gcu_()
-
-        if with_residuals:
-            self.residuals = self.residuals_()
-        else:  # keep the signature but just pass through
-            self.residuals = nn.Identity()
-
-        if self.skip_dim is not None:
-            self.skips = self.skips_()
+    def __init__(
+            self,
+            dims_dilated: Tuple[int] = (128,),
+            dims_1x1: Tuple[int] = tuple(),
+            residuals_dim: Optional[int] = None,
+            apply_residuals: bool = False,
+            skips_dim: Optional[int] = None,
+            kernel_size: int = 2,
+            groups: int = 1,
+            act_f: nn.Module = nn.Tanh(),
+            act_g: Optional[nn.Module] = nn.Sigmoid(),
+            pad_side: int = 1,
+            stride: int = 1,
+            bias: bool = True,
+            dilation: int = 1,
+    ):
+        init_ctx = locals()
+        init_ctx.pop("self")
+        cause = (kernel_size - 1) * dilation
+        self.hp = AttributeDict(init_ctx)
+        self.hp.cause = cause
+        has_gated_units = act_g is not None
+        has_residuals = residuals_dim is not None
+        if residuals_dim is None:
+            # output dim for the gates
+            main_dim = residuals_dim = dims_dilated[0]
         else:
-            self.skips = lambda y, skp: skp
+            main_dim = residuals_dim
+            apply_residuals = True
 
-        if self.accum_outputs:
-            self.accum = self.accumulator()
+        def trim_cause(x):
+            # remove dilation for generate_fast
+            cs = kernel_size - 1 if x.size(2) == kernel_size and self.training else cause
+            return x[:, :, slice(cs, None) if pad_side >= 0 else slice(None, -cs)]
+
+        # as many dilated and 1x1 inputs of any size as we want!
+        vars_dil = [f"x{i}" for i in range(1, len(dims_dilated))]
+        vars_1x1 = [f"h{i}" for i in range(len(dims_1x1))]
+        in_sig = ", ".join(["x"] + vars_dil + vars_1x1 + ["skips=None"])
+        out_sig = ", ".join(["y"] + vars_dil + vars_1x1 + ["skips"])
+
+        kwargs_dil = dict(kernel_size=(kernel_size,), dilation=dilation, stride=stride, bias=bias, groups=groups)
+        kwargs_1x1 = dict(kernel_size=(1,), stride=stride, bias=bias, groups=groups)
+
+        if has_gated_units:
+            conv_dil = [Chunk(nn.Conv1d(d, main_dim * 2, **kwargs_dil), 2, dim=1) for d in dims_dilated]
+            conv_1x1 = [Chunk(nn.Conv1d(d, main_dim * 2, **kwargs_1x1), 2, dim=1) for d in dims_1x1]
         else:
-            self.accum = lambda y, x: y
+            conv_dil = [nn.Conv1d(d, main_dim, **kwargs_dil) for d in dims_dilated]
+            conv_1x1 = [nn.Conv1d(d, main_dim, **kwargs_1x1) for d in dims_1x1]
 
-    def forward(self, inputs):
-        x, cin, gin, skips = inputs
-        if self.pad_input == 0:
-            cause = self.shift_diff if x.size(2) > self.kernel_size else self.kernel_size - 1
-            slc = slice(cause, None) if self.accum_outputs <= 0 else slice(None, -cause)
-            padder = nn.Identity()
-        else:
-            slc = slice(None)
-            padder = Ops.CausalPad((0, 0, self.input_padding))
-        y = self.gcu((padder(x), cin, gin))
-        if skips is not None and y.size(-1) != skips.size(-1):
-            skips = skips[:, :, slc]
-        skips = self.skips(y, skips)
-        y = self.accum(self.residuals(y), x[:, :, slc])
-        return y, cin[:, :, slc] if cin is not None else cin, gin[:, :, slc] if gin is not None else gin, skips
+        conv_skip = Skips(nn.Conv1d(main_dim, skips_dim, **kwargs_1x1)) if skips_dim is not None else None
+        conv_res = nn.Conv1d(main_dim, main_dim, **kwargs_1x1) if has_residuals else None
 
-    def output_length(self, input_length):
-        if bool(self.pad_input):
-            # no matter what, padding input gives the same output shape
-            return input_length
-        # output is gonna be less than input
-        numerator = input_length - self.dilation * (self.kernel_size - 1) - 1
-        return math.floor(1 + numerator / self.stride)
+        def conv_dil_sig(v):
+            return f"{v}in -> {v}_f" + (f", {v}_g" if has_gated_units else "")
 
+        def conv_1x1_sig(v):
+            return f"{v} -> {v}_f" + (f", {v}_g" if has_gated_units else "")
 
-@dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
-class WNNetwork(GeneratingNetwork):
-    n_layers: tuple = (4,)
-    q_levels: int = 256
-    n_cin_classes: Optional[int] = None
-    cin_dim: Optional[int] = None
-    n_gin_classes: Optional[int] = None
-    gin_dim: Optional[int] = None
-    gate_dim: int = 128
-    kernel_size: int = 2
-    groups: int = 1
-    accum_outputs: int = 0
-    pad_input: int = 0
-    gated_units: bool = True
-    skip_dim: Optional[int] = None
-    residuals_dim: Optional[int] = None
-    head_dim: Optional[int] = None
-    reverse_dilation_order: bool = False
+        HOM.__init__(
+            self,
+            f"{in_sig} -> {out_sig}",
 
-    def inpt_(self):
-        return H.Paths(
-            nn.Sequential(nn.Embedding(self.q_levels, self.gate_dim), Ops.Transpose(1, 2)),
-            nn.Sequential(nn.Embedding(self.n_cin_classes, self.cin_dim),
-                          Ops.Transpose(1, 2)) if self.cin_dim else None,
-            nn.Sequential(nn.Embedding(self.n_gin_classes, self.gin_dim), Ops.Transpose(1, 2)) if self.gin_dim else None
+            # main input
+            *Maybe(pad_side,
+                   (CausalPad((0, 0, pad_side * cause)), "x -> xin")),
+            *Maybe(not pad_side,
+                   (lambda x: x, "x -> xin")),
+            (conv_dil[0], conv_dil_sig("x")),
+
+            # other dilated inputs
+            *flatten([(*Maybe(pad_side,
+                              (CausalPad((0, 0, pad_side * cause)), f"{var} -> {var}in")),
+                       (conv_dil[i], conv_dil_sig(var)),
+                       Sum(f"x_f, {var}_f -> x_f"),
+                       *Maybe(has_gated_units,
+                              Sum(f"x_g, {var}_g -> x_g")),
+                       *Maybe(not pad_side,  # trim input for next layer
+                              (trim_cause, f"{var} -> {var}")
+                              ))
+                      for i, var in enumerate(vars_dil, 1)]),
+
+            # other 1x1 inputs
+            *flatten([(*Maybe(not pad_side,
+                              (trim_cause, f"{var} -> {var}")),
+                       (conv_1x1[i], conv_1x1_sig(var)),
+                       Sum(f"x_f, {var}_f -> x_f"),
+                       *Maybe(has_gated_units,
+                              Sum(f"x_g, {var}_g -> x_g")),
+                       ) for i, var in enumerate(vars_1x1)]),
+
+            # non-linearity
+            (GatingUnit(act_f, act_g) if has_gated_units else act_f,
+             "x_f" + (", x_g" if has_gated_units else "") + " -> y"),
+
+            # with or without skips
+            *Maybe(skips_dim is not None,
+                   *Maybe(not pad_side,
+                          (lambda s: trim_cause(s) if s is not None else s, "skips -> skips")),
+                   (conv_skip, "y, skips -> skips")
+                   ),
+
+            # with or without residuals
+            *Maybe(has_residuals,
+                   (conv_res, "y -> y"),
+                   ),
+
+            # even if we don't have residual parameters, we can sum inputs + outputs...
+            *Maybe(apply_residuals,
+                   *Maybe(not pad_side,
+                          (trim_cause, "x -> x")),
+                   Sum("x, y -> y")),
+            # return statement is in the signature ;)
         )
 
-    def layers_(self):
-        # allow custom sequences of kernel_sizes
-        if isinstance(self.kernel_size, tuple):
-            assert sum(self.n_layers) == len(self.kernel_size), "total number of layers and of kernel sizes must match"
-            k_iter = iter(self.kernel_size)
-            dilation_iter = iter(accumulate([1, *self.kernel_size], operator.mul))
-        else:
-            # reverse_dilation_order leads to the connectivity of the FFTNet
-            k_iter = iter([self.kernel_size] * sum(self.n_layers))
-            dilation_iter = iter([self.kernel_size**(i if not self.reverse_dilation_order else block-1-i)
-                                  for block in self.n_layers for i in range(block)])
 
-        return nn.Sequential(*[
-            WaveNetLayer(i if not self.reverse_dilation_order else block - 1 - i,
-                         gate_dim=self.gate_dim,
-                         skip_dim=self.skip_dim,
-                         residuals_dim=self.residuals_dim,
-                         kernel_size=next(k_iter),
-                         cin_dim=self.cin_dim,
-                         gin_dim=self.gin_dim,
-                         groups=self.groups,
-                         gated_units=self.gated_units,
-                         pad_input=self.pad_input,
-                         accum_outputs=self.accum_outputs,
-                         dilation=next(dilation_iter)
-                         )
-            for block in self.n_layers for i in range(block)
-        ])
+class WNBlock(HOM):
 
-    def outpt_(self):
-        # TODO : Support auxiliary classifier for conditioned networks
-        return nn.Sequential(
-            nn.ReLU(),
-            nn.Conv1d(self.gate_dim if self.skip_dim is None else self.skip_dim,
-                      self.gate_dim if self.head_dim is None else self.head_dim,
-                      kernel_size=1),
-            nn.ReLU(),
-            nn.Conv1d(self.gate_dim if self.head_dim is None else self.head_dim,
-                      self.q_levels, kernel_size=1),
-            Ops.Transpose(1, 2)
+    def __init__(
+            self,
+            kernel_sizes: Tuple[int] = (2,),
+            blocks: Tuple[int] = (),
+            dims_dilated: Tuple[int] = (128,),
+            dims_1x1: Tuple[int] = (),
+            residuals_dim: Optional[int] = None,
+            apply_residuals: bool = False,
+            skips_dim: Optional[int] = None,
+            groups: int = 1,
+            act_f: nn.Module = nn.Tanh(),
+            act_g: Optional[nn.Module] = nn.Sigmoid(),
+            pad_side: int = 1,
+            stride: int = 1,
+            bias: bool = True,
+    ):
+        init_ctx = locals()
+        init_ctx.pop("self")
+        init_ctx.pop("__class__")
+        kernel_sizes, dilation = self.get_kernels_and_dilation(kernel_sizes, blocks)
+        layers = [
+            WNLayer(dims_dilated=dims_dilated, dims_1x1=dims_1x1, residuals_dim=residuals_dim,
+                    apply_residuals=apply_residuals, skips_dim=skips_dim,
+                    kernel_size=k,
+                    groups=groups, act_f=act_f, act_g=act_g, pad_side=pad_side,
+                    stride=stride, bias=bias,
+                    dilation=d)
+            for k, d in zip(kernel_sizes, dilation)
+        ]
+        rf = sum(layer.hp.cause for layer in layers) + 1
+        shift = 1 if pad_side == 1 else rf
+
+        in_sig = ", ".join(["x" + str(i)
+                            for i in range(len(dims_dilated) + len(dims_1x1))])
+        mid_sig = in_sig + ", skips"
+        out_sig = "skips" if skips_dim is not None else "x0"
+        # make the steps
+        layers = zip(layers, [f"{mid_sig} -> {mid_sig}"] * len(layers))
+
+        # helper to output only predictions in eval mode
+        class CausalTrimIfEval(nn.Module):
+            def forward(self, x):
+                if self.training:
+                    return x
+                return x[:, slice(-1, None) if pad_side == 1 else slice(0, 1)]
+
+        # all shapes in and out are Batch x Time x Dim
+        super().__init__(
+            f"{in_sig}, skips=None -> {out_sig}",
+            Map(Transpose(1, 2), f"{in_sig} -> {in_sig}"),
+            *layers,
+            (Transpose(1, 2), f"{out_sig} -> {out_sig}"),
+            (CausalTrimIfEval(), f"{out_sig} -> {out_sig}")
         )
-
-    def __post_init__(self):
-        nn.Module.__init__(self)
-        self.inpt = self.inpt_()
-        self.layers = self.layers_()
-        self.outpt = self.outpt_()
-
-        rf = 0
-        for i, layer in enumerate(self.layers):
-            if i == (len(self.layers) - 1):
-                rf += layer.receptive_field
-            elif self.layers[i + 1].layer_i == 0:
-                rf += layer.receptive_field - 1
-        self.receptive_field = rf
-
-        if self.pad_input == 1:
-            self.shift = 1
-        elif self.pad_input == -1:
-            self.shift = self.receptive_field
-        else:
-            self.shift = sum(layer.shift_diff for layer in self.layers) + 1
-
-    def forward(self, inputs):
-        x, cin, gin = self.inpt(inputs[0],
-                                inputs[1] if len(inputs) > 1 else None,
-                                inputs[2] if len(inputs) == 3 else None)
-        y, _, _, skips = self.layers((x, cin, gin, None))
-        return self.outpt(skips if skips is not None else y)
-
-    def output_shape(self, input_shape):
-        return input_shape[0], self.all_output_lengths(input_shape[1])[-1], input_shape[-1]
-
-    def all_output_lengths(self, input_length):
-        out_length = input_length
-        lengths = []
-        for layer in self.layers:
-            out_length = layer.output_length(out_length)
-            lengths += [out_length]
-        return tuple(lengths)
-
-    def generation_slices(self):
-        # input is always the last receptive field
-        input_slice = slice(-self.receptive_field, None)
-        if self.pad_input == 1:
-            # then there's only one future time-step : the last output
-            output_slice = slice(-1, None)
-        else:
-            # for all other cases, the first output has the shift of the whole network
-            output_slice = slice(None, 1)
-        return input_slice, output_slice
+        self.shift = shift
+        self.rf = rf
+        self.output_length = (lambda n: n if (self.hp.pad_side != 0) else (n - self.shift + 1))
+        self.hp = AttributeDict(init_ctx)
 
     @staticmethod
-    def predict_(outpt, temp):
-        if temp is None:
-            return nn.Softmax(dim=-1)(outpt).argmax(dim=-1, keepdims=True)
+    def get_kernels_and_dilation(kernel_sizes, blocks):
+        # figure out the layers dilation.
+        # User can pass :
+        # - 1 kernel, n blocks
+        # - 1 block of kernel & n times the length of this block
+        # - n kernels for sum(blocks) == n
+        # - n kernels & no blocks = 1 block
+        if not blocks:
+            # single block from kernels
+            dilation = accumulate([1, *kernel_sizes], opr.mul)
         else:
-            return torch.multinomial(nn.Softmax(dim=-1)(outpt / temp.to(outpt)), 1)
+            # repetitions of the same block
+            if len(set(blocks)) == 1 and set(blocks).pop() == len(kernel_sizes):
+                dilation = accumulate([1, *kernel_sizes], opr.mul)
+                dilation = chain(*([dilation] * len(blocks)))
+                # broadcast!
+                kernel_sizes = chain(*([kernel_sizes] * len(blocks)))
+            elif len(kernel_sizes) == sum(blocks):
+                cum_blocks = list(accumulate(blocks, opr.add))
+                dilation = []
+                for start, stop in zip([0] + cum_blocks, cum_blocks[1:]):
+                    ks = kernel_sizes[start:stop]
+                    dilation += list(accumulate([1, *ks], opr.mul))
+            elif len(kernel_sizes) == 1:
+                k = kernel_sizes[0]
+                # all the same
+                kernel_sizes = (k for _ in range(sum(blocks)))
+                dilation = (k ** i for block in blocks for i in range(block))
+            else:
+                raise ValueError(f"number of layers and number of kernel sizes not compatible."
+                                 " Got kernel_sizes={kernel_sizes} ; blocks={blocks}")
+        return kernel_sizes, dilation
 
-    def generate_(self, prompt, n_steps, temperature=0.5, benchmark=False):
-        if self.receptive_field <= 64:
-            return self.generate_slow(prompt, n_steps, temperature)
-        # prompt is a list but generate fast only accepts one tensor prompt...
-        return self.generate_fast(prompt[0], n_steps, temperature)
+    def with_io(self, input_modules, output_modules):
+        inpt_mod = combine("==", None, *input_modules)
+        in_pos, in_kw = get_input_signature(inpt_mod.forward)
+        self_in = inpt_mod.s.split(" -> ")[1]
+        outpt_mod = combine("-<", None, *output_modules)
+        out_kwargs = get_input_signature(outpt_mod.forward)[1]
+        out_in_vars = ', '.join([v.split("=")[0] for v in out_kwargs.split(',')])
+        out_vars = ", ".join([f"y{i}" for i in range(len(output_modules))])
+        # initialize the graph without re-initializing the object :
+        super().__init__(f"{', '.join([arg for arg in (in_pos, in_kw, out_kwargs) if arg])} -> {out_vars}",
+                         (inpt_mod, f"{', '.join([arg for arg in (in_pos, in_kw) if arg])} -> {self_in}"),
+                         (self.elevate(), f"{self_in} -> y"),
+                         (outpt_mod, f"y, {out_in_vars} -> {out_vars}"))
+        return self
 
-    def generate_slow(self, prompt, n_steps, temperature=0.5):
+    use_fast_generate = False
 
-        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
-        prior_t = prompt[0].size(1)
+    def before_generate(self, g_loop, batch, batch_idx):
+        if not self.use_fast_generate:
+            return
 
-        rf = self.receptive_field
-        _, out_slc = self.generation_slices()
+        layers = [m for m in self.modules() if isinstance(m, WNLayer)]
 
-        for t in self.generate_tqdm(range(prior_t, prior_t + n_steps)):
-            inputs = tuple(map(lambda x: x[:, t - rf:t] if x is not None else None, output))
-            output[0].data[:, t:t + 1] = self.predict_(self.forward(inputs)[:, out_slc],
-                                                       temperature)
-        return output[0]
-
-    def generate_fast(self, prompt, n_steps, temperature=0.5):
-        # TODO : add support for conditioned networks
-        output = self.prepare_prompt(prompt, n_steps, at_least_nd=2)
-        prior_t = prompt.size(1) if isinstance(prompt, torch.Tensor) else prompt[0].size(1)
-
-        inpt = output[:, prior_t - self.receptive_field:prior_t]
-        z, cin, gin = self.inpt(inpt, None, None)
-        qs = [(z.clone(), None)]
-        # initialize queues with one full forward pass
-        skips = None
-        for layer in self.layers:
-            z, _, _, skips = layer((z, cin, gin, skips))
-            qs += [(z.clone(), skips.clone() if skips is not None else skips)]
-
-        outpt = self.outpt(skips if skips is not None else z)[:, -1:].squeeze()
-        outpt = self.predict_(outpt, temperature)
-        output.data[:, prior_t:prior_t + 1] = outpt
-
-        qs = {i: q for i, q in enumerate(qs)}
-
-        # disable padding and dilation
-        dilations = {}
-        for mod in self.modules():
-            if isinstance(mod, nn.Conv1d) and mod.dilation != (1,):
-                dilations[mod] = mod.dilation
-                mod.dilation = (1,)
-        for layer in self.layers:
-            layer.pad_input = 0
-
-        # cache the indices of the inputs for each layer
+        qs = {i: None for i in range(len(layers))}
         lyr_slices = {}
-        for l, layer in enumerate(self.layers):
-            d, k = layer.dilation, layer.kernel_size
+        dilations = {}
+        pads = {}
+
+        for i, layer in enumerate(layers):
+            d, k = layer.hp.dilation, layer.hp.kernel_size
             rf = d * k
-            indices = [qs[l][0].size(2) - 1 - n for n in range(0, rf, d)][::-1]
-            lyr_slices[l] = torch.tensor(indices).long().to(self.device)
+            if self.hp.pad_side == 0:
+                size = (self.rf - layer.hp.cause)
+                # indices = [size - n for n in range(0, rf, d)][::-1]
+                indices = [*range(-layer.hp.cause-1, 0, d)]
+            else:
+                size = (self.rf - 1)
+                indices = [size - n for n in range(0, rf, d)][::-1]
+            lyr_slices[i] = torch.tensor(indices).long().to(self.device)
 
-        for t in self.generate_tqdm(range(prior_t + 1, prior_t + n_steps)):
+        handles = []
 
-            x, cin, gin = self.inpt(output[:, t - 1:t], None, None)
-            q, _ = qs[0]
-            q = q.roll(-1, 2)
-            q[:, :, -1:] = x
-            qs[0] = (q, None)
+        for i, layer in enumerate(layers):
 
-            for l, layer in enumerate(self.layers):
-                z, skips = qs[l]
-                zi = torch.index_select(z, 2, lyr_slices[l])
-                if skips is not None:
-                    # we only need one skip : the first or the last of the kernel's indices
-                    i = lyr_slices[l][0 if layer.accum_outputs > 0 else -1].item()
-                    skips = skips[:, :, i:i + 1]
+            def pre_hook(mod, inpt, i=i):
+                if qs[i] is None:
+                    qs[i] = inpt
+                    return inpt
+                if i == 0 and qs[i] is not None:
+                    q, _ = qs[0]
+                    q = q.roll(-1, 2)
+                    q[:, :, -1:] = inpt[0][:, :, -1:]
+                    qs[0] = (q, None)
+                return tuple(x[:, :, lyr_slices[i]]
+                             if x is not None else x for x in inpt)
 
-                z, _, _, skips = layer((zi, cin, gin, skips))
+            handles += [layer.register_forward_pre_hook(pre_hook)]
 
-                if l < len(self.layers) - 1:
-                    q, skp = qs[l + 1]
+            def hook(module, inpt, outpt, i=i):
+                if not getattr(module, '_fast_mode', False):
+                    # turn padding and dilation AFTER first pass
+                    for mod in module.modules():
+                        if isinstance(mod, nn.Conv1d) and mod.dilation != (1,):
+                            dilations[mod] = mod.dilation
+                            mod.dilation = (1,)
+                        if isinstance(mod, CausalPad):
+                            pads[mod] = mod.pad
+                            mod.pad = (0,) * len(mod.pad)
+                    module._fast_mode = True
+                    return outpt
+                z, skips = outpt
+                if i < len(layers) - 1:
+                    # set and roll input for next layer
+                    q, skp = qs[i + 1]
 
                     q = q.roll(-1, 2)
-                    q[:, :, -1:] = z
+                    q[:, :, -1:] = z[:]
                     if skp is not None:
                         skp = skp.roll(-1, 2)
                         skp[:, :, -1:] = skips
 
-                    qs[l + 1] = (q, skp)
-                else:
-                    y, skips = z, skips
+                    qs[i + 1] = (q, skp)
+                return qs.get(i + 1, outpt)
 
-            outpt = self.outpt(skips if skips is not None else y).squeeze()
-            outpt = self.predict_(outpt, temperature)
-            output.data[:, t:t + 1] = outpt
+            handles += [layer.register_forward_hook(hook)]
+        # save those for later
+        return dict(handles=handles, dilations=dilations, pads=pads, layers=layers)
 
+    def generate_step(self, t, inputs, ctx):
+        return self.forward(*inputs)
+
+    def after_generate(self, final_outputs, ctx, batch_idx):
+        if not self.use_fast_generate:
+            return
         # reset the layers' parameters
-        for mod, d in dilations.items():
+        for mod, d in ctx['dilations'].items():
             mod.dilation = d
-        for layer in self.layers:
-            layer.pad_input = self.pad_input
-
-        return output
+        for mod, pad in ctx['pads'].items():
+            mod.pad = pad
+        # remove the hooks
+        for handle in ctx['handles']:
+            handle.remove()
+        # turn off fast_mode
+        for layer in ctx['layers']:
+            layer._fast_mode = False
+        return final_outputs
