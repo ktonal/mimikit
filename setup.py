@@ -59,6 +59,7 @@ kwargs = {
     'install_requires': REQUIRES,
     'extras_require': {
       "torch": torch_requires,
+      "colab": colab_requires,
     },
     'tests_require': ['coverage', 'pytest'],
     'packages': PACKAGES,
