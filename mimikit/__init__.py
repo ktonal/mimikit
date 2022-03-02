@@ -6,6 +6,7 @@ from . import loops
 from . import modules
 from . import models
 from . import networks
+from . import demos
 
 from .extract import *
 from .features import *
@@ -17,4 +18,4 @@ from .networks import *
 from .train import *
 from .utils import *
 
-
+from .demos import *
