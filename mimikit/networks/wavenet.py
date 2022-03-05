@@ -70,7 +70,7 @@ class WNLayer(HOM):
 
         def trim_cause(x):
             # remove dilation for generate_fast
-            cs = kernel_size - 1 if x.size(2) == kernel_size and self.training else cause
+            cs = kernel_size - 1 if x.size(2) == kernel_size and not self.training else cause
             return x[:, :, slice(cs, None) if pad_side >= 0 else slice(None, -cs)]
 
         # as many dilated and 1x1 inputs of any size as we want!

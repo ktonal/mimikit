@@ -95,7 +95,7 @@ def train(
         input_feature.batch_item(shift=0, length=batch_length, downsampling=downsampling),
         target_feature.batch_item(shift=net.shift, length=net.output_length(batch_length), downsampling=downsampling)
     )
-    print(soundbank.snd.shape, (soundbank.snd.shape[-1] // downsampling) // batch_size)
+
     if tbptt_chunk_length is not None:
         if getattr(input_feature, 'domain', '') == 'time-freq' and isinstance(getattr(batch[0], 'getter', False), h5m.Getter):
             item_len = batch[0].getter.length
@@ -115,8 +115,6 @@ def train(
                 oversampling=oversampling
             )
         )
-        print(soundbank.snd.shape[0],
-              vars(loader_kwargs["batch_sampler"]))
     else:
         loader_kwargs = dict(batch_size=batch_size, shuffle=True)
     dl = soundbank.serve(batch,

@@ -9,7 +9,7 @@ def demo():
     # list of files or directories to use as data ("./" is the cwd of the notebook)
     sources = ['./data']
     # audio sample rate
-    sr = 22050
+    sr = 44100
     # the size of the stft
     n_fft = 2048
     # hop_length of the stft
@@ -28,31 +28,28 @@ def demo():
     # INPUT / TARGET
 
     feature = mmk.Spectrogram(
-        sr=SoundBank.snd.sr,
+        sr=sr,
         n_fft=n_fft,
         hop_length=hop_length,
         coordinate='mag',
         center=False
     )
 
-    # NETWORK
-
-    net = mmk.WaveNetFFT(
+    net = mmk.Seq2SeqLSTM(
         feature=feature,
         input_heads=1,
         output_heads=1,
-        scaled_activation=False,
-
-        # number of layers (per block)
-        blocks=(4,),
-        # dimension of the layers
-        dims_dilated=(1024,),
-        groups=2,
-
+        scaled_activation=True,
+        model_dim=512,
+        num_layers=1,
+        n_lstm=1,
+        bottleneck="add",
+        n_fc=1,
+        hop=4,
+        weight_norm=False,
+        with_tbptt=False,
+        with_sampler=True,
     )
-    net.use_fast_generate = False
-
-    # OPTIMIZATION LOOP
 
     mmk.train(
         soundbank,
@@ -63,9 +60,9 @@ def demo():
 
         # BATCH
 
-        batch_size=4,
-        batch_length=64,
-        downsampling=feature.hop_length // 1,
+        batch_size=16,
+        batch_length=net.hp.hop,
+        downsampling=feature.hop_length // 8,
         shift_error=0,
 
         # OPTIM
@@ -85,12 +82,12 @@ def demo():
 
         CHECKPOINT_TRAINING=False,
         MONITOR_TRAINING=True,
-        OUTPUT_TRAINING="mp3",
+        OUTPUT_TRAINING="",
 
         every_n_epochs=10,
         n_examples=4,
-        prompt_length=64,
-        n_steps=int(12 * (feature.sr // feature.hop_length)),
+        prompt_length=net.hp.hop,
+        n_steps=int(16 * (feature.sr // feature.hop_length // net.hp.hop)),
     )
 
     """----------------------------"""

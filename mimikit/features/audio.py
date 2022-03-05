@@ -87,6 +87,7 @@ class AudioSignal(Feature):
 @dtc.dataclass(unsafe_hash=True)
 class MuLawSignal(AudioSignal):
     q_levels: int = 256
+    target_width: int = 1
 
     def __post_init__(self):
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
@@ -101,7 +102,16 @@ class MuLawSignal(AudioSignal):
 
     def loss_fn(self, output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
-        return {"loss": criterion(output.view(-1, output.size(-1)), target.view(-1))}
+        L = criterion(output.view(-1, output.size(-1)), target.view(-1))
+        C = output.size(-1)
+        Ct, Zerot = torch.tensor([C - 1]).to(target), torch.tensor([0]).to(target)
+        for w in range(2, self.target_width + 1):
+            d = .5 * 1 / w
+            L += d * criterion(output.view(-1, C),
+                               torch.minimum(target.view(-1) + w, Ct))
+            L += d * criterion(output.view(-1, C),
+                               torch.maximum(target.view(-1) - w, Zerot))
+        return {"loss": L}
 
 
 class MultiScale(Feature):

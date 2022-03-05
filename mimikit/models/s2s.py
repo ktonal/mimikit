@@ -4,7 +4,7 @@ import torch.nn as nn
 
 from .io_modules import *
 from ..features import Spectrogram, MuLawSignal
-from ..networks import Seq2SeqLSTM as S2SNet, MultiSeq2SeqLSTM
+from ..networks import Seq2SeqLSTMNetwork as S2SNet, MultiSeq2SeqLSTM
 from ..modules import Flatten
 
 

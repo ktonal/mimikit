@@ -2,6 +2,7 @@ def demo():
     """### Configure and run training"""
     import mimikit as mmk
     import h5mapper as h5m
+    import torch
     import os
 
     # DATA
@@ -9,11 +10,7 @@ def demo():
     # list of files or directories to use as data ("./" is the cwd of the notebook)
     sources = ['./data']
     # audio sample rate
-    sr = 22050
-    # the size of the stft
-    n_fft = 2048
-    # hop_length of the stft
-    hop_length = n_fft // 4
+    sr = 16000
 
     db_path = "train.h5"
     if os.path.exists(db_path):
@@ -27,70 +24,68 @@ def demo():
 
     # INPUT / TARGET
 
-    feature = mmk.Spectrogram(
-        sr=SoundBank.snd.sr,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        coordinate='mag',
-        center=False
+    feature = mmk.MuLawSignal(
+        sr=soundbank.snd.sr,
+        q_levels=256,
     )
 
     # NETWORK
 
-    net = mmk.WaveNetFFT(
+    net = mmk.WaveNetQx(
         feature=feature,
-        input_heads=1,
-        output_heads=1,
-        scaled_activation=False,
+        mlp_dim=1024,
 
-        # number of layers (per block)
+        kernel_sizes=(8, 8, 4, 2),
         blocks=(4,),
-        # dimension of the layers
         dims_dilated=(1024,),
-        groups=2,
-
+        dims_1x1=(),
+        residuals_dim=None,
+        apply_residuals=False,
+        skips_dim=None,
+        groups=8,
+        pad_side=0,
+        stride=1,
+        bias=True,
     )
-    net.use_fast_generate = False
+    net.use_fast_generate = True
 
     # OPTIMIZATION LOOP
 
     mmk.train(
         soundbank,
         net,
-        root_dir="./",
+        root_dir="./trainings/wn-legacy-test",
         input_feature=feature,
         target_feature=feature,
 
         # BATCH
 
-        batch_size=4,
-        batch_length=64,
-        downsampling=feature.hop_length // 1,
+        batch_size=16,
+        batch_length=2048,
+        downsampling=8,
         shift_error=0,
 
         # OPTIM
 
-        max_epochs=100,
-        limit_train_batches=None,
+        max_epochs=200,
+        limit_train_batches=1000,
 
         max_lr=1e-3,
-        betas=(0.9, 0.9),
-        div_factor=3.,
-        final_div_factor=1.,
+        betas=(0.91, 0.95),
+        div_factor=1.,
+        final_div_factor=3.,
         pct_start=0.,
         cycle_momentum=False,
-        reset_optim=False,
 
         # MONITORING / OUTPUTS
 
         CHECKPOINT_TRAINING=False,
         MONITOR_TRAINING=True,
-        OUTPUT_TRAINING="mp3",
+        OUTPUT_TRAINING="",
 
         every_n_epochs=10,
         n_examples=4,
-        prompt_length=64,
-        n_steps=int(12 * (feature.sr // feature.hop_length)),
+        prompt_length=net.rf,
+        n_steps=int(4 * feature.sr),
+        temperature=torch.tensor([[2.], [1.], [.9], [.5]]).repeat(1, int(4 * (feature.sr))),
     )
-
-    """----------------------------"""

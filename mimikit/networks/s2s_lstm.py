@@ -11,7 +11,7 @@ from ..networks.parametrized_gaussian import ParametrizedGaussian
 __all__ = [
     'EncoderLSTM',
     'DecoderLSTM',
-    'Seq2SeqLSTM',
+    'Seq2SeqLSTMNetwork',
     'MultiSeq2SeqLSTM'
 ]
 
@@ -133,7 +133,7 @@ def tile(a, dim, n_tile):
     return torch.index_select(a, dim, order_index.to(a.device))
 
 
-class Seq2SeqLSTM(nn.Module):
+class Seq2SeqLSTMNetwork(nn.Module):
     device = property(lambda self: next(self.parameters()).device)
 
     def __init__(self,
@@ -152,7 +152,7 @@ class Seq2SeqLSTM(nn.Module):
                  with_sampler: bool = True
                  ):
         init_ctx = locals()
-        super(Seq2SeqLSTM, self).__init__()
+        super(Seq2SeqLSTMNetwork, self).__init__()
         init_ctx.pop("output_module")
         init_ctx.pop("input_module")
         init_ctx.pop("self")
@@ -209,7 +209,7 @@ class MultiSeq2SeqLSTM(nn.Module):
         self.hp = {}
         lstms = []
         for i in range(3):
-            lstms += [Seq2SeqLSTM(
+            lstms += [Seq2SeqLSTMNetwork(
                 input_dim=256 if i > 0 else 513,
                 model_dim=256,
                 hop=4

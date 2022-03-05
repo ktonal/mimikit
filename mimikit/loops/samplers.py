@@ -33,10 +33,10 @@ class TBPTTSampler(Sampler):
         self.oversampling = oversampling
 
     def __iter__(self):
-        smp = RandomSampler(torch.arange(max(1, self.n_chunks-1), ))
+        smp = RandomSampler(torch.arange(max(1, self.n_chunks), ))
         for top in BatchSampler(smp, self.batch_size, False):  # don't drop last!
             for _ in range(self.oversampling):
-                offsets = torch.randint(0, self.chunk_length, (self.batch_size,)) * int(self.n_chunks > 1)
+                offsets = torch.randint(0, self.remainder, (self.batch_size,))
                 top_idx = tuple(o + (t * self.chunk_length) for t, o in zip(top, offsets))
                 for start in range(self.n_per_chunk):
                     # start indices of the batch
