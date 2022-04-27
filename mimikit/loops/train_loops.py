@@ -51,6 +51,9 @@ class TrainLoop(LoggingHooks,
             opt = self.optim[0][0]
             for p_group in opt.param_groups:
                 for p in p_group["params"]:
+                    if not opt.state[p]:
+                        print("No states:", p.shape)
+                        continue
                     opt.state[p]["exp_avg"].zero_()
                     opt.state[p]["exp_avg_sq"].zero_()
                     opt.state[p]["step"] = 10000

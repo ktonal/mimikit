@@ -59,7 +59,7 @@ class TierNetwork(HOM):
         self.prior_t = len(batch[0][0])
         # warm-up
         for t in range(self.shift, self.prior_t):
-            self.generate_step(t, (batch[0][:, t - self.shift:t], ), {})
+            self.generate_step(t, (batch[0][:, t - self.shift:t],), {})
         return {}
 
     def generate_step(self, t, inputs, ctx):
@@ -84,7 +84,7 @@ class TierNetwork(HOM):
             return
         prev_out = outputs[-1]
         inpt = inputs[:, -fs[-1]:].reshape(-1, 1, fs[-1])
-        out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-1]) - fs[-1]].unsqueeze(1), temperature=temperature)
+        out, _ = tiers[-1](inpt, prev_out[:, (t % fs[-2]) - fs[-2]].unsqueeze(1), temperature=temperature)
         return out.squeeze(-1) if len(out.size()) > 2 else out
 
     def after_generate(self, *args, **kwargs):
@@ -109,8 +109,8 @@ class SampleRNNTier(HOM):
     def reset_hidden(self, x, h):
         if h is None or x.size(0) != h[0].size(1):
             B = x.size(0)
-            h0 = torch.zeros(self.hp.n_rnn, B, self.hp.dim).to(x.device)
-            c0 = torch.zeros(self.hp.n_rnn, B, self.hp.dim).to(x.device)
+            h0 = nn.Parameter(torch.randn(self.hp.n_rnn, B, self.hp.dim).to(x.device))
+            c0 = nn.Parameter(torch.randn(self.hp.n_rnn, B, self.hp.dim).to(x.device))
             return h0, c0
         else:
             return tuple(h_.detach() for h_ in h)
@@ -145,9 +145,6 @@ class SampleRNNTopTier(SampleRNNTier):
 
 
 class SampleRNNBottomTier(SampleRNNTier):
-    input_mod_cls = nn.Embedding
-    resampler_cls = Conv1dResampler
-    output_mod_cls = SingleClassMLP
 
     def __init__(self,
                  frame_size: int,
@@ -155,20 +152,28 @@ class SampleRNNBottomTier(SampleRNNTier):
                  zin_dim: int,
                  zout_dim: int,
                  io_dim: Optional[int] = None,
+                 input_type: str = "lin",
+                 learn_temperature: bool = True,
                  ):
         init_ctx = locals()
         init_ctx.pop("self")
         init_ctx.pop("__class__")
         self.hp = AttributeDict(init_ctx)
+        self.hp.q_levels = io_dim
         self.frame_size = frame_size
         super().__init__(
             f"x, z=None, h=None, temperature=None -> x, h",
             *Maybe(io_dim is not None,
-                   (self.input_mod_cls(io_dim, zin_dim), 'x -> x'),),
-            (self.resampler_cls(zin_dim, 1 / frame_size, top_dim / zin_dim), 'x -> x'),
+                   *Maybe(input_type == "emb",
+                          (nn.Embedding(io_dim, zin_dim), 'x -> x')),
+                   *Maybe(input_type == "lin",
+                          (lambda x: self.linearize(x.unsqueeze(-1)), "x -> x"))
+                   ),
+            (Conv1dResampler(zin_dim, 1 / frame_size, top_dim / zin_dim), 'x -> x'),
             (self.add_upper_tier, "x, z -> x"),
             *Maybe(io_dim is not None,
-                   (self.output_mod_cls(top_dim, zout_dim, io_dim), 'x, temperature -> x'))
+                   (SingleClassMLP(top_dim, zout_dim, io_dim,
+                                   learn_temperature=learn_temperature), 'x, temperature -> x'))
         )
 
 
@@ -190,14 +195,17 @@ class SampleRNN(TierNetwork):
     q_levels: int = 256
     embedding_dim: int = 256
     mlp_dim: int = 512
+    input_type: str = "lin"  # bottom tier input type ["emb" | "lin"]
 
     def __post_init__(self):
         self.hp = AttributeDict(dataclasses.asdict(self))
         tiers = []
         for i, fs in enumerate(self.frame_sizes[:-1]):
             tiers += [SampleRNNTopTier(fs, self.dim,
-                                       up_sampling=fs // (self.frame_sizes[i + 1]
-                                                          if fs != self.frame_sizes[i + 1] else 1),
+                                       up_sampling=fs // (
+                                           self.frame_sizes[i + 1]
+                                           if i < len(self.frame_sizes) - 2
+                                           else 1),
                                        n_rnn=self.n_rnn,
                                        q_levels=self.q_levels,
                                        )]
@@ -205,6 +213,7 @@ class SampleRNN(TierNetwork):
                                       zin_dim=self.embedding_dim,
                                       zout_dim=self.mlp_dim,
                                       io_dim=self.q_levels,
+                                      input_type=self.input_type
                                       )]
         TierNetwork.__init__(self, *tiers)
 

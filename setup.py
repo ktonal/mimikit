@@ -33,7 +33,7 @@ PACKAGES = find_packages(exclude=('tests', 'tests.*'))
 kwargs = {
     'name': 'mimikit',
     'version': version,
-    'description': 'Python module for generating audio with neural networks',
+    'description': 'Python package for generating audio with neural networks',
     'long_description': readme,
     "long_description_content_type": "text/markdown",
     'author': 'Antoine Daurat',

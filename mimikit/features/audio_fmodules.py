@@ -14,6 +14,8 @@ __all__ = [
     'Resample',
     'MuLawCompress',
     'MuLawExpand',
+    'ALawCompress',
+    'ALawExpand',
     'STFT',
     'ISTFT',
     'MagSpec',
@@ -163,7 +165,6 @@ class Deemphasis(FModule):
 
 @dtc.dataclass
 class Resample(FModule):
-
     orig_sr: int = 22050
     target_sr: int = 16000
 
@@ -174,6 +175,7 @@ class Resample(FModule):
 
         def torch_func(inputs):
             return F.resample(inputs, self.orig_sr, self.target_sr)
+
         return {
             np.ndarray: np_func,
             torch.Tensor: torch_func
@@ -189,13 +191,14 @@ class MuLawCompress(FModule):
         def np_func(inputs):
             if np.any(inputs < -1) or np.any(inputs > 1):
                 inputs = Normalize()(inputs)
-            qx = librosa.mu_compress(inputs, self.q_levels - 1, quantize=True)
+            qx = librosa.mu_compress(inputs, mu=self.q_levels - 1, quantize=True)
             qx = qx + self.q_levels // 2
             return qx
 
         def torch_func(inputs):
             # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
-            return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
+            # return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
+            return F.mu_law_encoding(inputs, self.q_levels)
 
         return {
             np.ndarray: np_func,
@@ -210,7 +213,81 @@ class MuLawExpand(FModule):
     @property
     def functions(self):
         def np_func(inputs):
-            return librosa.mu_expand(inputs - self.q_levels // 2, self.q_levels - 1, quantize=True)
+            return librosa.mu_expand(inputs - self.q_levels // 2, mu=self.q_levels - 1, quantize=True)
+
+        def torch_func(inputs):
+            # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
+            # return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
+            return F.mu_law_decoding(inputs, self.q_levels)
+
+        return {
+            np.ndarray: np_func,
+            torch.Tensor: torch_func
+        }
+
+
+def _quantize_np(x_comp, q):
+    return (
+            np.digitize(
+                x_comp, np.linspace(-1, 1, num=q, endpoint=True), right=True
+            )
+    )
+
+
+def _linearize_np(x, mu):
+    return x * 2.0 / mu
+
+
+def alaw_compress(x, A=87.6):
+    mask = np.abs(x) < (1/A)
+    y = np.sign(x)
+    y[mask] *= (A*np.abs(x[mask])) / (1+np.log(A))
+    y[~mask] *= (1 + np.log(A) * np.abs(x[~mask])) / (1 + np.log(A))
+    return y
+
+
+def alaw_expand(y, A=87.6):
+    x = np.sign(y)
+    ln_A = (1 + np.log(A))
+    mask = np.abs(y) < (1 / ln_A)
+    x[mask] *= (np.abs(y[mask]) * ln_A) / A
+    x[~mask] *= np.exp(-1+np.abs(y[~mask])*ln_A) / A
+    return x
+
+
+@dtc.dataclass
+class ALawCompress(FModule):
+    A: float = 87.6
+    q_levels: int = Q_LEVELS
+
+    @property
+    def functions(self):
+        def np_func(inputs):
+            if np.any(inputs < -1) or np.any(inputs > 1):
+                inputs = Normalize()(inputs)
+            qx = alaw_compress(inputs, A=self.A)
+            qx = _quantize_np(qx, self.q_levels)
+            return qx
+
+        def torch_func(inputs):
+            # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
+            return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
+
+        return {
+            np.ndarray: np_func,
+            torch.Tensor: torch_func
+        }
+
+
+@dtc.dataclass
+class ALawExpand(FModule):
+    A: float = 87.6
+    q_levels: int = Q_LEVELS
+
+    @property
+    def functions(self):
+        def np_func(inputs):
+            return alaw_expand(_linearize_np(inputs, self.q_levels), A=self.A)
 
         def torch_func(inputs):
             # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...

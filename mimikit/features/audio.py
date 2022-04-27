@@ -1,20 +1,21 @@
 import h5mapper
+import numpy as np
 import torch.nn as nn
 import librosa
 import dataclasses as dtc
 import IPython.display as ipd
 import soundfile as sf
 import torch
-from mimikit.modules.misc import Chunk, Flatten, Abs
 
 from . import Feature
 from . import audio_fmodules as T
-from ..modules import mean_L1_prop, mean_2d_diff, HOM, ScaledTanh, ScaledSigmoid, ScaledAbs, Maybe
-from ..networks import SingleClassMLP
+from ..modules import mean_L1_prop, mean_2d_diff
+
 
 __all__ = [
     'AudioSignal',
     'MuLawSignal',
+    'ALawSignal',
     'Spectrogram',
     'MultiScale',
 ]
@@ -63,10 +64,11 @@ class AudioSignal(Feature):
                                             frame_size=frame_size, hop_length=hop_length,
                                             center=center, pad_mode=pad_mode,
                                             downsampling=downsampling)
-        return h5mapper.Input(data=data, getter=getter, transform=self.transform)
+        inpt = h5mapper.Input(data=data, getter=getter, transform=self.transform)
+        return inpt
 
     def loss_fn(self, output, target):
-        return nn.MSELoss()(output, target)
+        return {"loss": nn.MSELoss()(output.squeeze(), target) * 100}
 
     def load(self, path):
         y = self.base_feature(path)
@@ -88,6 +90,7 @@ class AudioSignal(Feature):
 class MuLawSignal(AudioSignal):
     q_levels: int = 256
     target_width: int = 1
+    pr_y: torch.tensor = None
 
     def __post_init__(self):
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
@@ -101,16 +104,50 @@ class MuLawSignal(AudioSignal):
         return self.inverse_transform_(inputs)
 
     def loss_fn(self, output, target):
+        # FFT
+        # y_o, y_t = self.inverse_transform(output.argmax(dim=-1)), self.inverse_transform(target)
+        # fft = Spectrogram(sr=self.sr, n_fft=512, hop_length=512, coordinate="mag", center=True)
+        # S_o, S_t = fft.transform(y_o), fft.transform(y_t)
+        # fft_loss = mean_L1_prop(S_o, S_t)
+
+        # Gumbel softmax
+        # output, target = output.view(-1, output.size(-1)), target.view(-1)
+        # output = nn.functional.gumbel_softmax(output, tau=1.)
+        # criterion = nn.NLLLoss(reduction='mean', weight=self.pr_y)
+        # loss = criterion(torch.maximum(output, torch.tensor(1e-16).view(1, 1).to(output.device)).log_(), target)
+        # diff = output.detach().argmax(dim=-1) != target
+        # err = diff.sum() / output.size(0)
+
+        # cross entropy
+        criterion = nn.CrossEntropyLoss(reduction="none", weight=self.pr_y)
+        output, target = output.view(-1, output.size(-1)), target.view(-1)
+        loss = criterion(output, target).mean()
+        diff = output.detach().argmax(dim=-1) != target
+        err = diff.sum() / output.size(0)
+
+        return {"loss": loss, "err": err}
+
+
+@dtc.dataclass(unsafe_hash=True)
+class ALawSignal(AudioSignal):
+    A: float = 87.7
+    q_levels: int = 256
+    target_width: int = 1
+
+    def __post_init__(self):
+        self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
+        self.transform_ = T.ALawCompress(A=self.A, q_levels=self.q_levels)
+        self.inverse_transform_ = T.ALawExpand(A=self.A, q_levels=self.q_levels)
+
+    def transform(self, inputs):
+        return self.transform_(inputs)
+
+    def inverse_transform(self, inputs):
+        return self.inverse_transform_(inputs)
+
+    def loss_fn(self, output, target):
         criterion = nn.CrossEntropyLoss(reduction="mean")
         L = criterion(output.view(-1, output.size(-1)), target.view(-1))
-        C = output.size(-1)
-        Ct, Zerot = torch.tensor([C - 1]).to(target), torch.tensor([0]).to(target)
-        for w in range(2, self.target_width + 1):
-            d = .5 * 1 / w
-            L += d * criterion(output.view(-1, C),
-                               torch.minimum(target.view(-1) + w, Ct))
-            L += d * criterion(output.view(-1, C),
-                               torch.maximum(target.view(-1) - w, Zerot))
         return {"loss": L}
 
 

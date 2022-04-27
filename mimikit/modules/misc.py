@@ -56,14 +56,13 @@ class ScaledActivation(nn.Module):
     def __init__(self, activation, dim, with_range=True):
         super(ScaledActivation, self).__init__()
         self.activation = activation
-        self.scales = nn.Parameter(torch.ones(dim, ), )
-        self.rg = nn.Parameter(torch.ones(dim if with_range else 1, ), )
+        self.scales = nn.Parameter(torch.rand(dim, ) * 100, )
         self.dim = dim
 
     def forward(self, x):
-        self.rg.to(x).expand(*(1,) * (len(x.size()) - 1), self.dim)
-        self.scales.to(x).expand(*(1,) * (len(x.size()) - 1), self.dim)
-        return self.activation(self.rg * x / self.scales) * self.scales
+        s = self.scales.to(x).view(*(d if d == self.dim else 1 for d in x.size()))
+        # return self.activation(self.rg * x / self.scales) * self.scales
+        return self.activation(x) * s
 
 
 class ScaledSigmoid(ScaledActivation):

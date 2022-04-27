@@ -120,7 +120,8 @@ def train(
     dl = soundbank.serve(batch,
                          num_workers=max(os.cpu_count(), min(batch_size, os.cpu_count())),
                          pin_memory=True,
-                         persistent_workers=True,
+                         # True leads to memory leaks, False resets the processes at each epochs
+                         persistent_workers=False,
                          **loader_kwargs
                          )
 
@@ -210,7 +211,8 @@ def train(
                 callbacks=callbacks,
                 limit_train_batches=limit_train_batches if limit_train_batches is not None else 1.
                 )
-    dl._iterator._shutdown_workers()
+    try:
+        dl._iterator._shutdown_workers()
+    except:
+        pass
     soundbank.close()
-    os.remove(soundbank.filename)
-

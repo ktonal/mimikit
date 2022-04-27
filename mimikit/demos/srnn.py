@@ -33,13 +33,17 @@ def demo():
 
     net = mmk.models.SampleRNN(
         feature=feature,
+        # bottom tier has linearized Mu-Law signal as input (no embeddings!)
+        input_type="lin",
+        # output MLP learns to predict the temperature of its output distribution
+        learn_temperature=True,
         chunk_length=16000 * 8,
-        frame_sizes=(64, 16, 16),
-        dim=512,
-        n_rnn=2,
+        frame_sizes=(256, 128, 64, 32, 16, 8, 4, 4),
+        dim=128,
+        n_rnn=1,
         q_levels=feature.q_levels,
-        embedding_dim=256,
-        mlp_dim=512,
+        embedding_dim=1,
+        mlp_dim=128,
     )
 
     # OPTIMIZATION LOOP
@@ -53,24 +57,24 @@ def demo():
 
         # BATCH
 
-        batch_size=16,
-        batch_length=1024,
-        oversampling=2,
+        batch_size=32,
+        batch_length=2048,
+        oversampling=16,
         shift_error=0,
-        tbptt_chunk_length=16000 * 8,
+        tbptt_chunk_length=net.hp.chunk_length,
 
         # OPTIM
 
-        max_epochs=200,
+        max_epochs=100,
         limit_train_batches=None,
 
-        max_lr=5e-4,
-        betas=(0.9, 0.93),
-        div_factor=20.,
-        final_div_factor=1.,
-        pct_start=0.,
+        max_lr=1e-3,
+        betas=(0.9, 0.9),
+        div_factor=1.,
+        final_div_factor=10.,
+        pct_start=0.05,
         cycle_momentum=False,
-        reset_optim=True,
+        reset_optim=False,
 
         # MONITORING / OUTPUTS
 
@@ -78,11 +82,13 @@ def demo():
         MONITOR_TRAINING=True,
         OUTPUT_TRAINING="",
 
-        every_n_epochs=10,
+        every_n_epochs=100,
         n_examples=4,
-        prompt_length=16000,
-        n_steps=int(6 * (feature.sr)),
-        temperature=torch.tensor([[.999], [1.25], [1.05], [.9]]).repeat(1, int(6 * (feature.sr))),
+        # small warm up prompts work better than big ones...
+        prompt_length=net.frame_sizes[0]*6,
+        n_steps=int(16 * feature.sr),
+        temperature=torch.tensor([[1.], [1.5], [.5], [.05]]).repeat(1, int(16*net.feature.sr)),
+
     )
 
     """----------------------------"""

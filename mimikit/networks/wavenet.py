@@ -3,7 +3,7 @@ import torch.nn as nn
 from typing import Optional, Tuple
 from itertools import accumulate, chain
 import operator as opr
-
+from copy import deepcopy
 from pytorch_lightning.utilities import AttributeDict
 
 from ..modules.homs import *
@@ -40,6 +40,7 @@ class WNLayer(HOM):
 
     def __init__(
             self,
+            input_dim: Optional[int] = None,
             dims_dilated: Tuple[int] = (128,),
             dims_1x1: Tuple[int] = tuple(),
             residuals_dim: Optional[int] = None,
@@ -53,20 +54,25 @@ class WNLayer(HOM):
             stride: int = 1,
             bias: bool = True,
             dilation: int = 1,
+            dropout: float = 0.,  # TODO
     ):
         init_ctx = locals()
         init_ctx.pop("self")
         cause = (kernel_size - 1) * dilation
+        # handle raw inputs ==> input_dim == 1
+        groups = groups if input_dim is None or input_dim % groups == 0 else 1
         self.hp = AttributeDict(init_ctx)
         self.hp.cause = cause
         has_gated_units = act_g is not None
         has_residuals = residuals_dim is not None
+        # output dim for the gates
         if residuals_dim is None:
-            # output dim for the gates
             main_dim = residuals_dim = dims_dilated[0]
         else:
             main_dim = residuals_dim
             apply_residuals = True
+        # todo:
+        in_dim = main_dim if input_dim is None else input_dim
 
         def trim_cause(x):
             # remove dilation for generate_fast
@@ -78,15 +84,15 @@ class WNLayer(HOM):
         vars_1x1 = [f"h{i}" for i in range(len(dims_1x1))]
         in_sig = ", ".join(["x"] + vars_dil + vars_1x1 + ["skips=None"])
         out_sig = ", ".join(["y"] + vars_dil + vars_1x1 + ["skips"])
-
         kwargs_dil = dict(kernel_size=(kernel_size,), dilation=dilation, stride=stride, bias=bias, groups=groups)
         kwargs_1x1 = dict(kernel_size=(1,), stride=stride, bias=bias, groups=groups)
 
         if has_gated_units:
-            conv_dil = [Chunk(nn.Conv1d(d, main_dim * 2, **kwargs_dil), 2, dim=1) for d in dims_dilated]
-            conv_1x1 = [Chunk(nn.Conv1d(d, main_dim * 2, **kwargs_1x1), 2, dim=1) for d in dims_1x1]
+            n_chunks = (1 + int(has_gated_units))
+            conv_dil = [Chunk(nn.Conv1d(in_dim, d * n_chunks, **kwargs_dil), n_chunks, dim=1) for d in dims_dilated]
+            conv_1x1 = [Chunk(nn.Conv1d(d, main_dim * n_chunks, **kwargs_1x1), n_chunks, dim=1) for d in dims_1x1]
         else:
-            conv_dil = [nn.Conv1d(d, main_dim, **kwargs_dil) for d in dims_dilated]
+            conv_dil = [nn.Conv1d(in_dim, main_dim, **kwargs_dil) for d in dims_dilated]
             conv_1x1 = [nn.Conv1d(d, main_dim, **kwargs_1x1) for d in dims_1x1]
 
         conv_skip = Skips(nn.Conv1d(main_dim, skips_dim, **kwargs_1x1)) if skips_dim is not None else None
@@ -138,7 +144,10 @@ class WNLayer(HOM):
             *Maybe(skips_dim is not None,
                    *Maybe(not pad_side,
                           (lambda s: trim_cause(s) if s is not None else s, "skips -> skips")),
-                   (conv_skip, "y, skips -> skips")
+                   (conv_skip, "y, skips -> skips"),
+                   # graph in the original paper implies that
+                   # (lambda s: s, 'skips -> y'),
+                   # and then residual (x + y -> y)
                    ),
 
             # with or without residuals
@@ -159,6 +168,7 @@ class WNBlock(HOM):
 
     def __init__(
             self,
+            input_dim: Optional[int] = None,
             kernel_sizes: Tuple[int] = (2,),
             blocks: Tuple[int] = (),
             dims_dilated: Tuple[int] = (128,),
@@ -178,13 +188,19 @@ class WNBlock(HOM):
         init_ctx.pop("__class__")
         kernel_sizes, dilation = self.get_kernels_and_dilation(kernel_sizes, blocks)
         layers = [
-            WNLayer(dims_dilated=dims_dilated, dims_1x1=dims_1x1, residuals_dim=residuals_dim,
-                    apply_residuals=apply_residuals, skips_dim=skips_dim,
-                    kernel_size=k,
-                    groups=groups, act_f=act_f, act_g=act_g, pad_side=pad_side,
-                    stride=stride, bias=bias,
-                    dilation=d)
-            for k, d in zip(kernel_sizes, dilation)
+            WNLayer(
+                input_dim=input_dim if n == 0 else None,
+                dims_dilated=dims_dilated, dims_1x1=dims_1x1,
+                # no residuals for last layer
+                residuals_dim=residuals_dim if n != sum(blocks)-1 else None,
+                apply_residuals=apply_residuals and n != 0,
+                skips_dim=skips_dim,
+                kernel_size=k,
+                groups=groups, act_f=deepcopy(act_f), act_g=deepcopy(act_g), pad_side=pad_side,
+                stride=stride, bias=bias,
+                dilation=d
+            )
+            for n, (k, d) in enumerate(zip(kernel_sizes, dilation))
         ]
         rf = sum(layer.hp.cause for layer in layers) + 1
         shift = 1 if pad_side == 1 else rf
@@ -237,8 +253,8 @@ class WNBlock(HOM):
             elif len(kernel_sizes) == sum(blocks):
                 cum_blocks = list(accumulate(blocks, opr.add))
                 dilation = []
-                for start, stop in zip([0] + cum_blocks, cum_blocks[1:]):
-                    ks = kernel_sizes[start:stop]
+                for start, stop in zip([0] + cum_blocks, cum_blocks):
+                    ks = kernel_sizes[start:stop-1]
                     dilation += list(accumulate([1, *ks], opr.mul))
             elif len(kernel_sizes) == 1:
                 k = kernel_sizes[0]
@@ -247,11 +263,12 @@ class WNBlock(HOM):
                 dilation = (k ** i for block in blocks for i in range(block))
             else:
                 raise ValueError(f"number of layers and number of kernel sizes not compatible."
-                                 " Got kernel_sizes={kernel_sizes} ; blocks={blocks}")
+                                 f" Got kernel_sizes={kernel_sizes} ; blocks={blocks}")
         return kernel_sizes, dilation
 
     def with_io(self, input_modules, output_modules):
         inpt_mod = combine("==", None, *input_modules)
+        # inpt_mod = input_modules[0]
         in_pos, in_kw = get_input_signature(inpt_mod.forward)
         self_in = inpt_mod.s.split(" -> ")[1]
         outpt_mod = combine("-<", None, *output_modules)
@@ -284,7 +301,7 @@ class WNBlock(HOM):
             if self.hp.pad_side == 0:
                 size = (self.rf - layer.hp.cause)
                 # indices = [size - n for n in range(0, rf, d)][::-1]
-                indices = [*range(-layer.hp.cause-1, 0, d)]
+                indices = [*range(-layer.hp.cause - 1, 0, d)]
             else:
                 size = (self.rf - 1)
                 indices = [size - n for n in range(0, rf, d)][::-1]
@@ -299,10 +316,17 @@ class WNBlock(HOM):
                     qs[i] = inpt
                     return inpt
                 if i == 0 and qs[i] is not None:
-                    q, _ = qs[0]
-                    q = q.roll(-1, 2)
-                    q[:, :, -1:] = inpt[0][:, :, -1:]
-                    qs[0] = (q, None)
+                    q = qs[0][:-1]
+                    if isinstance(q, tuple):  # multiple inputs!
+                        q = [*q]
+                        for l in range(len(q)):
+                            q[l] = q[l].roll(-1, 2)
+                            q[l][:, :, -1:] = inpt[l][:, :, -1:]
+                            qs[0] = (*q, None)
+                    else:
+                        q = q.roll(-1, 2)
+                        q[:, :, -1:] = inpt[0][:, :, -1:]
+                        qs[0] = (q, None)
                 return tuple(x[:, :, lyr_slices[i]]
                              if x is not None else x for x in inpt)
 
@@ -320,18 +344,19 @@ class WNBlock(HOM):
                             mod.pad = (0,) * len(mod.pad)
                     module._fast_mode = True
                     return outpt
-                z, skips = outpt
+                z, skips = outpt[:-1], outpt[-1]
                 if i < len(layers) - 1:
                     # set and roll input for next layer
-                    q, skp = qs[i + 1]
-
-                    q = q.roll(-1, 2)
-                    q[:, :, -1:] = z[:]
+                    q, skp = qs[i + 1][:-1], qs[i + 1][-1]
+                    q = [*q]
+                    for l in range(len(q)):
+                        q[l] = q[l].roll(-1, 2)
+                        q[l][:, :, -1:] = z[l][:]
                     if skp is not None:
                         skp = skp.roll(-1, 2)
                         skp[:, :, -1:] = skips
 
-                    qs[i + 1] = (q, skp)
+                    qs[i + 1] = (*q, skp)
                 return qs.get(i + 1, outpt)
 
             handles += [layer.register_forward_hook(hook)]

@@ -33,12 +33,12 @@ class QCluster:
         if self.k is None:
             self.k = int(self.qe * self.n_neighbs)
 
-        D = pwd(x, x, metric=self.metric, n_jobs=-1)
+        D = pwd(x, x, metric=self.metric)
         Dk = D.copy()
         Dk[Dk == 0] = np.inf
 
         kn = KNeighborsTransformer(mode="distance", n_neighbors=self.n_neighbs,
-                                   metric="precomputed", n_jobs=1)
+                                   metric="precomputed")
         adj = kn.fit_transform(D)
         adj_sub = kn.kneighbors_graph(None, self.k, mode="distance")
         Kx = (0 < adj.A).sum(axis=0).reshape(-1)
@@ -142,8 +142,8 @@ class HCluster:
 
 
 def distance_matrices(X, metric="euclidean", n_neighbors=1, radius=1e-3):
-    Dx = pwd(X, X, metric=metric, n_jobs=-1)
-    NN = NearestNeighbors(n_neighbors=n_neighbors, radius=radius, metric="precomputed", n_jobs=-1)
+    Dx = pwd(X, X, metric=metric)
+    NN = NearestNeighbors(n_neighbors=n_neighbors, radius=radius, metric="precomputed")
     NN.fit(Dx)
     Kx = NN.kneighbors_graph(n_neighbors=n_neighbors, mode='connectivity')
     Rx = NN.radius_neighbors_graph(radius=radius, mode='connectivity')
@@ -170,13 +170,13 @@ def sk_cluster(X, Dx=None, n_clusters=128, metric="euclidean", estimator="argmax
         "kmeans": C.KMeans(n_clusters=n_clusters,
                            n_init=4,
                            max_iter=200,
-                           n_jobs=-1),
+                           ),
 
         "spectral": C.SpectralClustering(n_clusters=n_clusters,
                                          affinity="nearest_neighbors",
                                          n_neighbors=32,
                                          assign_labels="discretize",
-                                         n_jobs=-1),
+                                         ),
 
         "agglo_ward": C.AgglomerativeClustering(
             n_clusters=n_clusters,
@@ -279,7 +279,7 @@ Parameters : n_neighbs={est.n_neighbs} ; k={est.k} ; qe={qe}
     if os.path.exists(target_dir):
         shutil.rmtree(target_dir)
     os.makedirs(target_dir, exist_ok=True)
-    Parallel(n_jobs=-1, backend='multiprocessing') \
+    Parallel(backend='multiprocessing') \
         (delayed(export)(s, f"{target_dir}/c{i}", sr, n_fft, hop_length)
          for i, s in enumerate(clusters))
     return

@@ -3,7 +3,6 @@ import math
 import torch
 from torch.utils.data import Sampler, RandomSampler, BatchSampler
 
-
 __all__ = [
     'TBPTTSampler',
     'IndicesSampler'
@@ -26,24 +25,26 @@ class TBPTTSampler(Sampler):
         self.n_samples = n_samples
         self.chunk_length = min(chunk_length, n_samples)
         self.seq_len = seq_len
-        self.n_chunks = self.n_samples // self.chunk_length
+        self.n_chunks = max(1, self.n_samples // self.chunk_length - int(oversampling > 1))
         self.remainder = self.n_samples % self.chunk_length
         self.n_per_chunk = self.chunk_length // self.seq_len
-        self.batch_size = min(batch_size, self.n_chunks)
+        self.batch_size = batch_size
         self.oversampling = oversampling
 
     def __iter__(self):
-        smp = RandomSampler(torch.arange(max(1, self.n_chunks), ))
-        for top in BatchSampler(smp, self.batch_size, False):  # don't drop last!
-            for _ in range(self.oversampling):
-                offsets = torch.randint(0, self.remainder, (self.batch_size,))
-                top_idx = tuple(o + (t * self.chunk_length) for t, o in zip(top, offsets))
-                for start in range(self.n_per_chunk):
-                    # start indices of the batch
-                    yield tuple(t + (start * self.seq_len) for t in top_idx)
+        indices = torch.arange(self.n_chunks * self.oversampling)
+        smp = RandomSampler(indices)
+        for top in BatchSampler(smp, self.batch_size, False):
+            # for _ in range(self.oversampling):
+            offsets = torch.randint(0, self.remainder, (self.batch_size,))
+            top_idx = tuple(o + ((t % self.n_chunks) * self.chunk_length)
+                            for t, o in zip(top, offsets))
+            for start in range(self.n_per_chunk):
+                # start indices of the batch
+                yield tuple(t + (start * self.seq_len) for t in top_idx)
 
     def __len__(self):
-        return self.oversampling * int(max(1, math.floor(self.n_chunks / self.batch_size)) * self.n_per_chunk)
+        return (self.oversampling * self.n_chunks // self.batch_size) * self.n_per_chunk
 
 
 class IndicesSampler(Sampler):
