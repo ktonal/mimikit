@@ -65,7 +65,7 @@ def demo():
 
         # OPTIM
 
-        max_epochs=100,
+        max_epochs=1000,
         limit_train_batches=None,
 
         max_lr=1e-3,
