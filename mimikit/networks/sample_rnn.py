@@ -117,7 +117,6 @@ class SampleRNNTier(HOM):
 
 
 class SampleRNNTopTier(SampleRNNTier):
-    resampler_cls = LinearResampler
 
     def __init__(self,
                  frame_size: int,
@@ -140,7 +139,7 @@ class SampleRNNTopTier(SampleRNNTier):
             (self.add_upper_tier, "x, z -> x"),
             (self.reset_hidden, "x, h -> h"),
             (nn.LSTM(dim, dim, n_rnn, batch_first=True), "x, h -> x, h"),
-            (self.resampler_cls(dim, t_factor=up_sampling, d_factor=1), "x -> x"),
+            (LinearResampler(dim, t_factor=up_sampling, d_factor=1), "x -> x"),
         )
 
 
@@ -154,6 +153,7 @@ class SampleRNNBottomTier(SampleRNNTier):
                  io_dim: Optional[int] = None,
                  input_type: str = "lin",
                  learn_temperature: bool = True,
+                 n_hidden_layers: int = 0,
                  ):
         init_ctx = locals()
         init_ctx.pop("self")
@@ -173,18 +173,9 @@ class SampleRNNBottomTier(SampleRNNTier):
             (self.add_upper_tier, "x, z -> x"),
             *Maybe(io_dim is not None,
                    (SingleClassMLP(top_dim, zout_dim, io_dim,
-                                   learn_temperature=learn_temperature), 'x, temperature -> x'))
+                                   learn_temperature=learn_temperature,
+                                   n_hidden_layers=n_hidden_layers), 'x, temperature -> x'))
         )
-
-
-"""
-in time-domain :
-    - bottom tier has embedding and mlp out
-    - all other linearize their inputs
-in the tf-domain :
-    - bottom has no embedding (4 embedded samples == same shape as 4 FFT)
-    - all others get 1 frame (frame_size == n_fft)
-"""
 
 
 @dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
@@ -196,6 +187,8 @@ class SampleRNN(TierNetwork):
     embedding_dim: int = 256
     mlp_dim: int = 512
     input_type: str = "lin"  # bottom tier input type ["emb" | "lin"]
+    learn_temperature: bool = True
+    n_hidden_layers: int = 0
 
     def __post_init__(self):
         self.hp = AttributeDict(dataclasses.asdict(self))
@@ -213,8 +206,10 @@ class SampleRNN(TierNetwork):
                                       zin_dim=self.embedding_dim,
                                       zout_dim=self.mlp_dim,
                                       io_dim=self.q_levels,
-                                      input_type=self.input_type
-                                      )]
+                                      input_type=self.input_type,
+                                      learn_temperature=self.learn_temperature,
+                                      n_hidden_layers=self.n_hidden_layers,
+        )]
         TierNetwork.__init__(self, *tiers)
 
 

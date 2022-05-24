@@ -351,10 +351,10 @@ class WNBlock(HOM):
                     q = [*q]
                     for l in range(len(q)):
                         q[l] = q[l].roll(-1, 2)
-                        q[l][:, :, -1:] = z[l][:]
+                        q[l][:, :, -1:] = z[l][:, :, -1:]
                     if skp is not None:
                         skp = skp.roll(-1, 2)
-                        skp[:, :, -1:] = skips
+                        skp[:, :, -1:] = skips[:, :, -1:]
 
                     qs[i + 1] = (*q, skp)
                 return qs.get(i + 1, outpt)

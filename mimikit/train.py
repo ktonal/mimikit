@@ -4,10 +4,8 @@ import hashlib
 import h5mapper as h5m
 import torch
 
-
 from .features import AudioSignal
 from .loops import GenerateCallback, GenerateLoop, AudioLogger, MMKCheckpoint, TBPTTSampler, IndicesSampler, TrainLoop
-
 
 __all__ = [
     "train"
@@ -97,7 +95,8 @@ def train(
     )
 
     if tbptt_chunk_length is not None:
-        if getattr(input_feature, 'domain', '') == 'time-freq' and isinstance(getattr(batch[0], 'getter', False), h5m.Getter):
+        if getattr(input_feature, 'domain', '') == 'time-freq' and isinstance(getattr(batch[0], 'getter', False),
+                                                                              h5m.Getter):
             item_len = batch[0].getter.length
             seq_len = item_len
             chunk_length = item_len * tbptt_chunk_length
@@ -117,8 +116,11 @@ def train(
         )
     else:
         loader_kwargs = dict(batch_size=batch_size, shuffle=True)
+    n_workers = max(os.cpu_count(), min(batch_size, os.cpu_count()))
+    prefetch = batch_size // n_workers
     dl = soundbank.serve(batch,
-                         num_workers=max(os.cpu_count(), min(batch_size, os.cpu_count())),
+                         num_workers=max(os.cpu_count()//2, min(batch_size, os.cpu_count()//2)),
+                         prefetch_factor=prefetch,
                          pin_memory=True,
                          # True leads to memory leaks, False resets the processes at each epochs
                          persistent_workers=False,
@@ -151,8 +153,8 @@ def train(
     g_dl = soundbank.serve(
         (input_feature.batch_item(shift=0, length=prompt_length, training=False),),
         sampler=IndicesSampler(N=n_examples,
-                                   max_i=max_i,
-                                   redraw=True),
+                               max_i=max_i,
+                               redraw=True),
         shuffle=False,
         batch_size=n_examples
     )
@@ -161,9 +163,9 @@ def train(
         dataloader=g_dl,
         inputs=(h5m.Input(None, h5m.AsSlice(dim=1, shift=-net.rf, length=net.rf),
                           setter=h5m.Setter(dim=1)),
-                *((h5m.Input(temperature, h5m.AsSlice(dim=1+int(hasattr(net.hp, 'hop')), length=1),
-                             setter=None), )
-                if temperature is not None else ())),
+                *((h5m.Input(temperature, h5m.AsSlice(dim=1 + int(hasattr(net.hp, 'hop')), length=1),
+                             setter=None),)
+                  if temperature is not None else ())),
         n_steps=n_steps,
         device='cuda' if torch.cuda.is_available() else 'cpu',
         time_hop=net.hp.get("hop", 1)
@@ -216,3 +218,4 @@ def train(
     except:
         pass
     soundbank.close()
+    return tr_loop, net

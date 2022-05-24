@@ -89,7 +89,6 @@ class AudioSignal(Feature):
 @dtc.dataclass(unsafe_hash=True)
 class MuLawSignal(AudioSignal):
     q_levels: int = 256
-    target_width: int = 1
     pr_y: torch.tensor = None
 
     def __post_init__(self):
