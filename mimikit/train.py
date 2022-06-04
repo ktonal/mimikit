@@ -117,9 +117,9 @@ def train(
     else:
         loader_kwargs = dict(batch_size=batch_size, shuffle=True)
     n_workers = max(os.cpu_count(), min(batch_size, os.cpu_count()))
-    prefetch = batch_size // n_workers
+    prefetch = (batch_size // n_workers) // 2
     dl = soundbank.serve(batch,
-                         num_workers=max(os.cpu_count()//2, min(batch_size, os.cpu_count()//2)),
+                         num_workers=n_workers,
                          prefetch_factor=prefetch,
                          pin_memory=True,
                          # True leads to memory leaks, False resets the processes at each epochs
