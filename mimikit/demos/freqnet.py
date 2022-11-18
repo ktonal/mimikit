@@ -1,10 +1,9 @@
 def demo():
-    """### Configure and run training"""
+    """### Load Data"""
     import mimikit as mmk
     import h5mapper as h5m
     import os
 
-    # DATA
 
     # list of files or directories to use as data ("./" is the cwd of the notebook)
     sources = ['./data']
@@ -24,6 +23,8 @@ def demo():
 
     SoundBank.create(db_path, sources)
     soundbank = SoundBank(db_path, mode='r', keep_open=True)
+
+    """### Configure and run training"""
 
     # INPUT / TARGET
 

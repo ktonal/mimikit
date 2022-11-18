@@ -1,5 +1,5 @@
 def demo():
-    """### Configure and run training"""
+    """### Load Data"""
     import mimikit as mmk
     import h5mapper as h5m
     import torch
@@ -21,6 +21,8 @@ def demo():
 
     SoundBank.create(db_path, sources)
     soundbank = SoundBank(db_path, mode='r', keep_open=True)
+
+    """### Configure and run training"""
 
     # INPUT / TARGET
 

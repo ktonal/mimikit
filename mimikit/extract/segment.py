@@ -174,7 +174,7 @@ def pick_globally_sorted_maxes(x, wait_before, wait_after, min_strength=0.02):
 
     mx_indices = mx.nonzero()[0][np.argsort(-x[mx])]
 
-    final_maxes = np.zeros_like(x, dtype=np.bool)
+    final_maxes = np.zeros_like(x, dtype=bool)
 
     for m in mx_indices:
         i, j = max(0, m - wait_before), min(x.shape[0], m + wait_after)

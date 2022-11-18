@@ -46,7 +46,7 @@ class QCluster:
 
         adj_cores = (adj_sub.A.astype(np.bool)) & (is_core & is_core[:, None])
         cores_idx = is_core.nonzero()[0]
-
+        print(f"found {cores_idx.shape[0]} cores")
         for i in range(adj.shape[0]):
             if not np.any(adj_cores[i] & is_core):
                 nearest_core = Dk[i, is_core].argmin()
