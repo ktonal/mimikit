@@ -120,7 +120,7 @@ def train(
     prefetch = (batch_size // n_workers) // 2
     dl = soundbank.serve(batch,
                          num_workers=n_workers,
-                         prefetch_factor=prefetch,
+                         prefetch_factor=max(prefetch, 1),
                          pin_memory=True,
                          # True leads to memory leaks, False resets the processes at each epochs
                          persistent_workers=False,

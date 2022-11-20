@@ -9,6 +9,7 @@ scipy>=1.4.1
 scikit-learn>=0.24
 soundfile>=0.10.2
 test-tube>=0.7.5
-h5mapper==0.2.3
+h5mapper==0.2.4
 numba
 muspy==0.3.0
+soxr

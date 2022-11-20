@@ -178,5 +178,5 @@ def convert_to_mp3(file_path, exists_ok=True):
     if exists_ok and os.path.isfile(os.path.splitext(file_path)[0] + ".mp3"):
         os.remove(os.path.splitext(file_path)[0] + ".mp3")
     stream = ffmpeg.input(file_path)
-    stream.output(os.path.splitext(file_path)[0] + ".mp3").run()
+    stream.output(os.path.splitext(file_path)[0] + ".mp3").run(quiet=True)
     os.remove(file_path)

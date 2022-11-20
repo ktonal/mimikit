@@ -84,7 +84,7 @@ class FileToSignal(FModule):
     @property
     def functions(self):
         return {
-            str: lambda path: librosa.load(path, sr=self.sr)[0]
+            str: lambda path: librosa.load(path, sr=self.sr, mono=True, res_type='soxr-vhq')[0]
         }
 
     def __call__(self, inputs):

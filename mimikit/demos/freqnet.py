@@ -49,6 +49,7 @@ def demo():
         # dimension of the layers
         dims_dilated=(1024,),
         groups=2,
+        pad_side=0,
 
     )
     net.use_fast_generate = False
@@ -84,9 +85,9 @@ def demo():
 
         # MONITORING / OUTPUTS
 
-        CHECKPOINT_TRAINING=False,
+        CHECKPOINT_TRAINING=True,
         MONITOR_TRAINING=True,
-        OUTPUT_TRAINING="mp3",
+        OUTPUT_TRAINING="",
 
         every_n_epochs=10,
         n_examples=4,

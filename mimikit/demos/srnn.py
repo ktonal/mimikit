@@ -79,7 +79,7 @@ def demo():
 
         # MONITORING / OUTPUTS
 
-        CHECKPOINT_TRAINING=False,
+        CHECKPOINT_TRAINING=True,
         MONITOR_TRAINING=True,
         OUTPUT_TRAINING="",
 

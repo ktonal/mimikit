@@ -14,6 +14,7 @@ __all__ = [
     'Checkpoint'
 ]
 
+
 def find_checkpoints(root="trainings"):
     return h5m.FileWalker(r"\.h5", root)
 
