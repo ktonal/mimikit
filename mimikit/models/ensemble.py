@@ -1,10 +1,8 @@
 import h5mapper as h5m
 import torch.nn as nn
 import torch
-import math
 from pprint import pprint
 
-from ..networks import TierNetwork
 from ..features import Resample, MuLawSignal
 from ..loops import GenerateLoop
 
@@ -14,6 +12,39 @@ from .checkpoint import Checkpoint
 __all__ = [
     "Ensemble"
 ]
+
+
+class VotingEnsemble(nn.Module):
+    device = property(lambda self: next(self.parameters()).device)
+
+    def __init__(self, networks, weights=None):
+        super(VotingEnsemble, self).__init__()
+        self.nets = nn.ModuleList(networks)
+        N = len(networks)
+        W = [1/N for _ in range(N)] if weights is None else weights
+        if len(W) != N:
+            raise ValueError(f"Expected `weights` to be of length {N} but got {len(W)}")
+        self.weights = torch.tensor(W) / sum(W)
+
+    def before_generate(self, loop, batch, batch_idx):
+        for net in self.nets:
+            net.before_generate(loop, batch, batch_idx)
+        return {}
+
+    def generate_step(self, t, inputs, ctx):
+        self.weights.to(inputs.device)
+        out = None
+        for w, net in zip(self.nets, self.weights):
+            if out is None:
+                out = net.generate_step(t, inputs, ctx) * w
+            else:
+                out += net.generate_step(t, inputs, ctx) * w
+        return out
+
+    def after_generate(self, *args, **kwargs):
+        for net in self.nets:
+            net.after_generate(*args, **kwargs)
+        return self
 
 
 class Ensemble(nn.Module):
@@ -36,25 +67,38 @@ class Ensemble(nn.Module):
         # just to make self.device settable/gettable
         self._param = nn.Parameter(torch.ones(1))
 
+    def generate_step(self, t, inputs, ctx):
+        """called from outer GenerateLoop"""
+        if t >= int(self.max_seconds * self.base_sr):
+            return None
+        event, net, feature, n_steps, params = self.next_event()
+        if hasattr(net, 'to'):
+            net = net.to("cuda")
+        if hasattr(net, "use_fast_generate"):
+            net.use_fast_generate = False
+
+        if (t / self.base_sr + event['seconds']) < self.max_seconds:
+            if self.print_events:
+                event.update({"start": t / self.base_sr})
+                pprint(event)
+            out = self.run_event(inputs[0], net, feature, n_steps, *params)
+            return out
+        return torch.zeros(1, int(self.max_seconds * self.base_sr - t)).to("cuda")
+
     def run_event(self, inputs, net, feature, n_steps, *params):
-        prompt_getter = feature.batch_item(
-            shift=0, length=inputs.size(-1) if isinstance(net, TierNetwork) else net.rf  # TODO: NNN needs 1 instead of net.rf...
-        )
         resample = Resample(self.base_sr, feature.sr)
-        n_input_samples = math.ceil(prompt_getter.getter.length * self.base_sr / feature.sr)
-        prompt_getter.data = resample(inputs[:, -n_input_samples:])
-        prompt = prompt_getter(0)
+        inputs_resampled = resample(inputs)
+        prompt = feature.transform(inputs_resampled)
+        n_input_samples = inputs.shape[1]
+
         output = [[]]
-        print("length", prompt_getter.getter.length, "n_inputs", n_input_samples, "PROMPT", prompt.shape)
+
         def process_outputs(outputs, _):
-            print("OUTPUT", outputs[0].shape)
             inv_resample = Resample(feature.sr, self.base_sr)
             # prompt + generated in base_sr :
             y = feature.inverse_transform(outputs[0])
-            print("Y", y.shape, feature.sr, self.base_sr)
             out = inv_resample(y)
             output[0] = out[:, n_input_samples:]
-            print("OUTPUT", out.shape)
 
         loop = GenerateLoop(
             net,
@@ -74,26 +118,25 @@ class Ensemble(nn.Module):
         return output[0]
 
     @staticmethod
+    def get_network(event):
+        return None
+
+    @staticmethod
+    def get_feature(event):
+        return None
+
+    @staticmethod
+    def get_n_steps(event, net, feature):
+        return None
+
+    @staticmethod
     def seconds_to_n_steps(seconds, net, feature):
         return int(seconds * feature.sr) if isinstance(feature, MuLawSignal) \
             else int(seconds * (feature.sr // feature.hop_length)) // getattr(net, "hop", 1)
 
-    def generate_step(self, t, inputs, ctx):
-        if t >= int(self.max_seconds * self.base_sr):
-            return None
-        event, net, feature, n_steps, params = self.next_event()
-        if hasattr(net, 'to'):
-            net = net.to("cuda")
-        if hasattr(net, "use_fast_generate"):
-            net.use_fast_generate = False
-
-        if (t / self.base_sr + event['seconds']) < self.max_seconds:
-            if self.print_events:
-                event.update({"start": t / self.base_sr})
-                pprint(event)
-            out = self.run_event(inputs[0], net, feature, n_steps, *params)
-            return out
-        return torch.zeros(1, int(self.max_seconds * self.base_sr - t)).to("cuda")
+    @staticmethod
+    def get_params(event):
+        return None
 
     def next_event(self):
         event = next(self.stream)
@@ -103,11 +146,14 @@ class Ensemble(nn.Module):
         elif "NearestNextNeighbor" in str(event["type"]):
             feature = event['feature']
             data = event["soundbank"]
-            net = NearestNextNeighbor(feature, data.snd)
+            path_length = event.get("path_length", 10)
+            net = NearestNextNeighbor(feature, data.snd, path_length)
+        elif event["type"] == "Parallel":
+            pass
+
         else:
             raise TypeError(f"event type '{event['type']}' not recognized")
         n_steps = self.seconds_to_n_steps(event['seconds'], net, feature)
-        print("N_STEPS", n_steps)
         if "temperature" in event:
             temp = event['temperature']
             if isinstance(temp, float):

@@ -52,14 +52,14 @@ class TierNetwork(HOM):
 
     def before_generate(self, loop, batch, batch_idx):
         self.outputs = [None] * (len(self.frame_sizes) - 1)
-        assert batch[0].size(1) % self.shift == 0, f'batch_length must be divisible by {self.shift} ' \
-                                                   f'(got {batch[0].size(1)})'
+        _batch = batch[0][:, batch[0].size(1) % self.shift:]
+
         self.reset_hidden()
         self.hidden = list(self.hidden)
-        self.prior_t = len(batch[0][0])
+        self.prior_t = len(_batch[0])
         # warm-up
         for t in range(self.shift, self.prior_t):
-            self.generate_step(t, (batch[0][:, t - self.shift:t],), {})
+            self.generate_step(t, (_batch[:, t - self.shift:t],), {})
         return {}
 
     def generate_step(self, t, inputs, ctx):

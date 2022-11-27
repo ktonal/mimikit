@@ -84,7 +84,7 @@ class FileToSignal(FModule):
     @property
     def functions(self):
         return {
-            str: lambda path: librosa.load(path, sr=self.sr, mono=True, res_type='soxr-vhq')[0]
+            str: lambda path: librosa.load(path, sr=self.sr, mono=True, res_type='soxr_vhq')[0]
         }
 
     def __call__(self, inputs):
@@ -171,7 +171,8 @@ class Resample(FModule):
     @property
     def functions(self) -> dict:
         def np_func(inputs):
-            return librosa.resample(inputs, orig_sr=self.orig_sr, target_sr=self.target_sr)
+            return librosa.resample(inputs, orig_sr=self.orig_sr, target_sr=self.target_sr,
+                                    res_type='soxr_vhq')
 
         def torch_func(inputs):
             return F.resample(inputs, self.orig_sr, self.target_sr)

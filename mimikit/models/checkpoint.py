@@ -78,3 +78,5 @@ class Checkpoint:
     @property
     def train_hp(self):
         return load_trainings_hp(os.path.join(self.root_dir, self.id))
+
+    # Todo: method to add state_dict mul by weights -> def average(self, *others)

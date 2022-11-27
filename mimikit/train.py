@@ -122,8 +122,7 @@ def train(
                          num_workers=n_workers,
                          prefetch_factor=max(prefetch, 1),
                          pin_memory=True,
-                         # True leads to memory leaks, False resets the processes at each epochs
-                         persistent_workers=False,
+                         persistent_workers=True,
                          **loader_kwargs
                          )
 
