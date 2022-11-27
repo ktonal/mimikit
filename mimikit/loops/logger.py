@@ -137,6 +137,7 @@ class AudioLogger:
     hop_length: int = 512
     filename_template: Optional[str] = None
     target_dir: Optional[str] = None
+    # todo: remove h5 stuff
     id_template: Optional[str] = None
     proxy_template: Optional[str] = None
     target_bank: Optional[h5mapper.TypedFile] = None
@@ -156,6 +157,7 @@ class AudioLogger:
                 filename = os.path.join(self.target_dir, filename)
         if isinstance(audio, torch.Tensor):
             audio = audio.squeeze().detach().cpu().numpy()
+        # TODO: use pydub
         sf.write(filename, audio, self.sr, 'PCM_24')
         convert_to_mp3(filename)
 

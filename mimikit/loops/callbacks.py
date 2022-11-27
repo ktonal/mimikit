@@ -77,6 +77,8 @@ class MMKCheckpoint(Callback):
                  id_template="epoch={epoch}-step={step}",
                  epochs=None,
                  root_dir=''
+                 # todo: save_optimizer
+                 # todo: save_checkpoint() implemented in Checkpoint Class
                  ):
         super().__init__()
         self.h5_tensor_dict = h5_tensor_dict

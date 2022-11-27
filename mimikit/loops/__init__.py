@@ -1,6 +1,5 @@
 from .callbacks import *
 from .generate import *
-from .get_trainer import *
 from .logger import *
 from .train_loops import *
 from .samplers import *

@@ -1,7 +1,9 @@
-from pytorch_lightning import LightningModule
+import torch
+from pytorch_lightning import LightningModule, Trainer
 
-from mimikit.loops.logger import LoggingHooks
-from .get_trainer import get_trainer
+from .logger import LoggingHooks
+from .callbacks import EpochProgressBarCallback
+
 
 __all__ = [
     "TrainLoop"
@@ -15,7 +17,6 @@ class TrainLoop(LoggingHooks,
                  loader, net, loss_fn, optim,
                  # number of batches before reset_hidden is called
                  tbptt_len=None,
-                 reset_optim=False,
                  ):
         super().__init__()
         self.loader = loader
@@ -23,7 +24,6 @@ class TrainLoop(LoggingHooks,
         self.loss_fn = loss_fn
         self.optim = optim
         self.tbptt_len = tbptt_len
-        self.reset_optim = reset_optim
 
     def forward(self, inputs):
         if not isinstance(inputs, (tuple, list)):
@@ -45,20 +45,18 @@ class TrainLoop(LoggingHooks,
         output = self.forward(batch)
         return self.loss_fn(output, target)
 
-    def on_epoch_end(self) -> None:
-        super(TrainLoop, self).on_epoch_end()
-        if self.reset_optim:
-            opt = self.optim[0][0]
-            for p_group in opt.param_groups:
-                for p in p_group["params"]:
-                    if not opt.state[p]:
-                        print("No states:", p.shape)
-                        continue
-                    opt.state[p]["exp_avg"].zero_()
-                    opt.state[p]["exp_avg_sq"].zero_()
-                    opt.state[p]["step"] = 10000
-
-    def run(self, **trainer_kwargs):
-        self.trainer = get_trainer(**trainer_kwargs)
+    def run(self, root_dir, max_epochs, callbacks, limit_train_batches):
+        self.trainer = Trainer(
+            default_root_dir=root_dir,
+            max_epochs=max_epochs,
+            limit_train_batches=limit_train_batches,
+            callbacks=[EpochProgressBarCallback()].extend(callbacks),
+            progress_bar_refresh_rate=10,
+            process_position=1,
+            logger=None,
+            checkpoint_callback=False,
+            num_sanity_val_steps=0,
+            gpus=torch.cuda.device_count() if torch.cuda.is_available() else 0,
+        )
         self.trainer.fit(self)
         return self
