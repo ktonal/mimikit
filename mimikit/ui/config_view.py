@@ -15,6 +15,7 @@ class Param:
     name: str
     widget: W.Widget
     compute: Optional[Callable[[Any, Any], Any]] = None
+    inverse_transform: Optional[Callable[[Any, Any], Any]] = None
 
 
 class ConfigView:
@@ -22,15 +23,16 @@ class ConfigView:
         self.config = config
         self._callbacks = []
         for i, param in enumerate(params):
-            # link to config value
-            def observer(ev, p=param):
-                compute = p.compute
-                v = ev["new"] if isinstance(ev, dict) else ev
-                val = v if compute is None else compute(config, v)
-                setattr(self.config, p.name, val)
-                self.callback()
+            if param.name[0] != "_":  # starting with "_" -> no effect on config
+                # link to config value
+                def observer(ev, p=param):
+                    compute = p.compute
+                    v = ev["new"] if isinstance(ev, dict) else ev
+                    val = v if compute is None else compute(config, v)
+                    setattr(self.config, p.name, val)
+                    self.callback()
 
-            param.widget.observe(observer, "value")
+                param.widget.observe(observer, "value")
         self.params = params
 
     def as_widget(self, container_cls, **kwargs):

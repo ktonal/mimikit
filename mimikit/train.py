@@ -128,8 +128,7 @@ def train(
                          num_workers=n_workers,
                          prefetch_factor=max(prefetch, 1),
                          pin_memory=True,
-                         # True leads to memory leaks when serving through h5m...
-                         persistent_workers=cfg.in_mem_data,
+                         persistent_workers=True,
                          **loader_kwargs
                          )
 

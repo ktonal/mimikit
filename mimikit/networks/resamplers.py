@@ -24,12 +24,12 @@ class LinearResampler(nn.Module):
 
 class Conv1dResampler(nn.Module):
 
-    def __init__(self, in_d, t_factor, d_factor, **kwargs):
+    def __init__(self, in_dim, t_factor, d_factor, **kwargs):
         super().__init__()
         mod = nn.Conv1d if t_factor <= 1 else partial(nn.ConvTranspose1d, stride=t_factor)
-        self.cv = mod(in_d, int(in_d * d_factor),
-                      t_factor if t_factor >= 1 else int(1 / t_factor),
-                      **kwargs)
+        self.kernel_size = t_factor if t_factor >= 1 else int(1 / t_factor)
+        self.out_dim = int(in_dim * d_factor)
+        self.cv = mod(in_dim, self.out_dim, self.kernel_size, **kwargs)
         self.tf, self.df = t_factor, d_factor
 
     def forward(self, x):
@@ -37,8 +37,8 @@ class Conv1dResampler(nn.Module):
             x = x.view(x.size(0), np.prod(x.shape[1:-1]), x.size(-1))
         B, T, D = x.size()
         if self.tf <= 1:
-            x = x.view(-1, int(1 / self.tf), D).transpose(1, 2)
-            x = self.cv(x).squeeze(-1).reshape(B, int(D * self.df), -1)
+            x = x.view(-1, self.kernel_size, D).transpose(1, 2)
+            x = self.cv(x).squeeze(-1).reshape(B, self.out_dim, -1)
         else:
             x = x.transpose(1, 2)
             x = self.cv(x)

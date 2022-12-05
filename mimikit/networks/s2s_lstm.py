@@ -3,7 +3,7 @@ import torch.nn as nn
 from typing import Optional
 import dataclasses as dtc
 
-from mimikit.modules.misc import Abs
+from ..modules.activations import Abs
 from pytorch_lightning.utilities import AttributeDict
 
 from ..networks.parametrized_gaussian import ParametrizedGaussian

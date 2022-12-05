@@ -1,11 +1,84 @@
 import torch.nn as nn
 import torch
+import abc
+
+from torch.types import Number
 
 from ..modules.homs import HOM
 
 __all__ = [
     "SingleClassMLP"
 ]
+
+
+class MLP(abc.ABC):
+
+    @abc.abstractmethod
+    def __init__(
+            self,
+            in_dim: int, hidden_dim: int, out_dim: int,
+            n_hidden_layers: int = 0,
+            learn_temperature: bool = True,
+            activation: nn.Module = nn.Mish(),
+            bias: bool = True
+    ):
+        ...
+
+    @abc.abstractmethod
+    def forward(self, inputs: torch.Tensor, *, temperature=None):
+        ...
+
+
+class SimpleMLP(MLP, nn.Module):
+
+    def __init__(
+            self,
+            in_dim: int, hidden_dim: int, out_dim: int,
+            n_hidden_layers: int = 0,
+            learn_temperature: bool = True,
+            activation: nn.Module = nn.Mish(),
+            bias: bool = True
+    ):
+        super(SimpleMLP, self).__init__()
+        self.in_dim = in_dim
+        self.hidden_dim = hidden_dim
+        self.out_dim = out_dim
+        self.n_hidden_layers = n_hidden_layers
+        self.learn_temperature = learn_temperature
+        if learn_temperature:
+            self.sigmoid = nn.Sigmoid()
+        self.activation = activation
+        self.bias = bias
+        self.softmax = nn.Softmax(dim=-1)
+
+        self.fc_in = nn.Sequential(
+            nn.Linear(in_dim, hidden_dim, bias=bias), self.activation
+        )
+        self.fc_hidden = nn.Sequential(
+            *((nn.Linear(hidden_dim, hidden_dim, bias=bias), self.activation) * n_hidden_layers)
+        )
+        self.fc_out = nn.Linear(hidden_dim, out_dim + int(learn_temperature), bias=bias)
+
+    def forward(self, inputs: torch.Tensor, *, temperature=None):
+        output = self.fc_out(self.fc_hidden(self.fc_in(inputs)))
+        if self.learn_temperature:
+            output = output[..., :-1] / (self.sigmoid(output[..., -1:]))
+        if self.training:
+            return output
+        if temperature is None:
+            return output.argmax(dim=-1)
+        if not isinstance(temperature, torch.Tensor):
+            if isinstance(temperature, torch.types.Number):
+                temperature = [temperature]
+            temperature = torch.Tensor(temperature)
+        if temperature.size() != output.size():
+            temperature = temperature.view(-1, *([1] * (output.dim() - 1)))
+        output = self.softmax(output / temperature.to(output.device))
+        if output.dim() > 2:
+            o_shape = output.shape
+            output = output.view(-1, o_shape[-1])
+            return torch.multinomial(output, 1).reshape(*o_shape[:-1])
+        return torch.multinomial(output, 1)
 
 
 class SingleClassMLP(nn.Module):

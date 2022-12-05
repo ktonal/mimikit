@@ -11,7 +11,8 @@ __all__ = [
     'load_trainings_hp',
     'load_network_cls',
     'load_feature',
-    'Checkpoint'
+    'Checkpoint',
+    'CheckpointBank'
 ]
 
 
@@ -23,8 +24,25 @@ def load_trainings_hp(dirname):
     return json.loads(open(os.path.join(dirname, "hp.json"), 'r').read())
 
 
-class CkptBank(h5m.TypedFile):
-    ckpt = h5m.TensorDict()
+class CheckpointBank(h5m.TypedFile):
+    network = h5m.TensorDict()
+    optimizer = h5m.TensorDict()
+
+    @classmethod
+    def save(cls, filename, network, optimizer) -> "CheckpointBank":
+        net_dict = network.state_dict()
+        opt_dict = optimizer.state_dict() if optimizer is not None else {}
+        cls.network.set_ds_kwargs(net_dict)
+        if optimizer is not None:
+            cls.optimizer.set_ds_kwargs(opt_dict)
+        bank = cls(filename, mode="w")
+        # TODO: HP
+        bank.network.add("state_dict", h5m.TensorDict.format(net_dict))
+        if optimizer is not None:
+            bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
+        bank.flush()
+        bank.close()
+        return bank
 
 
 def load_feature(s):
@@ -46,6 +64,10 @@ class Checkpoint:
     epoch: int
     root_dir: str = "./"
 
+    def create(self, network, optimizer=None):
+        CheckpointBank.save(self.os_path, network, optimizer)
+        return self
+
     @staticmethod
     def get_id_and_epoch(path):
         id_, epoch = path.split("/")[-2:]
@@ -65,16 +87,18 @@ class Checkpoint:
 
     @property
     def network(self):
-        bank = CkptBank(self.os_path, 'r')
-        hp = bank.ckpt.load_hp()
-        return bank.ckpt.load_checkpoint(hp["cls"], "state_dict")
+        bank = CheckpointBank(self.os_path, 'r')
+        hp = bank.network.load_hp()
+        return bank.network.load_checkpoint(hp["cls"], "state_dict")
 
     @property
     def feature(self):
-        bank = CkptBank(self.os_path, 'r')
-        hp = bank.ckpt.load_hp()
+        bank = CheckpointBank(self.os_path, 'r')
+        hp = bank.network.load_hp()
         return hp['feature']
 
     @property
     def train_hp(self):
         return load_trainings_hp(os.path.join(self.root_dir, self.id))
+
+    # Todo: method to add state_dict mul by weights -> def average(self, *others)

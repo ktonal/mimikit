@@ -8,7 +8,7 @@ from pytorch_lightning.utilities import AttributeDict
 
 from ..modules.homs import *
 from ..modules.misc import CausalPad, Transpose, Chunk
-from ..loops.generate import *
+
 
 __all__ = [
     'WNLayer',
