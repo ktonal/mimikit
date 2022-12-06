@@ -1,3 +1,4 @@
+from enum import Enum
 from typing import Optional, Tuple, Dict, Union, Literal
 
 import torch
@@ -115,6 +116,12 @@ Top:
         x = nn.EmbeddingBag(class_size, hidden_dim)(x.view(-1, frame_size))
         x = x.view(B, -1, hidden_dim)
     
+    3. ---> use conv stride, dilation (~down-sample)
+        x: (B, T, 1)
+        x: (B, T, D) = Embeddings(x)
+        x: (B, n_frames, hidden) = Conv1d(D, hidden, K,
+                        stride=frame_size, dilation=frame_size//K)(x)
+    
 Bottom:
     
     - original does:
@@ -129,7 +136,7 @@ Bottom:
         x = linearize(x)
         x = nn.Conv1d(1, hidden_dim, frame_size)(x).squeeze()
         
-    3. ---> put a small wavenet
+    3. ---> put a small wavenet at the bottom
         x = linearize(x)
         x = WaveNet(x)
     
@@ -140,6 +147,38 @@ e.g. multiple envelopes
 """
 
 
+class FramedInput(nn.Module):
+
+    class Config:
+        class_size: Optional[int]
+
+    def __init__(self,
+                 class_size: Optional[int],
+                 frame_size: int,
+                 hidden_dim: int,
+                 ):
+        super(FramedInput, self).__init__()
+        self.class_size = class_size
+        self.frame_size = frame_size
+        self.hidden_dim = hidden_dim
+        self.real_input = class_size is None
+
+        if self.real_input:
+            self.input_proj = nn.Linear(frame_size, hidden_dim)
+        else:
+            self.input_proj = nn.Sequential(
+                nn.EmbeddingBag(self.class_size, hidden_dim),
+                nn.Linear(hidden_dim, hidden_dim)
+            )
+
+    def forward(self, x):
+        if self.real_input:
+            x = self.linearize(x, self.class_size)
+        return self.input_proj(x)
+
+    @staticmethod
+    def linearize(x: T, q_levels: int):
+        return ((x.float() / q_levels) - .5) * 4
 
 
 class SampleRNN(ARMWithHidden, nn.Module):
@@ -148,7 +187,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
     (- reshape single input during training)
     - project and cat/sum/mix multiple inputs
     - collect tiers outputs and cat/sum/mix them before passing them to its output module
-    - have multiple outputs
+    - have multiple inputs/outputs
     .......
     """
 
@@ -201,11 +240,10 @@ class SampleRNN(ARMWithHidden, nn.Module):
         _batch = prompts[0][:, prompts[0].size(1) % self.rf:]
 
         self.reset_hidden()
-        self.hidden = list(self.hidden)
         self.prompt_length = len(_batch[0])
         # warm-up
         for t in range(self.rf, self.prompt_length):
-            self.generate_step(t, (_batch[:, t - self.rf:t],), {})
+            self.generate_step((_batch[:, t - self.rf:t],), t=t)
 
     def generate_step(
             self,
