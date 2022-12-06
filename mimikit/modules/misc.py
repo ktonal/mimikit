@@ -3,25 +3,15 @@ import torch.nn.functional as F
 from torch import nn
 import torch
 
-from .homs import hom, HOM, Maybe, Sum
+from .homs import HOM, Maybe, Sum
 
 __all__ = [
-    'Abs',
     'Chunk',
     'Flatten',
     'Transpose',
     'CausalPad',
-    'ScaledActivation',
-    'ScaledSigmoid',
-    'ScaledTanh',
-    'ScaledAbs'
+    'Unsqueeze'
 ]
-
-
-class Abs(nn.Module):
-
-    def forward(self, x):
-        return x.abs_()
 
 
 class Transpose(nn.Module):
@@ -52,52 +42,44 @@ class CausalPad(nn.Module):
         return F.pad(x, self.pad, **self.kwargs)
 
 
-class ScaledActivation(nn.Module):
-    def __init__(self, activation, dim, with_range=True):
-        super(ScaledActivation, self).__init__()
-        self.activation = activation
-        # self.scales = nn.Parameter(torch.rand(dim, ) * 100, )
-        self.scales = nn.Linear(dim, dim)
+class Chunk(nn.Module):
+    def __init__(
+            self,
+            chunks: int,
+            dim: int = -1,
+            sum_outputs: bool = False
+    ):
+        super(Chunk, self).__init__()
+        self.chunks = chunks
+        self.dim = dim
+        self.sum_outputs = sum_outputs
+
+    def forward(self, x):
+        x = torch.chunk(x, chunks=self.chunks, dim=self.dim)
+        if self.sum_outputs:
+            return sum(x)
+        return x
+
+
+class Flatten(nn.Module):
+    """flatten `n_dims` dimensions of a tensor (firsts n if n_dims > 0, else n lasts)"""
+
+    def __init__(self, n_dims):
+        super(Flatten, self).__init__()
+        self.n_dims = n_dims
+
+    def forward(self, x):
+        if self.n_dims < 0:
+            return x.view(*x.shape[:self.n_dims], -1)
+        else:
+            return x.view(-1, *x.shape[self.n_dims:])
+
+
+class Unsqueeze(nn.Module):
+
+    def __init__(self, dim):
+        super(Unsqueeze, self).__init__()
         self.dim = dim
 
     def forward(self, x):
-        # s = self.scales.to(x).view(*(d if d == self.dim else 1 for d in x.size()))
-        # return self.activation(self.rg * x / self.scales) * self.scales
-        return self.activation(x) / self.activation(self.scales(x))
-
-
-class ScaledSigmoid(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledSigmoid, self).__init__(nn.Sigmoid(), dim, with_range)
-
-
-class ScaledTanh(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledTanh, self).__init__(nn.Tanh(), dim, with_range)
-
-
-class ScaledAbs(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledAbs, self).__init__(Abs(), dim, with_range)
-
-
-class Chunk(HOM):
-    def __init__(self, mod: nn.Module, chunks, dim=-1, sig_in="x", sum_out=False):
-        out_vars = ", ".join(["x" + str(i) for i in range(chunks)])
-        super(Chunk, self).__init__(
-            f"{sig_in} -> {out_vars if not sum_out else 'out'}",
-            (mod, f"{sig_in} -> _tmp_"),
-            (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}"),
-            *Maybe(sum_out,
-                   Sum(f"{out_vars} -> out"))
-        )
-
-
-class Flatten(HOM):
-    """flatten `n_dims` dimensions of a tensor counting from the last"""
-
-    def __init__(self, n_dims):
-        super(Flatten, self).__init__(
-            "x -> x",
-            (lambda x: x.view(*x.shape[:-n_dims], -1), 'x -> x')
-        )
+        return x.unsqueeze(self.dim)

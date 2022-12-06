@@ -27,5 +27,37 @@ class mymod(nn.Module):
         pass
 
 if __name__ == '__main__':
-    mymod()
+    from typing import Tuple, TypeVar, Generic, NewType, Type
 
+    T = NewType("T", nn.Module)
+    V = TypeVar("V", nn.Module, T)
+
+
+    @dtc.dataclass
+    class ModuleArg:
+        module: nn.Module
+
+
+    @dtc.dataclass
+    class Promise:
+        _value: nn.Module
+
+        def __call__(self) -> nn.Module:
+            return self._value
+
+
+    @dtc.dataclass
+    class tst(nn.Module):
+        _fc: ModuleArg
+        _act: Promise = Promise(nn.Tanh())
+
+        def __post_init__(self):
+            nn.Module.__init__(self)
+            self.act = self._act()
+            self.fc = self._fc.module
+            self.f = nn.Sequential(self.fc, self.act)
+
+
+    mod = tst(ModuleArg("o"), Promise(nn.ReLU()))
+
+    mod2 = tst(ModuleArg(nn.LSTM()), Promise(9879456))
