@@ -1,4 +1,4 @@
-from enum import Enum
+from nnAudio.features import STFT, MelSpectrogram, MFCC
 from typing import Optional, Tuple, Dict, Union, Literal
 
 import torch
@@ -148,32 +148,93 @@ e.g. multiple envelopes
 
 
 class FramedInput(nn.Module):
+    """
+    input module for converting (possibly not yet) framed time series
+    to (pseudo) frequency domain representations,
+        e.g.
+         (batch, n_frames, frame_size) -> (batch, n_frames, hidden_dim)
+
+    for standard top tier SampleRNN input module:
+        mod = FramedInput(
+            class_size=q_levels,
+            projection_type="linear",
+            hop_length=frame_size,  # if dataset does not frame else None
+            frame_size=frame_size,
+            hidden_dim=hidden_dim,
+            )
+
+    for conditioning a top tier with a discrete feature:
+        mod = FramedInput(
+            class_size=q_levels,
+            projection_type="embedding",  # will be 'bagged'
+            hop_length=frame_size,
+            frame_size=frame_size,
+            hidden_dim=hidden_dim,
+            )
+
+    for a real valued feature:
+        mod = FramedInput(
+            class_size=None,
+            projection_type="linear",
+            hop_length=None,
+            frame_size=frame_size,
+            hidden_dim=hidden_dim,
+            )
+    """
 
     class Config:
         class_size: Optional[int]
+        projection_type: Literal["linear", "embedding", "fft"]
+        # other params must be set by the network
 
-    def __init__(self,
+    def __init__(self, *,
                  class_size: Optional[int],
+                 projection_type: Literal["linear", "embedding", "fft"],
+                 hop_length: Optional[int],  # input is assumed to be already framed if None
                  frame_size: int,
                  hidden_dim: int,
+                 sr: int = 16000,
                  ):
         super(FramedInput, self).__init__()
         self.class_size = class_size
+        self.projection_type = projection_type
+        self.hop_length = hop_length
         self.frame_size = frame_size
         self.hidden_dim = hidden_dim
+
         self.real_input = class_size is None
+        self.needs_casting = class_size is not None and projection_type == 'linear'
+        self.is_freq_transform = projection_type in ("fft", "melspec", "mfcc")
+        self.unfold_input = isinstance(hop_length, int) or self.is_freq_transform
 
-        if self.real_input:
+        if self.real_input or projection_type == 'linear':
             self.input_proj = nn.Linear(frame_size, hidden_dim)
-        else:
-            self.input_proj = nn.Sequential(
-                nn.EmbeddingBag(self.class_size, hidden_dim),
-                nn.Linear(hidden_dim, hidden_dim)
-            )
+        elif projection_type == 'embedding':
+            assert not self.real_input, "class_size can not be None if projection_type == 'embedding'"
+            self.input_proj = nn.EmbeddingBag(self.class_size, hidden_dim)
+        elif projection_type == "fft":
+            self.hop_length = frame_size if hop_length is None else hop_length
+            self.input_proj = STFT(n_fft=frame_size,
+                                   freq_bins=hidden_dim,  # fft's output_dim
+                                   hop_length=self.hop_length,
+                                   window=1.,
+                                   freq_scale='linear',
+                                   center=False,
+                                   pad_mode=None,
+                                   output_format="Magnitude",
+                                   sr=sr,
+                                   trainable=True,
+                                   verbose=False)
 
-    def forward(self, x):
-        if self.real_input:
+    def forward(self, x: torch.Tensor):
+        if self.needs_casting:
             x = self.linearize(x, self.class_size)
+        if self.unfold_input:
+            x = x.unfold(dimension=-1, size=self.frame_size, step=self.hop_length)
+        if self.is_freq_transform:
+            B = x.size(0)
+            x = self.input_proj(x.view(-1, self.frame_size))
+            return x.squeeze().view(B, -1, self.hidden_dim)
         return self.input_proj(x)
 
     @staticmethod
