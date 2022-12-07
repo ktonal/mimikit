@@ -9,7 +9,7 @@ from pytorch_lightning.utilities import AttributeDict
 
 from .single_class_mlp import SingleClassMLP
 from ..modules.homs import *
-from .resamplers import *
+from mimikit.modules.resamplers import *
 
 __all__ = [
     "SampleRNNTier",

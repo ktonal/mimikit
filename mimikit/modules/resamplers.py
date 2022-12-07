@@ -2,6 +2,7 @@ import torch.nn as nn
 import numpy as np
 from functools import partial
 
+
 __all__ = [
     'LinearResampler',
     'Conv1dResampler',
