@@ -16,7 +16,7 @@ __all__ = [
     "SampleRNNTopTier",
     "SampleRNNBottomTier",
     "TierNetwork",
-    "SampleRNN",
+    # "SampleRNN",
     "MixedRNN",
 ]
 

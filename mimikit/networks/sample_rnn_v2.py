@@ -1,47 +1,71 @@
-from typing import Optional, Tuple, Dict, Literal, Union
-
+from enum import auto
+from typing import Optional, Tuple, Dict, Union, Iterable
+import dataclasses as dtc
 import torch
 import torch.nn as nn
 
+from ..config import Config
 from .arm import ARMWithHidden
+from ..modules.inputer import FramedInput, ZipReduceVariables, ZipMode
 from ..modules.resamplers import LinearResampler
+from ..utils import AutoStrEnum
+
+
+__all__ = [
+    "SampleRNN"
+]
+
 
 T = torch.Tensor
+
+
+class RNNType(AutoStrEnum):
+    lstm = auto()
+    rnn = auto()
+    gru = auto()
+    none = auto()
 
 
 class SampleRNNTier(nn.Module):
 
     def __init__(
             self, *,
+            input_module: nn.Module = nn.Identity(),
             hidden_dim: int = 256,
-            rnn_class: Literal["lstm", "rnn", "gru", "none"] = "lstm",
+            rnn_class: RNNType = "lstm",
             n_rnn: int = 1,
             rnn_dropout: float = 0.,
+            rnn_bias: bool = True,
             up_sampling: Optional[int] = None,
     ):
         super(SampleRNNTier, self).__init__()
+        self.input_module = input_module
         self.hidden_dim = hidden_dim
         self.rnn_class = rnn_class
-        self.up_sampling = up_sampling
         self.n_rnn = n_rnn
+        self.rnn_dropout = rnn_dropout
+        self.rnn_bias = rnn_bias
+        self.up_sampling = up_sampling
 
         self.hidden = None
-        self.has_rnn = n_rnn != "none"
+        self.has_rnn = rnn_class != "none"
         self.has_up_sampling = up_sampling is not None
         if self.has_rnn:
             module = getattr(nn, rnn_class.upper())
             self.rnn = module(hidden_dim, hidden_dim, num_layers=n_rnn,
-                              batch_first=True, dropout=rnn_dropout)
+                              batch_first=True, dropout=rnn_dropout, bias=rnn_bias)
         if self.has_up_sampling:
             self.up_sampler = LinearResampler(hidden_dim, t_factor=up_sampling, d_factor=1)
 
     def forward(
             self,
-            inputs: Tuple[T, Optional[T]]
-    ) -> Tuple[T]:
+            inputs: Tuple[Union[T, Tuple[T, ...]], Optional[T]]
+    ) -> T:
         """x: (batch, n_frames, hidden_dim) ; x_upper: (batch, n_frames, hidden_dim)"""
         x, x_upper = inputs
+        x = self.input_module(x)
         if x_upper is not None:
+            print("IN", x.size(), x_upper.size())
             x += x_upper
         if self.has_rnn:
             self.hidden = self._reset_hidden(x, self.hidden)
@@ -49,9 +73,9 @@ class SampleRNNTier(nn.Module):
         if self.has_up_sampling:
             x = self.up_sampler(x)
             # x: (batch, n_frames * up_sampling, hidden_dim)
-        return x,
+        return x
 
-    def _reset_hidden(self, x: T, hidden: Optional[Union[Tuple[T, T]], T]) -> Union[Tuple[T, T], T]:
+    def _reset_hidden(self, x: T, hidden: Optional[Union[Tuple[T, T], T]]) -> Union[Tuple[T, T], T]:
         if self.rnn_class == "lstm":
             if hidden is None or x.size(0) != hidden[0].size(1):
                 B = x.size(0)
@@ -70,43 +94,75 @@ class SampleRNNTier(nn.Module):
 
 
 class SampleRNN(ARMWithHidden, nn.Module):
-    """
-    Top level Model could
-    (- reshape single input during training)
-    - project and cat/sum/mix multiple inputs
-    - collect tiers outputs and cat/sum/mix them before passing them to its output module
-    - have multiple inputs/outputs
-    .......
-    """
+
+    @dtc.dataclass
+    class Config(Config):
+        frame_sizes: Tuple[int, ...] = (16, 8, 8)
+        hidden_dim: int = 256
+        rnn_class: RNNType = "lstm"
+        n_rnn: int = 1
+        rnn_dropout: float = 0.
+        rnn_bias: bool = True
+        inputs: Tuple[FramedInput.Config, ...] = (
+            FramedInput.Config(class_size=256, projection_type="linear"),
+        )
+
+        inputs_mode: ZipMode = "sum"
+        unfold_inputs: bool = True
+
+    @classmethod
+    def from_config(cls, config: "SampleRNN.Config") -> "SampleRNN":
+        tiers = []
+        for i, fs in enumerate(config.frame_sizes[:-1]):
+            modules = tuple(FramedInput(
+                class_size=cfg.class_size, projection_type=cfg.projection_type,
+                hidden_dim=config.hidden_dim, frame_size=fs,
+                unfold_step=fs if config.unfold_inputs else None
+            )
+                            for cfg in config.inputs)
+            input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
+            tiers += [
+                SampleRNNTier(
+                    input_module=input_module,
+                    hidden_dim=config.hidden_dim,
+                    rnn_class=config.rnn_class,
+                    n_rnn=config.n_rnn,
+                    rnn_dropout=config.rnn_dropout,
+                    rnn_bias=config.rnn_bias,
+                    up_sampling=fs // (
+                        config.frame_sizes[i + 1]
+                        if i < len(config.frame_sizes) - 2
+                        else 1)
+                )]
+        modules = tuple(FramedInput(
+            class_size=cfg.class_size,
+            projection_type="fir" if "embedding" not in cfg.projection_type else "fir_embedding",
+            hidden_dim=config.hidden_dim, frame_size=config.frame_sizes[-1],
+            unfold_step=1 if config.unfold_inputs else None
+        )
+                        for cfg in config.inputs)
+        input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
+        tiers += [
+            SampleRNNTier(
+                input_module=input_module,
+                hidden_dim=config.hidden_dim,
+                rnn_class="none",
+                up_sampling=None
+            )]
+        return cls(config=config, frame_sizes=config.frame_sizes, tiers=tiers, output_module=nn.Identity())
 
     def __init__(
             self, *,
-            frame_sizes: Tuple[int, ...] = (16, 8, 8),  # from top to bottom!
-            hidden_dim: int = 256,
-            n_rnn: int = 2,
-            q_levels: int = 256,
+            config: "SampleRNN.Config",
+            frame_sizes: Tuple[int, ...],  # from top to bottom!
+            tiers: Iterable[nn.Module],
+            output_module: nn.Module,
     ):
         super(SampleRNN, self).__init__()
+        self._config = config
         self.frame_sizes = frame_sizes
-        self.hidden_dim = hidden_dim
-        self.n_rnn = n_rnn
-        self.q_levels = q_levels
-
-        tiers = []
-        for i, fs in enumerate(self.frame_sizes[:-1]):
-            tiers += [SampleRNNTier(
-                hidden_dim=self.hidden_dim,
-                up_sampling=fs // (
-                    self.frame_sizes[i + 1]
-                    if i < len(self.frame_sizes) - 2
-                    else 1),
-                n_rnn=self.n_rnn,
-            )]
-        tiers += [SampleRNNTier(
-            hidden_dim=self.hidden_dim,
-            up_sampling=None,
-        )]
         self.tiers = nn.ModuleList(tiers)
+        self.output_module = output_module
 
         # caches for inference
         self.outputs = []
@@ -115,8 +171,9 @@ class SampleRNN(ARMWithHidden, nn.Module):
     def forward(self, tiers_input: Tuple[T, ...]):
         prev_output = None
         for tier_input, tier in zip(tiers_input, self.tiers):
-            prev_output = tier.forward((tier_input, prev_output))[0]
-        return prev_output
+            prev_output = tier.forward((tier_input, prev_output))
+        output = self.output_module(prev_output)
+        return output
 
     def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         self.outputs = [None] * (len(self.frame_sizes) - 1)
@@ -139,6 +196,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         fs = self.frame_sizes
         # TODO: should be in **parameters + TODO: MLP
         temperature = inputs[1] if len(inputs) > 1 else None
+        # TODO: multiple inputs
         inputs = inputs[0]
         for i in range(len(tiers) - 1):
             if t % fs[i] == 0:
@@ -147,13 +205,13 @@ class SampleRNN(ARMWithHidden, nn.Module):
                     prev_out = None
                 else:
                     prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
-                out, = tiers[i]((inpt, prev_out))
+                out = tiers[i]((inpt, prev_out))
                 outputs[i] = out
         if t < self.prior_t:
             return tuple()
         inpt = inputs[:, -fs[-1]:].reshape(-1, 1, fs[-1])
         prev_out = outputs[-1][:, (t % fs[-2]) - fs[-2]].unsqueeze(1)
-        out, = tiers[-1]((inpt, prev_out))
+        out = tiers[-1]((inpt, prev_out))
         return (out.squeeze(-1) if len(out.size()) > 2 else out),
 
     def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
@@ -163,6 +221,10 @@ class SampleRNN(ARMWithHidden, nn.Module):
     def reset_hidden(self) -> None:
         for t in self.tiers:
             t.hidden = None
+
+    @property
+    def config(self):
+        return self._config
 
     @property
     def time_axis(self) -> int:
@@ -182,55 +244,3 @@ class SampleRNN(ARMWithHidden, nn.Module):
 
     def output_length(self, n_input_steps: int) -> int:
         return n_input_steps
-
-
-"""
-Whether top or bottom, srnn input modules must perform:
-
-    (B, T)  -->  (B, n_frames, frame_size_i)  -->  (B, n_frames, hidden_dim)
-
-Top:
-
-    - original does: 
-        x = linearize(x)
-        x = nn.Linear(frame_size, hidden_dim)(x)
-
-    - we could:
-
-    1. ----> FFT   ( HAVE TO ALIGN INPUTS! )
-        x = FFT(x_unframed)  # (B, T) -> (B, n_frames, fft_dim) 
-        x = nn.Linear(fft_dim, hidden_dim)
-
-    2. ---> aggregate embeddings  ( for slow features, like segment labels )
-        x = nn.EmbeddingBag(class_size, hidden_dim)(x.view(-1, frame_size))
-        x = x.view(B, -1, hidden_dim)
-
-    3. ---> use conv stride, dilation (~down-sample)
-        x: (B, T, 1)
-        x: (B, T, D) = Embeddings(x)
-        x: (B, n_frames, hidden) = Conv1d(D, hidden, K,
-                        stride=frame_size, dilation=frame_size//K)(x)
-
-Bottom:
-
-    - original does:
-        x = nn.Embedding(1, emb_dim)(x)
-        x = nn.Conv1d(emb_dim, hidden_dim, frame_size)(x).squeeze()
-
-    - we could:
-
-    1. ---> add LSTM at the end...
-
-    2. ---> bypass embeddings
-        x = linearize(x)
-        x = nn.Conv1d(1, hidden_dim, frame_size)(x).squeeze()
-
-    3. ---> put a small wavenet at the bottom
-        x = linearize(x)
-        x = WaveNet(x)
-
-
-THEN: HOW TO DEAL WITH 2D Inputs?
-
-e.g. multiple envelopes
-"""

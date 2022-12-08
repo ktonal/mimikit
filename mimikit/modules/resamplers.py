@@ -28,7 +28,7 @@ class Conv1dResampler(nn.Module):
     def __init__(self, in_dim, t_factor, d_factor, **kwargs):
         super().__init__()
         mod = nn.Conv1d if t_factor <= 1 else partial(nn.ConvTranspose1d, stride=t_factor)
-        self.kernel_size = t_factor if t_factor >= 1 else int(1 / t_factor)
+        self.kernel_size = int(t_factor) if t_factor >= 1 else int(1 / t_factor)
         self.out_dim = int(in_dim * d_factor)
         self.cv = mod(in_dim, self.out_dim, self.kernel_size, **kwargs)
         self.tf, self.df = t_factor, d_factor

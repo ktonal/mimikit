@@ -1,27 +1,14 @@
 import dataclasses as dtc
 import h5mapper as h5m
-import json
 import os
-from .s2s import Seq2SeqLSTM, Seq2SeqLSTMv0
-from .wavenets import WaveNetFFT, WaveNetQx
-from .srnns import SampleRNN
+
+from .config import Config
+
 
 __all__ = [
-    'find_checkpoints',
-    'load_trainings_hp',
-    'load_network_cls',
-    'load_feature',
     'Checkpoint',
     'CheckpointBank'
 ]
-
-
-def find_checkpoints(root="trainings"):
-    return h5m.FileWalker(r"\.h5", root)
-
-
-def load_trainings_hp(dirname):
-    return json.loads(open(os.path.join(dirname, "hp.json"), 'r').read())
 
 
 class CheckpointBank(h5m.TypedFile):
@@ -29,14 +16,20 @@ class CheckpointBank(h5m.TypedFile):
     optimizer = h5m.TensorDict()
 
     @classmethod
-    def save(cls, filename, network, optimizer) -> "CheckpointBank":
+    def save(cls,
+             filename: str,
+             model_config: Config,
+             network,
+             optimizer
+             ) -> "CheckpointBank":
         net_dict = network.state_dict()
         opt_dict = optimizer.state_dict() if optimizer is not None else {}
         cls.network.set_ds_kwargs(net_dict)
         if optimizer is not None:
             cls.optimizer.set_ds_kwargs(opt_dict)
+        os.makedirs(os.path.split(filename)[0], exist_ok=True)
         bank = cls(filename, mode="w")
-        # TODO: HP
+        bank.attrs["config"] = model_config.serialize()
         bank.network.add("state_dict", h5m.TensorDict.format(net_dict))
         if optimizer is not None:
             bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
@@ -45,27 +38,14 @@ class CheckpointBank(h5m.TypedFile):
         return bank
 
 
-def load_feature(s):
-    import mimikit as mmk
-    loc = dict()
-    exec(f"feature = {s}", mmk.__dict__, loc)
-    return loc["feature"]
-
-
-def load_network_cls(s):
-    loc = dict()
-    exec(f"cls = {s}", globals(), loc)
-    return loc["cls"]
-
-
 @dtc.dataclass
 class Checkpoint:
     id: str
     epoch: int
-    root_dir: str = "./"
+    root_dir: str = "models/"
 
-    def create(self, network, optimizer=None):
-        CheckpointBank.save(self.os_path, network, optimizer)
+    def create(self, model_config: Config, network, optimizer=None):
+        CheckpointBank.save(self.os_path, model_config, network, optimizer)
         return self
 
     @staticmethod
@@ -88,8 +68,12 @@ class Checkpoint:
     @property
     def network(self):
         bank = CheckpointBank(self.os_path, 'r')
-        hp = bank.network.load_hp()
-        return bank.network.load_checkpoint(hp["cls"], "state_dict")
+        hp: Config = Config.deserialize(bank.attrs["config"])
+        cls = hp.owner_class
+        state_dict = bank.network.get("state_dict")
+        net = cls.from_config(hp)
+        net.load_state_dict(state_dict, strict=True)
+        return net
 
     @property
     def feature(self):

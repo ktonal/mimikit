@@ -1,3 +1,6 @@
+from enum import Enum
+from typing import Literal
+
 import librosa
 import numpy as np
 from librosa.display import specshow
@@ -6,7 +9,8 @@ import matplotlib.pyplot as plt
 
 __all__ = [
     'audio',
-    'show'
+    'show',
+    "AutoStrEnum"
 ]
 
 HOP_LENGTH, SR = 512, 22050
@@ -59,3 +63,12 @@ def show(S, figsize=(), db_scale=True, title="", **kwargs):
     plt.tight_layout()
     plt.title(title)
     return ax
+
+
+class AutoStrEnum(str, Enum):
+    """
+    Workaround while https://github.com/omry/omegaconf/pull/865 is still open...
+    """
+    @staticmethod
+    def _generate_next_value_(name: str, start: int, count: int, last_values: list) -> str:
+        return name
