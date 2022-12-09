@@ -1,6 +1,6 @@
 import pytest
 import torch
-from pyassert import assert_that
+from assertpy import assert_that
 from typing import get_args
 
 from mimikit.modules.inputer import FramedInput, ProjectionType

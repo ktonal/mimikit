@@ -14,11 +14,12 @@ class TrainLoop(LoggingHooks,
                 LightningModule):
 
     def __init__(self,
-                 loader, net, loss_fn, optim,
+                 model_config, loader, net, loss_fn, optim,
                  # number of batches before reset_hidden is called
                  tbptt_len=None,
                  ):
         super().__init__()
+        self.model_config = model_config
         self.loader = loader
         self.net = net
         self.loss_fn = loss_fn

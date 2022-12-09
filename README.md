@@ -26,47 +26,88 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 
 `mimikit` is distributed under the terms of the [GNU General Public License v3.0](https://choosealicense.com/licenses/gpl-3.0/)
 
-## Design
-
-```python
-class Entity(Protocol):
-
-    def save(self, **python_objects) -> Identifiers:
-        ...
-
-    def load(self, **identifiers) -> PythonObject:
-        ...
-
-class Config(Entity[Union[str, Path], Dataclass]):
-    ...
-
-class Audio(Entity[Union[str, Path], np.ndarray]):
-    pass
-
-class Model(Entity[Union[str, Path], nn.Module]):
-    pass
-
-class Repo[Id, Entity]:
-    pass
-
-class Feature[Entity, Optional[Tuple[Callable, ...]]]:
-    pass
-```
 
 ## Todo
 
+#### v0.4.0
+
+- [ ] notebooks UI
+    - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
+        - [ ] SampleRNN
+        - [ ] FreqNet
+        - [ ] S2S
+        - [ ] remove HOMS
+    - [ ] Factor Train ARM in TrainLoop
+    - [ ] Cleanup GenerateLoop
+        - [ ] **parameters
+        - [ ] getters/setters
+    - [ ] Feature Configs
+        - [ ] MuLaw
+        - [ ] FFT
+    - [ ] File / Data View
+    - [ ] Networks View
+        - [ ] SampleRNN
+        - [ ] FreqNet
+        - [ ] S2S
+    - [ ] Features View
+    - [ ] Training View
+    - [ ] Scripts
+        - [ ] SampleRNN
+        - [ ] FreqNet
+        - [ ] S2S
+    - [ ] define UI in notebooks
+        - [ ] validate config
+        - [ ] call main()
+    - [ ] make_notebooks
+        - [ ] hide code
+        - [ ] embed UI state?
+- [ ] Cleanup Callbacks and loggers
+    - [x] CheckpointCallback
+        - [x] remove h5 stuff
+        - [x] save HP with OmegaConf
+    - [ ] AudioLogger
+        - [x] remove h5 stuff
+        - [ ] pydub for audio write
+- [ ] Upgrade pytorch lightning
+- [ ] Ensemble NoteBook
+- [ ] Output Evaluation NoteBook
+- [ ] Clustering NoteBook
+- [ ] Segmentation NoteBook
+- [ ] UI Style sheet
+- [ ] Cleanup Activations
+- [ ] Mu/A Law
+    - [ ] fix librosa mulaw
+    - [ ] compression param
+- [ ] Target Distributions
+    - Scalar and Vector
+        - [ ] Mixture of Logistics
+        - [ ] Mixture of Gaussian 
+        - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
+- [ ] New Features
+    - [ ] Learnable STFT
+    - [ ] MelSpec
+    - [ ] MFCC
+    - [ ] envelope(s)
+    - [ ] clusters
+    - [ ] segments
+- [ ] Multiple Inputs
+    - [ ] match network's inputs with features (& modules)
+- [ ] Multiple Outputs
+    - [ ] match network's output with targets (& features)
+    - [ ] evaluate loss for each pair
+    - [ ] layers can contribute to loss
+    - [ ] GenerateLoop
+
+#### Future nice-to-have
+
+- [ ] Hooks for storing outputs
+- [ ] Multi-Checkpoint Models (stochastic averaging)
+- [ ] Resampler classes with `n_layers`
+- [ ] Network Visualizer (UI)
+- [ ] Resume Training
+    - [ ] Optimizer in Checkpoint
 - [ ] Upgrade python 3.9 ? (colab is 3.7.15...)
-- [ ] Upgrade pytorch lighnting
-- [ ] Use Protocols for feature/models
-- [ ] notebooks UI 
-    - [x] define TrainARMConfig
-    - [x] cleanup train
-    - [x] define networks configs
-    - [x] define scripts mains
-    - [ ] define UI in notebooks -> call mains!  
-- [ ] Ensemble Demo
-- [ ] Output Evaluation Demo
-- [ ] Clustering Demo
-- [ ] Segmentation Demo
 - [ ] stacking of models in Ensemble
+- [ ] M1 Support
+
  

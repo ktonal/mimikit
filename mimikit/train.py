@@ -7,6 +7,7 @@ import h5mapper as h5m
 import torch
 import dataclasses as dtc
 
+from .config import Config, ModelConfig
 from .features import AudioSignal
 from .loops import GenerateCallback, GenerateLoop, AudioLogger, MMKCheckpoint, TBPTTSampler, IndicesSampler, TrainLoop
 
@@ -25,7 +26,7 @@ class MyEncoder(json.JSONEncoder):
 
 
 @dtc.dataclass
-class TrainARMConfig:
+class TrainARMConfig(Config):
     root_dir: str = './trainings'
     batch_size: int = 16
     batch_length: int = 32
@@ -58,6 +59,7 @@ class TrainARMConfig:
 
 def train(
         cfg: TrainARMConfig,
+        model_config: ModelConfig,
         soundbank: h5m.SoundBank,
         net,
         input_feature=AudioSignal(sr=22050),
@@ -90,6 +92,7 @@ def train(
         json.dump(hp, fp, cls=MyEncoder)
 
     # DATALOADER
+
     batch = (
         input_feature.batch_item(
             data=torch.from_numpy(soundbank.snd[:]) if cfg.in_mem_data else "snd",
@@ -133,7 +136,7 @@ def train(
                          )
 
     opt = torch.optim.Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
-    sched = torch.optim.lr_scheduler.OneCycleLR(
+    sched = torch.OneCycleLR(
         opt,
         steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
         epochs=cfg.max_epochs,
@@ -145,6 +148,7 @@ def train(
     )
     # TrainLoop
     tr_loop = TrainLoop(
+        model_config=model_config,
         loader=dl,
         net=net,
         loss_fn=target_feature.loss_fn,

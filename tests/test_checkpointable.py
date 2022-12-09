@@ -3,7 +3,7 @@ import dataclasses as dtc
 
 import torch
 import torch.nn as nn
-from pyassert import assert_that
+from assertpy import assert_that
 
 import mimikit as mmk
 

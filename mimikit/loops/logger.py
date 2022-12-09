@@ -3,7 +3,6 @@ import dataclasses as dtc
 from typing import Optional
 
 import ffmpeg
-import h5mapper
 import soundfile as sf
 import numpy as np
 import os
@@ -137,10 +136,6 @@ class AudioLogger:
     hop_length: int = 512
     filename_template: Optional[str] = None
     target_dir: Optional[str] = None
-    # todo: remove h5 stuff
-    id_template: Optional[str] = None
-    proxy_template: Optional[str] = None
-    target_bank: Optional[h5mapper.TypedFile] = None
 
     @staticmethod
     def format_template(template, **parameters):
@@ -161,19 +156,8 @@ class AudioLogger:
         sf.write(filename, audio, self.sr, 'PCM_24')
         convert_to_mp3(filename)
 
-    def log_h5(self, audio, **params):
-        if isinstance(audio, torch.Tensor):
-            audio = audio.squeeze().detach().cpu().numpy()
-        src = self.format_template(self.id_template, **params)
-        proxy = self.format_template(self.proxy_template, **params)
-        self.target_bank.add(src, {proxy: audio})
-        self.target_bank.flush()
-
     def write(self, audio, **params):
-        if self.filename_template and self.target_dir:
-            self.log_mp3(audio, **params)
-        if self.id_template and self.proxy_template and self.target_bank:
-            self.log_h5(audio, **params)
+        self.log_mp3(audio, **params)
 
 
 def convert_to_mp3(file_path, exists_ok=True):

@@ -33,22 +33,6 @@ def generate_tqdm(rng):
                 leave=False, unit="step", mininterval=0.25)
 
 
-class GenInput(h5m.Input):
-    def __init__(self, data=None, length=1, transform=lambda x: x):
-        super(GenInput, self).__init__(
-            data=data, getter=h5m.AsSlice(dim=1, shift=-length, length=length),
-            setter=h5m.Setter(dim=1),
-            transform=transform
-        )
-
-
-class Parameter(h5m.Input):
-    def __init__(self, data):
-        super(Parameter, self).__init__(
-            data=data, getter=h5m.AsSlice(dim=1, length=1)
-        )
-
-
 class GenerateLoop:
     """
     interfaces' length must equal the number of items in the batches of the DataLoader

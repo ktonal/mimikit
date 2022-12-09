@@ -1,5 +1,5 @@
-from enum import Enum, auto
-from typing import Optional, Literal, Iterable, Tuple
+from enum import auto
+from typing import Optional, Iterable, Tuple
 import dataclasses as dtc
 import torch
 from torch import nn as nn

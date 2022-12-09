@@ -27,7 +27,10 @@ class WNLayer(nn.Module):
             stride: int = 1,
             bias: bool = True,
             dilation: int = 1,
-            dropout: float = 0.,  # TODO
+            # TODO
+            act_skips: Optional[nn.Module] = None,
+            act_residuals: Optional[nn.Module] = None,
+            dropout: float = 0.,
     ):
         super(WNLayer, self).__init__()
         self.input_dim = input_dim
@@ -67,17 +70,19 @@ class WNLayer(nn.Module):
 
         if self.has_gated_units:
             self.conv_dil = nn.ModuleList([
-                nn.Sequential(nn.Conv1d(in_dim, d * 2, **kwargs_dil), Chunk(2, dim=1, sum_outputs=False))
+                nn.Sequential(nn.Conv1d(in_dim, d * 2, **kwargs_dil),
+                              Chunk(2, dim=1, sum_outputs=False))
                 for d in dims_dilated
             ])
             self.conv_1x1 = nn.ModuleList([
-                nn.Sequential(nn.Conv1d(d, main_dim * 2, **kwargs_1x1), Chunk(2, dim=1, sum_outputs=False))
+                nn.Sequential(nn.Conv1d(d, main_dim * 2, **kwargs_1x1),
+                              Chunk(2, dim=1, sum_outputs=False))
                 for d in dims_1x1
             ])
             self.activation = GatingUnit()
         else:
             self.conv_dil = nn.ModuleList([
-                nn.Conv1d(in_dim, main_dim, **kwargs_dil) for d in dims_dilated
+                nn.Conv1d(in_dim, d, **kwargs_dil) for d in dims_dilated
             ])
             self.conv_1x1 = nn.ModuleList([
                 nn.Conv1d(d, main_dim, **kwargs_1x1) for d in dims_1x1
@@ -93,24 +98,26 @@ class WNLayer(nn.Module):
                 inputs_1x1: Tuple[torch.Tensor, ...],
                 skips: Optional[torch.Tensor] = None
                 ):
-        """ each dilated is an independent path but is summed with all 1x1."""
+        """ TODO: each dilated SHOULD BE an independent path, each summed with all 1x1."""
         if self.needs_padding:
             inputs_dilated = tuple(self.pad(x) for x in inputs_dilated)
         if self.has_gated_units:
-            x_f, x_g = self.conv_dil[0](inputs_dilated[0])
-            for conv, x in zip(self.conv_dil[1:], inputs_dilated[1:]):
-                y_f, y_g = conv(x)
-                x_f += y_f
-                x_g += y_g
+            # sum the conditioning features
+            cond_f, cond_g = 0, 0
             for conv, x in zip(self.conv_1x1, inputs_1x1):
+                if not self.needs_padding:
+                    x = self.trim_cause(x)
                 y_f, y_g = conv(x)
-                x_f += y_f
-                x_g += y_g
-            y = self.activation(x_f, x_g)
+                cond_f += y_f
+                cond_g += y_g
+            x_f, x_g = self.conv_dil[0](inputs_dilated[0])
+            y = self.activation(x_f + cond_f, x_g + cond_g)
         else:
-            y = sum(conv(x) for conv, x in zip(self.conv_dil, inputs_dilated))
-            y += sum(conv(x) for conv, x in zip(self.conv_1x1, inputs_1x1))
+            y = sum(conv(x) if not self.needs_padding else conv(self.trim_cause(x))
+                    for conv, x in zip(self.conv_1x1, inputs_1x1))
+            y += sum(conv(x) for conv, x in zip(self.conv_dil[:1], inputs_dilated[1:]))
             y = self.activation(y)
+
         if self.has_skips:
             if not self.needs_padding:
                 skips = self.trim_cause(skips) if skips is not None else skips
@@ -119,8 +126,11 @@ class WNLayer(nn.Module):
             else:
                 skips = self.conv_skip(y) + skips
         if self.has_residuals:
-            res = self.conv_res(y)
-
+            x = inputs_dilated[0]
+            if not self.needs_padding:
+                x = self.trim_cause(x)
+            y = x + self.conv_res(y)
+        return y, skips
 
     def trim_cause(self, x):
         cause, pad_side, kernel_size = self.cause, self.pad_side, self.kernel_size

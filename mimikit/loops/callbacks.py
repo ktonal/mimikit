@@ -7,8 +7,8 @@ from pytorch_lightning.trainer.states import TrainerState
 from pytorch_lightning import Callback
 from IPython import get_ipython
 
-import h5mapper as h5m
 from ..utils import audio
+from ..checkpoint import Checkpoint
 
 
 __all__ = [
@@ -63,47 +63,33 @@ class GradNormCallback(Callback):
 
 
 class MMKCheckpoint(Callback):
-    """
-    checkpoints saved by this Callback can be loaded with :
-
-        net = net_cls(**h5object.attrs)[.with_io(),
-        ...].load_state_dict(h5object.get(id_str))
-
-    """
-    format = staticmethod(h5m.TensorDict.format)
 
     def __init__(self,
-                 h5_tensor_dict=None,
-                 id_template="epoch={epoch}-step={step}",
                  epochs=None,
                  root_dir=''
                  # todo: save_optimizer
-                 # todo: save_checkpoint() implemented in Checkpoint Class
                  ):
         super().__init__()
-        self.h5_tensor_dict = h5_tensor_dict
-        self.id_template = id_template
         self.epochs = epochs
         self.root_dir = root_dir
-        self.tp_cls = None
-        self.hp = {}
+        self.config = None
 
-    def on_pretrain_routine_start(self, trainer, pl_module) -> None:
-        if not self.root_dir:
-            self.root_dir = trainer.default_root_dir
-        self.hp = pl_module.net.hp
-        self.hp.update({"cls": type(pl_module.net)})
-
-        class CkptBank(h5m.TypedFile):
-            ckpt = h5m.TensorDict(pl_module.net.state_dict())
-
-        self.tp_cls = CkptBank
+    def on_pretrain_routine_start(self, trainer, pl_module: "TrainLoop") -> None:
+        config = pl_module.model_config
+        # make sure that we can (de)serialize
+        try:
+            _class = type(config)
+            yaml = config.serialize()
+            _class.deserialize(yaml, cls=_class)
+            self.config = config
+        except Exception as e:
+            raise RuntimeError(f"(de)serializing the model's config raised {e}")
 
     def on_train_epoch_end(self, trainer, pl_module, unused=None) -> None:
         epoch, global_step = trainer.current_epoch + 1, trainer.global_step
         if trainer.state == TrainerState.status.INTERRUPTED or \
                 epoch == trainer.max_epochs or self.should_save(epoch, global_step):
-            self.save_checkpoint(pl_module, epoch, global_step)
+            self.save_checkpoint(pl_module, epoch)
 
     def should_save(self, epoch, step):
         if type(self.epochs) is int:
@@ -114,28 +100,11 @@ class MMKCheckpoint(Callback):
             return epoch in self.epochs
         return False
 
-    def save_checkpoint(self, pl_module, epoch, global_step):
-        new = self.tp_cls(os.path.join(self.root_dir, f"epoch={epoch}.h5"), "w")
-        new.ckpt.save_hp(self.hp)
-        new.ckpt.add("state_dict", self.format(pl_module.net.state_dict()))
-        new.flush()
-        new.close()
-        # id_str = self.format_id(epoch, global_step)
-        # self.h5_tensor_dict.add(id_str, self.format(pl_module.net.state_dict()))
-        # self.h5_tensor_dict.flush()
-
-    def format_id(self, epoch, step):
-        dct = {"epoch": epoch, "step": step}
-        exec(f"out = f'{self.id_template}'", {}, dct)
-        return dct["out"]
-
-    def on_fit_end(self, trainer, pl_module) -> None:
-        # self.h5_tensor_dict.close()
-        pass
-
-    def teardown(self, trainer, pl_module, stage=None) -> None:
-        # self.h5_tensor_dict.close()
-        pass
+    def save_checkpoint(self, pl_module, epoch):
+        root_dir, training_id = os.path.split(self.root_dir)
+        Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir).create(
+            self.config, pl_module.net, optimizer=None
+        )
 
 
 class GenerateCallback(pl.callbacks.Callback):

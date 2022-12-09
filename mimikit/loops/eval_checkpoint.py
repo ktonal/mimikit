@@ -3,7 +3,7 @@ import torch
 import numpy as np
 
 from . import IndicesSampler, GenerateLoop
-from ..models import Checkpoint
+from ..checkpoint import Checkpoint
 from ..extract.from_neighbors import nearest_neighbor, cum_entropy
 from ..utils import audio
 

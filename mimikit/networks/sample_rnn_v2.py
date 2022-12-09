@@ -4,9 +4,10 @@ import dataclasses as dtc
 import torch
 import torch.nn as nn
 
+from . import MLP
 from ..config import Config
 from .arm import ARMWithHidden
-from ..modules.inputer import FramedInput, ZipReduceVariables, ZipMode
+from ..modules.inputs import FramedInput, ZipReduceVariables, ZipMode
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -103,19 +104,22 @@ class SampleRNN(ARMWithHidden, nn.Module):
         n_rnn: int = 1
         rnn_dropout: float = 0.
         rnn_bias: bool = True
+        unfold_inputs: bool = False
+
         inputs: Tuple[FramedInput.Config, ...] = (
             FramedInput.Config(class_size=256, projection_type="linear"),
         )
-
         inputs_mode: ZipMode = "sum"
-        unfold_inputs: bool = True
+        learn_temperature: bool = True
 
     @classmethod
     def from_config(cls, config: "SampleRNN.Config") -> "SampleRNN":
+        assert len(config.inputs) == 1, "More than 1 input isn't supported yet"
+        q_levels = config.inputs[0].class_size
         tiers = []
         for i, fs in enumerate(config.frame_sizes[:-1]):
             modules = tuple(FramedInput(
-                class_size=cfg.class_size, projection_type=cfg.projection_type,
+                class_size=q_levels, projection_type=cfg.projection_type,
                 hidden_dim=config.hidden_dim, frame_size=fs,
                 unfold_step=fs if config.unfold_inputs else None
             )
@@ -135,7 +139,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                         else 1)
                 )]
         modules = tuple(FramedInput(
-            class_size=cfg.class_size,
+            class_size=q_levels,
             projection_type="fir" if "embedding" not in cfg.projection_type else "fir_embedding",
             hidden_dim=config.hidden_dim, frame_size=config.frame_sizes[-1],
             unfold_step=1 if config.unfold_inputs else None
@@ -149,18 +153,24 @@ class SampleRNN(ARMWithHidden, nn.Module):
                 rnn_class="none",
                 up_sampling=None
             )]
-        return cls(config=config, frame_sizes=config.frame_sizes, tiers=tiers, output_module=nn.Identity())
+        output_module = MLP(
+            in_dim=config.hidden_dim,
+            hidden_dim=config.hidden_dim,
+            out_dim=q_levels,
+            learn_temperature=config.learn_temperature
+        )
+        return cls(
+            config=config, tiers=tiers, output_module=output_module)
 
     def __init__(
             self, *,
             config: "SampleRNN.Config",
-            frame_sizes: Tuple[int, ...],  # from top to bottom!
             tiers: Iterable[nn.Module],
             output_module: nn.Module,
     ):
         super(SampleRNN, self).__init__()
         self._config = config
-        self.frame_sizes = frame_sizes
+        self.frame_sizes = config.frame_sizes
         self.tiers = nn.ModuleList(tiers)
         self.output_module = output_module
 
@@ -212,6 +222,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         inpt = inputs[:, -fs[-1]:].reshape(-1, 1, fs[-1])
         prev_out = outputs[-1][:, (t % fs[-2]) - fs[-2]].unsqueeze(1)
         out = tiers[-1]((inpt, prev_out))
+        out = self.output_module(out, temperature=temperature)
         return (out.squeeze(-1) if len(out.size()) > 2 else out),
 
     def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
