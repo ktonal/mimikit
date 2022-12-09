@@ -5,39 +5,6 @@ from torch.distributions import Uniform, SigmoidTransform, \
 import torch.nn as nn
 
 
-def Logistic(loc, scale):
-    """credits to https://github.com/pytorch/pytorch/issues/7857"""
-    return TransformedDistribution(
-        Uniform(0, 1),
-        [SigmoidTransform().inv, AffineTransform(loc, scale)]
-    )
-
-# n_examples: B, m_mixtures: K
-B, K = 2, 8
-# those would come from a network:
-w = nn.Parameter(torch.rand(B, K))
-weight = Categorical(w)
-
-loc, scale = nn.Parameter(torch.rand(B, K) * 2 - 1), nn.Parameter(torch.rand(B, K))
-pr = Logistic(loc, scale)
-
-# loc, scale = nn.Parameter(torch.randn(B, K)), nn.Parameter(torch.rand(B, K))
-# pr = Normal(loc, scale)
-
-mix = MixtureSameFamily(weight, pr)
-
-# prob of the target's values under the network's prediction
-trgt = torch.randn(B)
-lkh = mix.log_prob(trgt)
-(- lkh.sum()).backward()
-
-with torch.no_grad():
-    # 1 sample has B scalars and needs to be clamped!
-    smp = mix.sample((1,)).squeeze().clamp(min=-1, max=1)
-
-w.grad, loc.grad, scale.grad, smp, lkh, mix.batch_shape, pr.batch_shape
-
-
 # Vector case:
 
 
@@ -45,7 +12,7 @@ w.grad, loc.grad, scale.grad, smp, lkh, mix.batch_shape, pr.batch_shape
 B, K, D = 2, 8, 128
 
 
-def LogisticVector(loc, scale):
+def LogisticVector(loc, scale) -> TransformedDistribution:
     """credits to https://github.com/pytorch/pytorch/issues/7857"""
     return TransformedDistribution(
         # last dim is a vector of independant variables (no covariance!)

@@ -1,10 +1,8 @@
-from typing import Optional
+from typing import Optional, Tuple, Literal
 
 import torch.nn as nn
 import torch
-import abc
-
-from torch.types import Number
+from torch import distributions as D
 
 from ..modules.homs import HOM
 
@@ -61,54 +59,97 @@ class MLP(nn.Module):
         else:
             self.dp = None
 
-        self.fc_in = nn.Sequential(
+        fc = [
             nn.Linear(in_dim, hidden_dim, bias=bias), self.activation,
             *((self.dp, ) if self.dp else ())
-        )
-        self.fc_hidden = nn.Sequential(
+        ]
+        fc += [
             *((nn.Linear(hidden_dim, hidden_dim, bias=bias), self.activation,
                *((self.dp, ) if self.dp else ())) * n_hidden_layers)
+        ]
+        self.fc = nn.Sequential(
+            *fc, nn.Linear(hidden_dim, out_dim, bias=bias)
         )
-        self.fc_out = nn.Linear(hidden_dim, out_dim, bias=bias)
 
     def forward(self, x: torch.Tensor):
-        return self.fc_out(self.fc_hidden(self.fc_in(x)))
+        return self.fc(x)
 
 
-class AsRelaxedCategorical(nn.Module):
+class RelaxedCategorical(nn.Module):
 
     def __init__(
             self,
-            module: nn.Module,
             learn_temperature: bool = True,
     ):
-        super(AsRelaxedCategorical, self).__init__()
-        self.module = module
+        super(RelaxedCategorical, self).__init__()
         self.learn_temperature = learn_temperature
         if learn_temperature:
             self.sigmoid = nn.Sigmoid()
 
-    def forward(self, inputs: torch.Tensor, *, temperature=None):
-        output = self.module(inputs)
-        if self.learn_temperature:
-            output = output[..., :-1] / (self.sigmoid(output[..., -1:]))
+    def forward(self,
+                params: Tuple[torch.Tensor, Optional[torch.Tensor]],
+                *, temperature=None):
+        logits, temp = params
+        if self.learn_temperature and temp is not None:
+            logits = logits / (self.sigmoid(temp))
         if self.training:
-            return output
+            return logits
         if temperature is None:
-            return output.argmax(dim=-1)
+            return logits.argmax(dim=-1)
         if not isinstance(temperature, torch.Tensor):
             if isinstance(temperature, torch.types.Number):
                 temperature = [temperature]
             temperature = torch.tensor(temperature)
-        if temperature.size() != output.size():
-            temperature = temperature.view(*temperature.shape, *([1] * (output.ndim - temperature.ndim)))
-        output = output / temperature.to(output.device)
-        output = output - output.logsumexp(-1, keepdim=True)
-        if output.dim() > 2:
-            o_shape = output.shape
-            output = output.view(-1, o_shape[-1])
-            return torch.multinomial(output, 1).reshape(*o_shape[:-1], 1)
-        return torch.multinomial(output, 1)
+        if temperature.ndim != logits.ndim:
+            temperature = temperature.view(*temperature.shape, *([1] * (logits.ndim - temperature.ndim)))
+        logits = logits / temperature.to(logits.device)
+        logits = logits - logits.logsumexp(-1, keepdim=True)
+        if logits.dim() > 2:
+            o_shape = logits.shape
+            logits = logits.view(-1, o_shape[-1])
+            return torch.multinomial(logits, 1).reshape(*o_shape[:-1], 1)
+        return torch.multinomial(logits, 1)
+
+
+def Logistic(loc, scale) -> D.TransformedDistribution:
+    """credits to https://github.com/pytorch/pytorch/issues/7857"""
+    return D.TransformedDistribution(
+        D.Uniform(0, 1),
+        [D.SigmoidTransform().inv, D.AffineTransform(loc, scale)]
+    )
+
+
+class MixtureOfLogistics(nn.Module):
+    # TODO: LossModule & InferModule
+    def __init__(
+            self,
+            k_components: int,
+            reduction: Literal["sum", "mean", "none"],
+            clamp_samples: Tuple[float, float] = (-1., 1.)
+    ):
+        super(MixtureOfLogistics, self).__init__()
+        self.k_components = k_components
+        self.reduction = reduction
+        self.clamp = clamp_samples
+
+    def forward(self,
+                params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+                targets: Optional[torch.Tensor] = None
+                ):
+        weight, loc, scale = params
+        o_shape, K = loc.shape, self.k_components
+        assert weight.size(-1) == loc.size(-1) == scale.size(-1) == K
+        weight, loc, scale = weight.view(-1, K), loc.view(-1, K), scale.view(-1, K)
+        mixture = D.MixtureSameFamily(
+            D.Categorical(logits=weight), Logistic(loc, scale)
+        )
+        if targets is not None:
+            probs = mixture.log_prob(targets.view(-1))
+            if self.reduction != "none":
+                return getattr(torch, self.reduction)(probs)
+            return probs
+        return mixture.sample((1,)).clamp(*self.clamp).reshape(*o_shape[:-1])
+
 
 
 class SingleClassMLP(nn.Module):
