@@ -8,6 +8,10 @@ from copy import deepcopy
 from ..modules.misc import Chunk, CausalPad
 from ..modules.activations import GatingUnit
 
+__all__ = [
+    "WNLayer"
+]
+
 
 class WNLayer(nn.Module):
 
@@ -93,7 +97,7 @@ class WNLayer(nn.Module):
         if self.has_residuals:
             self.conv_res = nn.Conv1d(main_dim, main_dim, **kwargs_1x1)
 
-    def forward(self, *,
+    def forward(self,
                 inputs_dilated: Tuple[torch.Tensor, ...],
                 inputs_1x1: Tuple[torch.Tensor, ...],
                 skips: Optional[torch.Tensor] = None
@@ -113,10 +117,13 @@ class WNLayer(nn.Module):
             x_f, x_g = self.conv_dil[0](inputs_dilated[0])
             y = self.activation(x_f + cond_f, x_g + cond_g)
         else:
-            y = sum(conv(x) if not self.needs_padding else conv(self.trim_cause(x))
-                    for conv, x in zip(self.conv_1x1, inputs_1x1))
-            y += sum(conv(x) for conv, x in zip(self.conv_dil[:1], inputs_dilated[1:]))
-            y = self.activation(y)
+            cond = 0
+            for conv, x in zip(self.conv_1x1, inputs_1x1):
+                if not self.needs_padding:
+                    x = self.trim_cause(x)
+                cond += conv(x)
+            y = self.conv_dil[0](inputs_dilated[0])
+            y = self.activation(y + cond)
 
         if self.has_skips:
             if not self.needs_padding:

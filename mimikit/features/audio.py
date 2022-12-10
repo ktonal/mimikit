@@ -7,7 +7,7 @@ import IPython.display as ipd
 import soundfile as sf
 import torch
 
-from . import Feature
+from .feature import Feature
 from . import audio_fmodules as T
 from ..modules import mean_L1_prop, mean_2d_diff
 

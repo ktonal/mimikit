@@ -7,7 +7,7 @@ from ..features import Resample, MuLawSignal
 from ..loops import GenerateLoop
 
 from .nnn import NearestNextNeighbor
-from .checkpoint import Checkpoint
+from ..checkpoint import Checkpoint
 
 __all__ = [
     "Ensemble"

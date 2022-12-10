@@ -1,20 +1,20 @@
 import json
 import os
 import hashlib
-from typing import Optional, Tuple
 
 import h5mapper as h5m
 import torch
 import dataclasses as dtc
 
-from .config import Config, ModelConfig
+from .config import ModelConfig
 from .features import AudioSignal
 from .loops import GenerateCallback, GenerateLoop, AudioLogger, MMKCheckpoint, TBPTTSampler, IndicesSampler, TrainLoop
 
 __all__ = [
-    "train",
-    "TrainARMConfig"
+    "train"
 ]
+
+from .loops.train_loops import TrainARMConfig
 
 
 class MyEncoder(json.JSONEncoder):
@@ -23,38 +23,6 @@ class MyEncoder(json.JSONEncoder):
             return super(MyEncoder, self).default(obj)
         except:
             return str(obj)
-
-
-@dtc.dataclass
-class TrainARMConfig(Config):
-    root_dir: str = './trainings'
-    batch_size: int = 16
-    batch_length: int = 32
-    downsampling: int = 1
-    oversampling: int = 1
-    shift_error: int = 0
-    tbptt_chunk_length: Optional[int] = None
-    in_mem_data: bool = True
-
-    max_epochs: int = 2
-    limit_train_batches: Optional[int] = None
-    max_lr: float = 5e-4
-    betas: Tuple[float, float] = (0.9, 0.93)
-    div_factor: float = 3.
-    final_div_factor: float = 1.
-    pct_start: float = 0.
-    cycle_momentum: bool = False
-
-    CHECKPOINT_TRAINING: bool = True
-
-    MONITOR_TRAINING: bool = True
-    OUTPUT_TRAINING: str = ''
-
-    every_n_epochs: int = 2
-    n_examples: int = 3
-    prompt_length: int = 32
-    n_steps: int = 200
-    temperature: Optional[Tuple[float]] = None
 
 
 def train(

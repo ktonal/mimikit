@@ -5,7 +5,8 @@ import os
 
 from ..features import Spectrogram
 from ..models.wavenets import WaveNetBlockHP, WaveNetFFT
-from ..train import TrainARMConfig, train
+from ..train import train
+from ..loops.train_loops import TrainARMConfig
 
 __all__ = [
     "FreqNetData",

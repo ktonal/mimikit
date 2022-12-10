@@ -16,7 +16,7 @@ def test_should_instantiate_from_default_config():
     assert_that(len(under_test.tiers)).is_equal_to(len(given_config.frame_sizes))
 
 
-@pytest.skip("Not really supported yet...")
+@pytest.mark.skip("Not really supported yet...")
 def test_should_take_n_unfolded_inputs():
     given_frame_sizes = (16, 4, 8,)
     given_config = SampleRNN.Config(

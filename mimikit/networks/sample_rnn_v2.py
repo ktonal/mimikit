@@ -4,7 +4,7 @@ import dataclasses as dtc
 import torch
 import torch.nn as nn
 
-from . import MLP
+from .mlp import MLP
 from ..config import Config
 from .arm import ARMWithHidden
 from ..modules.inputs import FramedInput, ZipReduceVariables, ZipMode

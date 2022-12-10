@@ -3,7 +3,7 @@ import torch
 from assertpy import assert_that
 from typing import get_args
 
-from mimikit.modules.inputer import FramedInput, ProjectionType
+from mimikit.modules.inputs import FramedInput, ProjectionType
 
 torch.set_grad_enabled(False)
 

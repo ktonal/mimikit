@@ -1,6 +1,6 @@
 import ipywidgets as W
 from .. import ui as UI
-from ..train import TrainARMConfig
+from ..loops.train_loops import TrainARMConfig
 
 __all__ = [
     "train_arm_view"

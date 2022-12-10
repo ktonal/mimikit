@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from pytorch_lightning.utilities import AttributeDict
 
-from .single_class_mlp import SingleClassMLP
+from .mlp import MLP
 from ..modules.homs import *
 from mimikit.modules.resamplers import *
 
@@ -172,7 +172,7 @@ class SampleRNNBottomTier(SampleRNNTier):
             (Conv1dResampler(zin_dim, 1 / frame_size, top_dim / zin_dim), 'x -> x'),
             (self.add_upper_tier, "x, z -> x"),
             *Maybe(io_dim is not None,
-                   (SingleClassMLP(top_dim, zout_dim, io_dim,
+                   (MLP(top_dim, zout_dim, io_dim,
                                    learn_temperature=learn_temperature,
                                    n_hidden_layers=n_hidden_layers), 'x, temperature -> x'))
         )
