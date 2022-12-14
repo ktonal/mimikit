@@ -31,19 +31,53 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 
 #### v0.4.0
 
-- [ ] notebooks UI
+- [ ] code cleanup
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
         - [ ] SampleRNN
-        - [ ] FreqNet
+            - [x] no HOM
+            - [x] from_config()
+            - [ ] IOSpec
+        - [ ] WaveNet
+            - [x] no HOM
+            - [x] from_config()
+            - [ ] IOSpec
         - [ ] S2S
-        - [ ] remove HOMS
-    - [ ] Factor Train ARM in TrainLoop
+            - [x] no HOM
+            - [ ] from_config()
+            - [ ] IOSpec
+        - [ ] remove HOMS module and impls
+    - [X] Factor Train ARM in TrainLoop
+        - [ ] save configs
     - [ ] Cleanup GenerateLoop
         - [ ] **parameters
         - [ ] getters/setters
-    - [ ] Feature Configs
-        - [ ] MuLaw
-        - [ ] FFT
+        - [ ] move AudioLogger from Callback to Loop
+    - [ ] Cleanup Callbacks and loggers
+        - [x] CheckpointCallback
+            - [x] remove h5 stuff
+            - [x] save HP with OmegaConf
+        - [x] AudioLogger
+            - [x] remove h5 stuff
+            - [x] pydub for audio write
+        - [ ] GenerateCallback integration and config
+    - [X] Feature Configs
+        - [X] MuLaw
+        - [X] FFT
+        - [ ] batch items units in samples
+    - [ ] Cleanup Loss Functions
+    - [ ] Cleanup Activations
+    - [ ] IOSpec
+        - [ ] layers can contribute to loss
+        - [ ] GenerateLoop
+    - [ ] Scripts
+        - [ ] General Flow:
+            IOSpec() -> soundbank
+            Network(..., io_spec, ...) -> model
+            Loop(soundbank, model, config)
+        - [ ] SampleRNN
+        - [ ] FreqNet
+        - [ ] S2S
+- [ ] Views / UI
     - [ ] File / Data View
     - [ ] Networks View
         - [ ] SampleRNN
@@ -51,53 +85,42 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] S2S
     - [ ] Features View
     - [ ] Training View
-    - [ ] Scripts
-        - [ ] SampleRNN
-        - [ ] FreqNet
-        - [ ] S2S
     - [ ] define UI in notebooks
         - [ ] validate config
         - [ ] call main()
     - [ ] make_notebooks
         - [ ] hide code
         - [ ] embed UI state?
-- [ ] Cleanup Callbacks and loggers
-    - [x] CheckpointCallback
-        - [x] remove h5 stuff
-        - [x] save HP with OmegaConf
-    - [ ] AudioLogger
-        - [x] remove h5 stuff
-        - [ ] pydub for audio write
-- [ ] Upgrade pytorch lightning
+- [X] Upgrade pytorch lightning
 - [ ] Ensemble NoteBook
-- [ ] Output Evaluation NoteBook
 - [ ] Clustering NoteBook
+    - [ ] class ClusterBank(h5m.TypedFile):
+    - [ ] class ClusterLabel(Feature):
 - [ ] Segmentation NoteBook
+    - [ ] class Envelope(Feature):
+    - [ ] class SegmentLabel(Feature):
+- [ ] Output Evaluation NoteBook
 - [ ] UI Style sheet
-- [ ] Cleanup Activations
 - [ ] Mu/A Law
     - [ ] fix librosa mulaw
-    - [ ] compression param
+    - [ ] compression param for MuLaw
 - [ ] Target Distributions
     - Scalar and Vector
         - [ ] Mixture of Logistics
         - [ ] Mixture of Gaussian 
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
 - [ ] New Features
+    - [ ] KMer (seqPrior)
+    - [ ] BitVector
+    - [ ] TimeIndex
     - [ ] Learnable STFT
-    - [ ] MelSpec
-    - [ ] MFCC
-    - [ ] envelope(s)
-    - [ ] clusters
-    - [ ] segments
-- [ ] Multiple Inputs
-    - [ ] match network's inputs with features (& modules)
-- [ ] Multiple Outputs
-    - [ ] match network's output with targets (& features)
-    - [ ] evaluate loss for each pair
-    - [ ] layers can contribute to loss
-    - [ ] GenerateLoop
-
+    - [ ] (Learnable) MelSpec
+    - [ ] (Learnable) MFCC
+- [ ] New Networks
+    - [ ] SampleGan (WaveGan with labeled segments)
+    - [ ] Stable Diffusion Experiment
+    
+    
 #### Future nice-to-have
 
 - [ ] Hooks for storing outputs

@@ -1,9 +1,7 @@
-from functools import partial
 import torch.nn.functional as F
 from torch import nn
 import torch
 
-from .homs import HOM, Maybe, Sum
 
 __all__ = [
     'Chunk',

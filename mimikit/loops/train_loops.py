@@ -11,6 +11,8 @@ from .logger import LoggingHooks, AudioLogger
 from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint
 from .samplers import IndicesSampler, TBPTTSampler
 from .generate import GenerateLoop
+from ..features.ifeature import Batch
+from ..networks.arm import ARM
 from ..config import Config
 
 
@@ -20,7 +22,7 @@ __all__ = [
 ]
 
 
-@dtc.dataclass
+# @dtc.dataclass
 class TrainARMConfig(Config):
     root_dir: str = './trainings'
     batch_size: int = 16
@@ -57,7 +59,8 @@ class TrainLoop(LoggingHooks,
 
     @classmethod
     def initialize_root_directory(cls,
-                                  cfg: TrainARMConfig):
+                                  network_config: Config,
+                                  cfg: TrainARMConfig) -> Tuple[str, str]:
         ID = hashlib.sha256("".encode("utf-8")).hexdigest()
         print("****************************************************")
         print("ID IS :", ID)
@@ -71,14 +74,14 @@ class TrainLoop(LoggingHooks,
         else:
             filename_template = ""
 
-        with open(os.path.join(root_dir, "hp.json"), "w") as fp:
+        with open(os.path.join(root_dir, "hp.yaml"), "w") as fp:
             pass
         return root_dir, filename_template
 
     @classmethod
     def get_dataloader(cls,
                        soundbank,
-                       net,
+                       net: ARM,
                        input_feature,
                        target_feature,
                        cfg: TrainARMConfig):
@@ -127,7 +130,7 @@ class TrainLoop(LoggingHooks,
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
         opt = torch.optim.Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
-        sched = torch.OneCycleLR(
+        sched = torch.optim.lr_scheduler.OneCycleLR(
             opt,
             steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
             epochs=cfg.max_epochs,
@@ -168,7 +171,7 @@ class TrainLoop(LoggingHooks,
                       if cfg.temperature is not None else ())),
             n_steps=cfg.n_steps,
             device='cuda' if torch.cuda.is_available() else 'cpu',
-            time_hop=net.hp.get("hop", 1)
+            time_hop=1
         )
 
         callbacks = []
@@ -177,7 +180,7 @@ class TrainLoop(LoggingHooks,
             callbacks += [
                 MMKCheckpoint(epochs=cfg.every_n_epochs, root_dir=root_dir)
             ]
-
+        print("*******", cfg.MONITOR_TRAINING, cfg.OUTPUT_TRAINING)
         if cfg.MONITOR_TRAINING or cfg.OUTPUT_TRAINING:
             callbacks += [
                 GenerateCallback(
@@ -186,10 +189,7 @@ class TrainLoop(LoggingHooks,
                     output_features=[target_feature, ],
                     audio_logger=AudioLogger(
                         sr=target_feature.sr,
-                        hop_length=getattr(target_feature, 'hop_length', 512),
-                        **(dict(filename_template=filename_template,
-                                target_dir=os.path.dirname(filename_template))
-                           if 'mp3' in cfg.OUTPUT_TRAINING else {}),
+                        title_template="epoch={epoch}"
                     ),
                 )]
 
@@ -197,18 +197,33 @@ class TrainLoop(LoggingHooks,
 
         return callbacks
 
+    @classmethod
+    def from_config(cls, soundbank, network: ARM, config: TrainARMConfig):
+        batch: Batch = network.config.batch
+        dataloader = cls.get_dataloader(
+            soundbank, network, batch.inputs[0], batch.targets[0], config)
+        optim = cls.get_optimizer(network, dataloader, config)
+        return cls(config, soundbank, dataloader, network, batch.targets[0].loss_fn, optim)
+
+    @property
+    def config(self):
+        return self.train_config
+
     def __init__(self,
-                 model_config, loader, net, loss_fn, optim,
-                 # number of batches before reset_hidden is called
-                 tbptt_len=None,
+                 train_config: TrainARMConfig,
+                 soundbank: h5m.SoundBank,
+                 loader: torch.utils.data.DataLoader,
+                 net: ARM,
+                 loss_fn,
+                 optim,
                  ):
         super().__init__()
-        self.model_config = model_config
+        self.train_config = train_config
+        self.soundbank = soundbank
         self.loader = loader
         self.net = net
         self.loss_fn = loss_fn
         self.optim = optim
-        self.tbptt_len = tbptt_len
 
     def forward(self, inputs):
         if not isinstance(inputs, (tuple, list)):
@@ -221,8 +236,9 @@ class TrainLoop(LoggingHooks,
     def train_dataloader(self):
         return self.loader
 
-    def on_train_batch_start(self, batch, batch_idx, dataloader_idx):
-        if self.tbptt_len is not None and (batch_idx % self.tbptt_len) == 0:
+    def on_train_batch_start(self, batch, batch_idx):
+        tbptt_len = self.train_config.tbptt_chunk_length
+        if tbptt_len is not None and (batch_idx % tbptt_len) == 0:
             self.net.reset_hidden()
 
     def training_step(self, batch, batch_idx):
@@ -230,16 +246,24 @@ class TrainLoop(LoggingHooks,
         output = self.forward(batch)
         return self.loss_fn(output, target)
 
-    def run(self, root_dir, max_epochs, callbacks, limit_train_batches):
+    def run(self, max_epochs=100, limit_train_batches=1.):
+        root_dir, output_template = self.initialize_root_directory(self.net.config, self.train_config)
+        callbacks = self.get_callbacks(
+            self.net, self.soundbank,
+            self.net.config.batch.inputs[0],
+            self.net.config.batch.targets[0],
+            root_dir, output_template,
+            self.train_config
+        )
         self.trainer = Trainer(
             default_root_dir=root_dir,
             max_epochs=max_epochs,
             limit_train_batches=limit_train_batches,
-            callbacks=[EpochProgressBarCallback()].extend(callbacks),
-            progress_bar_refresh_rate=10,
-            process_position=1,
+            callbacks=[EpochProgressBarCallback(), *callbacks],
+            # progress_bar_refresh_rate=10,
+            # process_position=1,
             logger=None,
-            checkpoint_callback=False,
+            enable_checkpointing=False,
             num_sanity_val_steps=0,
             gpus=torch.cuda.device_count() if torch.cuda.is_available() else 0,
         )

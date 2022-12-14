@@ -2,6 +2,7 @@ import torch.nn as nn
 import torch
 
 from ..modules import *
+from ..modules.activations import ScaledSigmoid, Abs
 from ..networks import *
 
 __all__ = [

@@ -1,4 +1,4 @@
-from typing import Optional, Any, Callable, Tuple, Iterable
+from typing import Optional, Any, Callable, Tuple, Iterable, Dict, overload, Sized
 import numpy as np
 import torch
 import h5mapper as h5m
@@ -10,6 +10,11 @@ __all__ = [
     'prepare_prompt',
     'generate_tqdm',
 ]
+
+from ..config import Configurable, Config
+from ..features.ifeature import Batch
+from ..networks.arm import ARM
+from .samplers import IndicesSampler
 
 
 def prepare_prompt(device, prompt, n_blanks, at_least_nd=2):
@@ -33,14 +38,54 @@ def generate_tqdm(rng):
                 leave=False, unit="step", mininterval=0.25)
 
 
-class GenerateLoop:
+class GenerateLoop(Configurable):
     """
     interfaces' length must equal the number of items in the batches of the DataLoader
     if an interfaces has None as setter, it is considered a parameter, not a "generable"
     """
+    class Config(Config):   # !NOT SERIALIZABLE! because of soundbank and network
+        soundbank: h5m.SoundBank
+        network: ARM
+        output_duration_sec: float = 1.
+        prompts_position_sec: Tuple[Optional[float]] = (None, )  # random if None
+        parameters: Optional[Dict[str, Any]] = None
+        batch_size: Optional[int] = 1
+
+        output_file_template: Optional[str] = None
+        display_waveform: bool = True
+        display_html: bool = True
+        # either GenerateLoop exposes self.add_callback(...)
+        # or evaluators must wrap networks and implement after_generate...
+        # or the loop changes to run(prompts, **parameters) -> outputs
+        # maybe even:
+        # for prompt in loop.prompts:
+        #    output = loop.run(prompt, **parameters)
+        #    logger.write(output)
+        # --> finer factoring...
+
+    @property
+    def config(self) -> Config:
+        return self.Config()
+
+    @classmethod
+    def from_config(cls, config: Config):
+        pass
+
+    @staticmethod
+    def get_dataloader(soundbank, batch: Batch, prompt_length: int, indices, batch_size):
+        max_i = soundbank.snd.shape[0] - prompt_length
+        return soundbank.serve(
+            tuple(feat.batch_item(shift=0, length=prompt_length, training=False) for feat in batch.inputs),
+            sampler=IndicesSampler(N=len(indices),
+                                   indices=indices,
+                                   max_i=max_i,
+                                   redraw=True),
+            shuffle=False,
+            batch_size=batch_size
+        )
 
     def __init__(self,
-                 network: torch.nn.Module = None,
+                 network: ARM = None,
                  dataloader: torch.utils.data.dataloader.DataLoader = None,
                  inputs: Iterable[h5m.Input] = tuple(),
                  n_batches: Optional[int] = None,
@@ -51,7 +96,7 @@ class GenerateLoop:
                  process_outputs: Callable[[Tuple[Any], int], None] = lambda x, i: None,
                  add_blank=True,
                  ):
-        self.net = network
+        self.net: ARM = network
         self.dataloader = dataloader
         self.inputs = inputs
         self.n_batches = n_batches
@@ -80,6 +125,9 @@ class GenerateLoop:
         if self.disable_grads:
             torch.set_grad_enabled(True)
 
+    def run_epoch(self):
+        pass
+
     def run(self):
 
         self.setup()
@@ -92,10 +140,7 @@ class GenerateLoop:
         for batch_idx, batch in epoch_iterator:
             # prepare
             batch = tuple(x.to(self.device) for x in batch)
-            if getattr(self.net, 'before_generate', False):
-                ctx = self.net.before_generate(self, batch, batch_idx)
-            else:
-                ctx = {}
+            self.net.before_generate(batch, batch_idx)
 
             prior_t = len(batch[0][0]) if self.add_blank else getattr(self.net, 'shift', 0)
             inputs_itf = []
@@ -116,7 +161,7 @@ class GenerateLoop:
                 if t < until:
                     continue
                 inputs = tuple(input(t + (prior_t if input.setter is not None else 0)) for input in inputs_itf)
-                outputs = self.net.generate_step(t+prior_t, inputs, ctx)
+                outputs = self.net.generate_step(inputs, t=t+prior_t)
                 if not isinstance(outputs, tuple):
                     outputs = outputs,
                 for interface, out in zip(outputs_itf, outputs):
@@ -126,10 +171,7 @@ class GenerateLoop:
 
             # wrap up
             final_outputs = tuple(x.data for x in inputs_itf[:len(outputs_itf)])
-            if getattr(self.net, 'after_generate', False):
-                self.net.after_generate(final_outputs, ctx, batch_idx)
-            else:
-                pass
+            self.net.after_generate(final_outputs, batch_idx)
 
             self.process_outputs(final_outputs, batch_idx)
 

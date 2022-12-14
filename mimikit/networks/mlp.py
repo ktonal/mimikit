@@ -52,7 +52,7 @@ class MLP(nn.Module):
                *((self.dp, ) if self.dp else ())) * n_hidden_layers)
         ]
         self.fc = nn.Sequential(
-            *fc, nn.Linear(hidden_dim, out_dim, bias=bias)
+            *fc, nn.Linear(hidden_dim, self.out_dim, bias=bias)
         )
         if self.learn_temperature:
             self.sigmoid = nn.Sigmoid()
@@ -66,7 +66,7 @@ class MLP(nn.Module):
         if temperature is None:
             return logits.argmax(dim=-1)
         if not isinstance(temperature, torch.Tensor):
-            if isinstance(temperature, torch.types.Number):
+            if isinstance(temperature, (int, float)):
                 temperature = [temperature]
             temperature = torch.tensor(temperature)
         if temperature.ndim != logits.ndim:
@@ -76,5 +76,5 @@ class MLP(nn.Module):
         if logits.dim() > 2:
             o_shape = logits.shape
             logits = logits.view(-1, o_shape[-1])
-            return torch.multinomial(logits, 1).reshape(*o_shape[:-1], 1)
-        return torch.multinomial(logits, 1)
+            return torch.multinomial(logits.exp_(), 1).reshape(*o_shape[:-1])
+        return torch.multinomial(logits.exp_(), 1)

@@ -74,16 +74,13 @@ class MMKCheckpoint(Callback):
         self.root_dir = root_dir
         self.config = None
 
-    def on_pretrain_routine_start(self, trainer, pl_module: "TrainLoop") -> None:
-        config = pl_module.model_config
+    def on_fit_start(self, trainer, pl_module: "TrainLoop") -> None:
+        config = pl_module.config
         # make sure that we can (de)serialize
-        try:
-            _class = type(config)
-            yaml = config.serialize()
-            _class.deserialize(yaml, cls=_class)
-            self.config = config
-        except Exception as e:
-            raise RuntimeError(f"(de)serializing the model's config raised {e}")
+        _class = type(config)
+        yaml = config.serialize()
+        _class.deserialize(yaml)
+        self.config = config
 
     def on_train_epoch_end(self, trainer, pl_module, unused=None) -> None:
         epoch, global_step = trainer.current_epoch + 1, trainer.global_step
@@ -138,19 +135,12 @@ class GenerateCallback(pl.callbacks.Callback):
         for feature, output in zip(self.output_features, outputs):
             output = feature.inverse_transform(output)
             for i, out in enumerate(output):
-                y = out.detach().cpu().numpy()
                 if self.plot_audios:
-                    plt.figure(figsize=(20, 2))
-                    plt.plot(y)
-                    plt.show(block=False)
+                    self.logger.display_waveform(out, epoch=epoch)
                 if self.play_audios:
-                    audio(y, sr=getattr(feature, 'sr', 22050),
-                          hop_length=getattr(feature, 'hop_length', 512))
-                self.logger.write(y,
-                                  epoch=epoch,
-                                  prompt_idx=self.get_prompt_idx(batch_idx, i))
+                    self.logger.display_html(out)
 
-    def on_epoch_end(self, trainer: pl.Trainer, model):
+    def on_train_epoch_end(self, trainer: pl.Trainer, model):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
             return
         self.indices = self.loop.dataloader.sampler.indices

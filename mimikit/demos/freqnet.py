@@ -4,9 +4,10 @@ import h5mapper as h5m
 import os
 
 from ..features import Spectrogram
-from ..models.wavenets import WaveNetBlockHP, WaveNetFFT
+from ..models.wavenets import WaveNetBlockHP, WaveNetFFT, WaveNetFFTHP
 from ..train import train
 from ..loops.train_loops import TrainARMConfig
+
 
 __all__ = [
     "FreqNetData",
@@ -17,33 +18,23 @@ __all__ = [
 
 @dtc.dataclass
 class FreqNetData:
-    sources_dir: str = ''
     sources: List[str] = dtc.field(default_factory=list)
     db_path: str = "train.h5"
-    sr: int = 22050
-    n_fft: int = 2048
-    hop_length: int = 512
-    coordinate: str = 'mag'
-    center: bool = False
-
-    def walk_sources_dir(self):
-        if len(self.sources_dir) > 0:
-            self.sources.extend(
-                list(h5m.FileWalker(h5m.Sound.__re__, self.sources_dir))
-            )
 
     def validate(self):
         if len(self.sources) == 0:
             raise ValueError("Empty dataset. No audio file were found")
 
 
-# noinspection PyCallByClass
 @dtc.dataclass
-class TrainFreqnetConfig:
-
-    data: FreqNetData = FreqNetData()
-
-    network: WaveNetFFT.HP = WaveNetFFT.HP(
+class FreqNetConfig:
+    inputs = [Spectrogram(
+        sr=22050, n_fft=2048, hop_length=512, coordinate='mag', center=False
+    )]
+    outputs = [Spectrogram(
+        sr=22050, n_fft=2048, hop_length=512, coordinate='mag', center=False
+    )]
+    network = WaveNetFFTHP(
         core=WaveNetBlockHP(
             # number of layers (per block)
             blocks=(4,),
@@ -56,6 +47,13 @@ class TrainFreqnetConfig:
         output_heads=1,
         scaled_activation=False,
     )
+
+
+@dtc.dataclass
+class TrainFreqnetConfig:
+    dataset: FreqNetData = FreqNetData()
+
+    model = FreqNetConfig()
 
     training: TrainARMConfig = TrainARMConfig(
         root_dir="./",
@@ -87,32 +85,34 @@ class TrainFreqnetConfig:
 def main(cfg: TrainFreqnetConfig = TrainFreqnetConfig()):
     """### Load Data"""
 
-    if os.path.exists(cfg.data.db_path):
-        os.remove(cfg.data.db_path)
+    if os.path.exists(cfg.dataset.db_path):
+        os.remove(cfg.dataset.db_path)
+
+    fft = cfg.model.inputs[0]
 
     class SoundBank(h5m.TypedFile):
-        snd = h5m.Sound(sr=cfg.data.sr, mono=True, normalize=True)
+        snd = h5m.Sound(sr=fft.sr, mono=True, normalize=True)
 
-    SoundBank.create(cfg.data.db_path, cfg.data.sources)
-    soundbank = SoundBank(cfg.data.db_path, mode='r', keep_open=True)
+    SoundBank.create(cfg.dataset.db_path, cfg.dataset.sources)
+    soundbank = SoundBank(cfg.dataset.db_path, mode='r', keep_open=True)
 
     """### Configure and run training"""
 
     # INPUT / TARGET
 
     feature = Spectrogram(
-        sr=cfg.data.sr,
-        n_fft=cfg.data.n_fft,
-        hop_length=cfg.data.hop_length,
-        coordinate=cfg.data.coordinate,
-        center=cfg.data.center
+        sr=fft.sr,
+        n_fft=fft.n_fft,
+        hop_length=fft.hop_length,
+        coordinate=fft.coordinate,
+        center=fft.center
     )
 
     # NETWORK
 
     net = WaveNetFFT(
         feature=feature,
-        hp=cfg.network
+        hp=cfg.model.network
     )
     net.use_fast_generate = False
 
@@ -120,6 +120,7 @@ def main(cfg: TrainFreqnetConfig = TrainFreqnetConfig()):
 
     train(
         cfg.training,
+        cfg.model,
         soundbank,
         net,
         input_feature=feature,

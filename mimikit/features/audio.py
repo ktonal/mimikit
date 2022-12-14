@@ -1,5 +1,4 @@
 import h5mapper
-import numpy as np
 import torch.nn as nn
 import librosa
 import dataclasses as dtc
@@ -7,10 +6,9 @@ import IPython.display as ipd
 import soundfile as sf
 import torch
 
-from .feature import Feature
 from . import audio_fmodules as T
-from ..modules import mean_L1_prop, mean_2d_diff
-
+# from ..modules import mean_L1_prop, mean_2d_diff
+from .ifeature import Feature
 
 __all__ = [
     'AudioSignal',
@@ -21,7 +19,7 @@ __all__ = [
 ]
 
 
-@dtc.dataclass(unsafe_hash=True)
+# @dtc.dataclass(unsafe_hash=True)
 class AudioSignal(Feature):
     """
     audio signal managers
@@ -86,12 +84,13 @@ class AudioSignal(Feature):
         return sf.write(filename, inputs, self.sr, 'PCM_24')
 
 
-@dtc.dataclass(unsafe_hash=True)
+# @dtc.dataclass(unsafe_hash=True)
 class MuLawSignal(AudioSignal):
     q_levels: int = 256
-    pr_y: torch.tensor = None
+    pr_y = None
 
     def __post_init__(self):
+        self.class_size = self.q_levels
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
         self.transform_ = T.MuLawCompress(q_levels=self.q_levels)
         self.inverse_transform_ = T.MuLawExpand(self.q_levels)
@@ -127,13 +126,14 @@ class MuLawSignal(AudioSignal):
         return {"loss": loss, "err": err}
 
 
-@dtc.dataclass(unsafe_hash=True)
+# @dtc.dataclass(unsafe_hash=True)
 class ALawSignal(AudioSignal):
     A: float = 87.7
     q_levels: int = 256
     target_width: int = 1
 
     def __post_init__(self):
+        self.class_size = self.q_levels
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
         self.transform_ = T.ALawCompress(A=self.A, q_levels=self.q_levels)
         self.inverse_transform_ = T.ALawExpand(A=self.A, q_levels=self.q_levels)
@@ -150,7 +150,7 @@ class ALawSignal(AudioSignal):
         return {"loss": L}
 
 
-class MultiScale(Feature):
+class MultiScale:
 
     def __init__(self, base, frame_sizes, hop_lengths):
         self.base = base
@@ -168,7 +168,8 @@ class MultiScale(Feature):
                    training=True, **kwargs):
         if training:
             return tuple(
-                self.base.batch_item(data, self.frame_sizes[0] - fs, length, frame_size=fs, hop_length=hop)
+                self.base.batch_item(data, self.frame_sizes[0] - fs, length,
+                                     frame_size=fs, hop_length=hop)
                 for fs, hop in zip(self.frame_sizes, self.hop_lengths)
             )
         else:
@@ -178,7 +179,7 @@ class MultiScale(Feature):
         return self.base.loss_fn(output, target)
 
 
-@dtc.dataclass(unsafe_hash=True)
+# @dtc.dataclass(unsafe_hash=True)
 class Spectrogram(AudioSignal):
     domain = "time-freq"
 
@@ -188,6 +189,7 @@ class Spectrogram(AudioSignal):
     center: bool = True
 
     def __post_init__(self):
+        self.out_dim = 1 + self.n_fft // 2
         self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
         if self.coordinate == 'mag':
             self.transform_ = T.MagSpec(self.n_fft, self.hop_length, center=self.center)

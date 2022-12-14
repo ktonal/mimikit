@@ -5,9 +5,9 @@ from pprint import pprint
 
 from ..features import Resample, MuLawSignal
 from ..loops import GenerateLoop
-
-from .nnn import NearestNextNeighbor
 from ..checkpoint import Checkpoint
+from .nnn import NearestNextNeighbor
+
 
 __all__ = [
     "Ensemble"

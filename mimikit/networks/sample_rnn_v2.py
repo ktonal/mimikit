@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 
 from .mlp import MLP
-from ..config import Config
-from .arm import ARMWithHidden
-from ..modules.inputs import FramedInput, ZipReduceVariables, ZipMode
+from .arm import ARMWithHidden, ARMConfig
+from ..features.ifeature import Batch
+from ..modules.io import ModuleFactory, ZipReduceVariables, ZipMode
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -66,7 +66,7 @@ class SampleRNNTier(nn.Module):
         x, x_upper = inputs
         x = self.input_module(x)
         if x_upper is not None:
-            print("IN", x.size(), x_upper.size())
+            # print("IN", x.size(), x_upper.size())
             x += x_upper
         if self.has_rnn:
             self.hidden = self._reset_hidden(x, self.hidden)
@@ -96,8 +96,9 @@ class SampleRNNTier(nn.Module):
 
 class SampleRNN(ARMWithHidden, nn.Module):
 
-    @dtc.dataclass
-    class Config(Config):
+    # @dtc.dataclass
+    class Config(ARMConfig):
+        batch: Batch = Batch([], [])
         frame_sizes: Tuple[int, ...] = (16, 8, 8)
         hidden_dim: int = 256
         rnn_class: RNNType = "lstm"
@@ -106,8 +107,8 @@ class SampleRNN(ARMWithHidden, nn.Module):
         rnn_bias: bool = True
         unfold_inputs: bool = False
 
-        inputs: Tuple[FramedInput.Config, ...] = (
-            FramedInput.Config(class_size=256, projection_type="linear"),
+        inputs: Tuple[ModuleFactory.Config, ...] = (
+            ModuleFactory.Config(module_type="framed_linear", module_params=None),
         )
         inputs_mode: ZipMode = "sum"
         learn_temperature: bool = True
@@ -118,8 +119,8 @@ class SampleRNN(ARMWithHidden, nn.Module):
         q_levels = config.inputs[0].class_size
         tiers = []
         for i, fs in enumerate(config.frame_sizes[:-1]):
-            modules = tuple(FramedInput(
-                class_size=q_levels, projection_type=cfg.projection_type,
+            modules = tuple(ModuleFactory(
+                class_size=q_levels, module_type=cfg.projection_type,
                 hidden_dim=config.hidden_dim, frame_size=fs,
                 unfold_step=fs if config.unfold_inputs else None
             )
@@ -138,9 +139,9 @@ class SampleRNN(ARMWithHidden, nn.Module):
                         if i < len(config.frame_sizes) - 2
                         else 1)
                 )]
-        modules = tuple(FramedInput(
+        modules = tuple(ModuleFactory(
             class_size=q_levels,
-            projection_type="fir" if "embedding" not in cfg.projection_type else "fir_embedding",
+            module_type="fir" if "embedding" not in cfg.projection_type else "fir_embedding",
             hidden_dim=config.hidden_dim, frame_size=config.frame_sizes[-1],
             unfold_step=1 if config.unfold_inputs else None
         )
@@ -204,8 +205,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         tiers = self.tiers
         outputs = self.outputs
         fs = self.frame_sizes
-        # TODO: should be in **parameters + TODO: MLP
-        temperature = inputs[1] if len(inputs) > 1 else None
+        temperature = parameters.get("temperature", None)
         # TODO: multiple inputs
         inputs = inputs[0]
         for i in range(len(tiers) - 1):
@@ -215,13 +215,13 @@ class SampleRNN(ARMWithHidden, nn.Module):
                     prev_out = None
                 else:
                     prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
-                out = tiers[i]((inpt, prev_out))
+                out = tiers[i](((inpt,), prev_out))
                 outputs[i] = out
-        if t < self.prior_t:
+        if t < self.prompt_length:
             return tuple()
         inpt = inputs[:, -fs[-1]:].reshape(-1, 1, fs[-1])
         prev_out = outputs[-1][:, (t % fs[-2]) - fs[-2]].unsqueeze(1)
-        out = tiers[-1]((inpt, prev_out))
+        out = tiers[-1](((inpt,), prev_out))
         out = self.output_module(out, temperature=temperature)
         return (out.squeeze(-1) if len(out.size()) > 2 else out),
 

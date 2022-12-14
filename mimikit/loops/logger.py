@@ -1,9 +1,10 @@
 from time import time, gmtime
 import dataclasses as dtc
-from typing import Optional
+from typing import Optional, Union
+from matplotlib import pyplot as plt
+import IPython.display as ipd
 
-import ffmpeg
-import soundfile as sf
+import pydub
 import numpy as np
 import os
 
@@ -17,13 +18,12 @@ __all__ = [
     "LoggingHooks",
     "LossLogger",
     'AudioLogger',
-    'convert_to_mp3'
 ]
 
 
 class LoggingHooks(LightningModule):
 
-    def on_epoch_start(self):
+    def on_train_epoch_start(self):
         # convenience to have printing of the loss at the end of the epoch
         self._ep_metrics = {}
         self._batch_count = {}
@@ -133,36 +133,65 @@ class LossLogger(LightningLoggerBase):
 @dtc.dataclass
 class AudioLogger:
     sr: int = 16000
-    hop_length: int = 512
-    filename_template: Optional[str] = None
-    target_dir: Optional[str] = None
+    file_template: Optional[str] = None  # file or title template
+    title_template: Optional[str] = None
+
+    figsize = (30, 4)
+
+    def __post_init__(self):
+        if self.file_template is not None:
+            self.target_dir = os.path.dirname(self.file_template)
+            self.format = os.path.splitext(self.file_template)[-1]
 
     @staticmethod
     def format_template(template, **parameters):
-        exec(f"out = f'{template}'", {}, parameters)
-        return parameters["out"]
+        exec(f"__out__ = f'{template}'", {}, parameters)
+        return parameters["__out__"]
 
-    def log_mp3(self, audio, **params):
-        filename = self.format_template(self.filename_template, **params)
-        if '.wav' not in filename:
-            filename += '.wav'
-        if self.target_dir:
-            os.makedirs(self.target_dir, exist_ok=True)
-            if self.target_dir not in filename:
-                filename = os.path.join(self.target_dir, filename)
+    @staticmethod
+    def to_numpy(audio: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+        if audio.ndim > 1:
+            raise ValueError(f"Expected `audio` array to have a single dimension, got {audio.ndim}.")
         if isinstance(audio, torch.Tensor):
             audio = audio.squeeze().detach().cpu().numpy()
-        # TODO: use pydub
-        sf.write(filename, audio, self.sr, 'PCM_24')
-        convert_to_mp3(filename)
+        return audio
 
-    def write(self, audio, **params):
-        self.log_mp3(audio, **params)
+    def write(self, audio: Union[np.ndarray, torch.Tensor], **template_params):
+        audio = self.to_numpy(audio)
+        filename = self.format_template(self.file_template, **template_params)
+        os.makedirs(self.target_dir, exist_ok=True)
+        # normalize
+        y = np.int16(audio * 2 ** 15)
+        segment = pydub.AudioSegment(y.tobytes(),
+                                     frame_rate=self.sr,
+                                     sample_width=2,
+                                     channels=1)
+        params = dict(bitrate="320k")
+        with open(filename, "wb") as f:
+            segment.export(f, format=self.format,
+                           **(params if self.format in {"mp3", "mp4", "m4a"} else {}))
 
+    def write_batch(self, audio, **template_params):
+        pass
 
-def convert_to_mp3(file_path, exists_ok=True):
-    if exists_ok and os.path.isfile(os.path.splitext(file_path)[0] + ".mp3"):
-        os.remove(os.path.splitext(file_path)[0] + ".mp3")
-    stream = ffmpeg.input(file_path)
-    stream.output(os.path.splitext(file_path)[0] + ".mp3").run(quiet=True)
-    os.remove(file_path)
+    def display(self, audio, **template_params):
+        self.display_waveform(audio, **template_params)
+        self.display_html(audio, **template_params)
+
+    def display_batch(self, audio, **template_params):
+        pass
+
+    def display_spectrogram(self, audio, **template_params):
+        pass
+
+    def display_waveform(self, audio, **template_params):
+        audio = self.to_numpy(audio)
+        plt.figure(figsize=self.figsize)
+        plt.plot(audio)
+        if template_params:
+            plt.title(self.format_template(self.title_template, **template_params))
+        plt.show(block=False)
+
+    def display_html(self, audio, **template_params):
+        audio = self.to_numpy(audio)
+        ipd.display(ipd.Audio(audio, rate=self.sr))

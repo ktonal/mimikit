@@ -6,10 +6,11 @@ import torch.nn as nn
 from assertpy import assert_that
 
 import mimikit as mmk
+import mimikit.config
 
 
-class MyCustom(mmk.Checkpointable, nn.Module):
-    @dtc.dataclass
+class MyCustom(mimikit.config.Configurable, nn.Module):
+    # @dtc.dataclass
     class CustomConfig(mmk.Config):
         x: int = 1
 

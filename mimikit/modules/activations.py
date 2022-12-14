@@ -1,8 +1,13 @@
+from enum import auto
 import torch
 from torch import nn
 
+from ..config import Config
+from ..utils import AutoStrEnum
 
 __all__ = [
+    "ActivationEnum",
+    "ActivationConfig",
     "Abs",
     "GatingUnit",
     "StaticScaledActivation",
@@ -11,6 +16,28 @@ __all__ = [
     "ScaledTanh",
     "ScaledSigmoid"
 ]
+
+
+class ActivationEnum(AutoStrEnum):
+    Tanh = auto()
+    Sigmoid = auto()
+    Mish = auto()
+    ReLU = auto()
+    Identity = auto()
+    Abs = auto()
+
+    def object(self):
+        try:
+            return getattr(nn, self)()
+        except AttributeError:
+            return globals()[self]
+
+
+class ActivationConfig(Config):
+    act: ActivationEnum = "Identity"
+    scaled: bool = False
+    with_range: bool = False
+    static: bool = False
 
 
 class Abs(nn.Module):

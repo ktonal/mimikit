@@ -30,7 +30,7 @@ class Seq2SeqLSTMv0(S2SNet):
             _, outpt_mod = mag_spec_io(fft_dim, model_dim, 1, output_heads, scaled_activation)
         elif feature.coordinate == "pol":
             _, outpt_mod = pol_spec_io(fft_dim//2, model_dim, 1, output_heads, scaled_activation, phs)
-            net_hp["input_module"] = Flatten(2)
+            net_hp["input_module"] = Flatten(-2)
         else:
             raise ValueError(f"Seq2SeqLSTM doesn't support coordinate of type {feature.coordinate}")
         net_hp["input_dim"] = fft_dim

@@ -6,7 +6,6 @@ import h5mapper as h5m
 import torch
 import dataclasses as dtc
 
-from .config import ModelConfig
 from .features import AudioSignal
 from .loops import GenerateCallback, GenerateLoop, AudioLogger, MMKCheckpoint, TBPTTSampler, IndicesSampler, TrainLoop
 
@@ -27,7 +26,7 @@ class MyEncoder(json.JSONEncoder):
 
 def train(
         cfg: TrainARMConfig,
-        model_config: ModelConfig,
+        model_config,
         soundbank: h5m.SoundBank,
         net,
         input_feature=AudioSignal(sr=22050),
@@ -116,7 +115,7 @@ def train(
     )
     # TrainLoop
     tr_loop = TrainLoop(
-        model_config=model_config,
+        train_config=model_config,
         loader=dl,
         net=net,
         loss_fn=target_feature.loss_fn,

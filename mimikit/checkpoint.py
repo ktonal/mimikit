@@ -77,12 +77,16 @@ class Checkpoint:
 
     @property
     def feature(self):
-        bank = CheckpointBank(self.os_path, 'r')
-        hp = bank.network.load_hp()
-        return hp['feature']
+        """
+        b = Batch(inputs=[...], outputs=[...])
+        bank.attrs["batch"] = b.serialize()  # export a ListConfig
+        ...
+        b = Batch.deserialize(bank.attrs["batch"])  # must be overriden by the class!
+        """
+        return
 
     @property
     def train_hp(self):
-        return load_trainings_hp(os.path.join(self.root_dir, self.id))
+        return None
 
     # Todo: method to add state_dict mul by weights -> def average(self, *others)

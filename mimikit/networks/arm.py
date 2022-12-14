@@ -1,50 +1,32 @@
-import sys
 import abc
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple, Dict, ClassVar
 import torch
 
-from ..config import Config
+from ..features.ifeature import Batch
+from ..config import Configurable, Config
 
 __all__ = [
-    "Checkpointable",
+    "ARMConfig",
     "ARM",
     "ARMWithHidden"
 ]
 
 
-class Checkpointable(abc.ABC):
-    @classmethod
-    def __init_subclass__(cls, **kwargs):
-        """
-        add custom class to the mimikit namespace
-        for saving/loading checkpoints of custom models
-        """
-        super().__init_subclass__()
-        # print("__main__" in sys.modules.keys(), cls.__module__)
-        # todo: store the class original module when saving configs!
-        mmk = sys.modules["mimikit"]
-        attr = cls.__qualname__
-        # check that class was defined OUTSIDE of mimikit
-        if "mimikit" not in cls.__module__ and not hasattr(mmk, attr):
-            setattr(mmk, attr, cls)
-
-    @classmethod
-    @abc.abstractmethod
-    def from_config(cls, config: Config):
-        ...
-
-    @property
-    @abc.abstractmethod
-    def config(self) -> Config:
-        ...
+class ARMConfig(Config):
+    batch: Batch
 
 
-class ARM(Checkpointable, torch.nn.Module):
+class ARM(Configurable, torch.nn.Module):
     """ Interface for Auto Regressive Networks """
 
     @property
     def device(self):
         return next(self.parameters()).device
+
+    @property
+    @abc.abstractmethod
+    def config(self) -> ARMConfig:
+        ...
 
     @property
     @abc.abstractmethod

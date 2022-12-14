@@ -1,121 +1,117 @@
+import abc
 import sys
-from omegaconf import OmegaConf
-from typing import Protocol, List, Optional, Tuple, AnyStr
+from omegaconf import OmegaConf, ListConfig, DictConfig
+from typing import List, Tuple, Union, Dict, Any, overload
 import dataclasses as dtc
 from functools import reduce
 
 
 __all__ = [
     "Config",
-    "ParameterConfig",
-    'ModuleConfig',
-    'FeatureConfig',
-    'ModelConfig',
-    'OptimConfig',
-    'TrainingConfig'
+    "Configurable",
 ]
-
-# type check done by OmegaConf when calling serialize():
-# if field is not assigned -> ValidationError!
-NOT_NULL = lambda: dtc.field(init=False, default=None)
 
 
 # noinspection PyTypeChecker
-def _get_mmk_type(class_) -> type:
+def _get_type_object(type_) -> type:
+    module, qualname = type_.split(":")
     try:
-        mmk = sys.modules["mimikit"]
-        return reduce(lambda o, a: getattr(o, a), class_.split("."), mmk)
-    except AttributeError:
-        raise ImportError(f"class '{class_}' could not be found in mimikit")
+        m = sys.modules[module]
+        return reduce(lambda o, a: getattr(o, a), qualname.split("."), m)
+    except AttributeError or KeyError:
+        raise ImportError(f"could not find class '{qualname}' from module {module} in current environment")
 
 
-class Config(Protocol):
+# @dtc.dataclass
+class Config:
+    type: str = dtc.field(init=False, repr=False, default="mimikit.config:Config")
+
+    @classmethod
+    def __init_subclass__(cls, **kwargs):
+        """add type info to subclass"""
+        default = f"{cls.__module__}:{cls.__qualname__}"
+        setattr(cls, "type", dtc.field(init=False, default=default, repr=False))
+        if "__annotations__" in cls.__dict__:
+            # put the type first for nicer serialization...
+            ann = cls.__dict__["__annotations__"].copy()
+            for k in ann:
+                cls.__dict__["__annotations__"].pop(k)
+            cls.__dict__["__annotations__"].update({"type": str, **ann})
+        else:
+            setattr(cls, "__annotations__", {"type": str})
+        # a la pydantic.BaseModel! but breaks Pycharm type-hints for __init__...
+        if "__dataclass_fields__" not in cls.__dict__:
+            _dtc = dtc.dataclass(cls)
+            attrs = ["__init__", "__eq__", "__dataclass_params__", "__dataclass_fields__", "__repr__"]
+            for attr in attrs:
+                setattr(cls, attr, getattr(_dtc, attr))
 
     @staticmethod
     def validate_class(cls: type):
-        if len(cls.__qualname__.split(".")) < 2:
-            raise TypeError(f"Please define your Config class *within*"
-                            f" a Checkpointable class so that it can be saved and loaded")
+        # if len(cls.__qualname__.split(".")) < 2:
+        #     raise TypeError(f"Please define your Config class *within*"
+        #                     f" a Configurable class so that it can be saved and loaded")
         if "__dataclass_fields__" not in cls.__dict__:
-            raise TypeError("Please decorate your Config class with @dataclass"
-                            " so that it can be (de)serialized")
+            if not issubclass(cls, (tuple, list)):
+                raise TypeError("Please decorate your Config class with @dataclass"
+                                " so that it can be (de)serialized")
 
     @property
     def owner_class(self):
-        qualname = type(self).__qualname__
-        return _get_mmk_type(qualname.split(".")[0])
+        module, type_ = self.type.split(":")
+        type_ = ".".join(type_.split(".")[:-1]) if "." in type_ else type_
+        type_ = f"{module}:{type_}"
+        return _get_type_object(type_)
 
     def serialize(self):
         self.validate_class(type(self))
         cfg = OmegaConf.structured(self)
-        OmegaConf.set_struct(cfg, False)
-        cfg.class_ = type(self).__qualname__
         return OmegaConf.to_yaml(cfg)
 
     @staticmethod
     def deserialize(raw_yaml):
         cfg = OmegaConf.create(raw_yaml)
-        cls = _get_mmk_type(cfg.class_)
-        cfg.pop("class_")
-        return OmegaConf.to_object(OmegaConf.merge(cls(), cfg))
+        return Config.object(cfg)
 
-    @classmethod
-    def from_file(cls, path: str):
-        with open(path, 'r') as f:
-            return cls.deserialize(f.read())
+    @staticmethod
+    def object(cfg: Union[ListConfig, DictConfig, Dict, List, Tuple, Any]):
+        if isinstance(cfg, (DictConfig, Dict)):
+            for k, v in cfg.items():
+                if isinstance(v, (ListConfig, DictConfig, Dict, List, Tuple)):
+                    setattr(cfg, k, Config.object(v))
+            if "type" in cfg:
+                cls = _get_type_object(cfg.type)
+                if isinstance(cfg, DictConfig):
+                    cfg._metadata.object_type = cls
+                    return OmegaConf.to_object(cfg)
+                else:
+                    return cls(**cfg)
+            else:  # untyped raw dict
+                return cfg
+        elif isinstance(cfg, (ListConfig, List, Tuple)):
+            return OmegaConf.to_object(OmegaConf.structured([*map(Config.object, cfg)]))
+        # any other kind of value
+        return cfg
 
-    def validate(self) -> Tuple[bool, AnyStr]:
+    def dict(self):
+        """caution! nested configs are also converted!"""
+        return dtc.asdict(self)
+
+    def copy(self):
+        return type(self)(**vars(self))
+
+    def validate(self) -> Tuple[bool, str]:
         return True, ''
 
 
+class Configurable(abc.ABC):
 
-class ParameterConfig(Config):
-    pass
+    @classmethod
+    @abc.abstractmethod
+    def from_config(cls, config: Config):
+        ...
 
-
-@dtc.dataclass
-class ModuleConfig(Config):
-    module_class: str = NOT_NULL()
-
-    def to_impl(self):
-        cls = _get_mmk_type(self.module_class)
-        hp = dtc.asdict(self)
-        hp.pop("module_class")
-        return cls(**hp)
-
-
-@dtc.dataclass
-class FeatureConfig(Config):
-    pass
-
-
-@dtc.dataclass
-class ModelConfig(Config):
-    inputs: List[FeatureConfig] = NOT_NULL()
-    outputs: List[FeatureConfig] = NOT_NULL()
-    network: ModuleConfig = NOT_NULL()
-
-
-@dtc.dataclass
-class OptimConfig(Config):
-    optimizer: Config = NOT_NULL()
-    scheduler: Optional[Config] = None
-
-
-@dtc.dataclass
-class TrainingConfig(Config):
-    batch: Config = NOT_NULL()
-    optim: OptimConfig = NOT_NULL()
-    options: Config = NOT_NULL()
-
-
-@dtc.dataclass
-class DatasetConfig(Config):
-    sources: List[str] = NOT_NULL()
-
-
-@dtc.dataclass
-class MMKConfig(Config):
-    dataset: DatasetConfig = NOT_NULL()
-    model: ModelConfig = NOT_NULL()
-    training: TrainingConfig = NOT_NULL()
+    @property
+    @abc.abstractmethod
+    def config(self) -> Config:
+        ...
