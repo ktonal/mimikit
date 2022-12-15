@@ -34,7 +34,7 @@ class MLP(nn.Module):
         self.dropout1d = dropout1d
         self.learn_temperature = learn_temperature
 
-        assert not (dropout is not None and dropout1d is not None), "only on of dropout and dropout1d can be a float"
+        assert not (dropout is not None and dropout1d is not None), "only one of dropout and dropout1d can be a float"
         if dropout is not None:
             self.dp = nn.Dropout(dropout)
         elif dropout1d is not None:

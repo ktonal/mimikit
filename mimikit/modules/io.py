@@ -33,6 +33,7 @@ class ModuleType(AutoStrEnum):
     framed_conv1d = auto()
     embedding_conv1d = auto()
     conv_transpose1d = auto()
+    mlp = auto()
 
 
 class ModuleParams(Config):
@@ -61,6 +62,12 @@ class FramedLinearParams(ModuleParams):
     frame_size: Optional[int] = dtc.field(init=False, default=None)
 
 
+class MLPParams(ModuleParams):
+    in_dim: int = dtc.field(init=False, default=0)
+    hidden_dim: int = 1
+    n_hidden_layers: int = 1
+
+
 class LearnableFFT(ModuleParams):
     n_fft: int = 2048
     hop_length: int = 512
@@ -74,6 +81,8 @@ class LearnableMelSpec(ModuleParams):
 
 
 class ModuleFactory(nn.Module):
+    # TODO: change to callable with __call__(in_dim, hidden_dim, out_dim)
+    # or __call__(feature, network, ...)
     class Config(Config):
         module_type: ModuleType
         module_params: Optional[ModuleParams]
@@ -188,7 +197,8 @@ class ModuleFactory(nn.Module):
             B = x.size(0)
             x = self.input_proj(x.view(-1, self.frame_size))
             x = x.squeeze().view(B, -1, self.hidden_dim)
-        x = self.input_proj(x)
+        else:
+            x = self.input_proj(x)
         if self.has_act:
             return self.act(x)
         return x

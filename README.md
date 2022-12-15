@@ -116,6 +116,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Learnable STFT
     - [ ] (Learnable) MelSpec
     - [ ] (Learnable) MFCC
+    - [ ] Mixed Batch (fft + signal + clusters)
 - [ ] New Networks
     - [ ] SampleGan (WaveGan with labeled segments)
     - [ ] Stable Diffusion Experiment
