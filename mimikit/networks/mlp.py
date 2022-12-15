@@ -57,24 +57,8 @@ class MLP(nn.Module):
         if self.learn_temperature:
             self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x: torch.Tensor, *, temperature=None):
+    def forward(self, x: torch.Tensor):
         logits = self.fc(x)
         if self.learn_temperature:
             logits = logits[..., :-1] / self.sigmoid(logits[..., -1:])
-        if self.training:
-            return logits
-        if temperature is None:
-            return logits.argmax(dim=-1)
-        if not isinstance(temperature, torch.Tensor):
-            if isinstance(temperature, (int, float)):
-                temperature = [temperature]
-            temperature = torch.tensor(temperature)
-        if temperature.ndim != logits.ndim:
-            temperature = temperature.view(*temperature.shape, *([1] * (logits.ndim - temperature.ndim)))
-        logits = logits / temperature.to(logits.device)
-        logits = logits - logits.logsumexp(-1, keepdim=True)
-        if logits.dim() > 2:
-            o_shape = logits.shape
-            logits = logits.view(-1, o_shape[-1])
-            return torch.multinomial(logits.exp_(), 1).reshape(*o_shape[:-1])
-        return torch.multinomial(logits.exp_(), 1)
+        return logits

@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import torch.nn.functional as F
 from torch import nn
 import torch
@@ -8,7 +10,9 @@ __all__ = [
     'Flatten',
     'Transpose',
     'CausalPad',
-    'Unsqueeze'
+    'Unsqueeze',
+    'Unfold',
+    'ShapeWrap'
 ]
 
 
@@ -68,9 +72,9 @@ class Flatten(nn.Module):
 
     def forward(self, x):
         if self.n_dims < 0:
-            return x.view(*x.shape[:self.n_dims], -1)
+            return x.reshape(*x.shape[:self.n_dims], -1)
         else:
-            return x.view(-1, *x.shape[self.n_dims:])
+            return x.reshape(-1, *x.shape[self.n_dims:])
 
 
 class Unsqueeze(nn.Module):
@@ -81,3 +85,28 @@ class Unsqueeze(nn.Module):
 
     def forward(self, x):
         return x.unsqueeze(self.dim)
+
+
+class Unfold(nn.Module):
+
+    def __init__(self, dim=-1, size=1, step=1):
+        super(Unfold, self).__init__()
+        self.params = (dim, size, step)
+
+    def forward(self, x):
+        return x.unfold(*self.params)
+
+
+class ShapeWrap(nn.Module):
+    def __init__(self, module: nn.Module,
+                 in_view: Tuple[int, ...],
+                 out_view: Tuple[int, ...]):
+        super(ShapeWrap, self).__init__()
+        self.m = module
+        self.in_view = in_view
+        self.out_view = out_view
+
+    def forward(self, x):
+        B = x.size(0)
+        x = self.m(x.view(*self.in_view)).squeeze()
+        return x.view(B, *self.out_view)

@@ -9,7 +9,7 @@ import operator as opr
 
 from .arm import ARM, ARMConfig
 from .io_spec import IOSpec, InputSpec, TargetSpec
-from .. import ModuleFactory, EmbeddingParams
+from ..modules.io import IOFactory
 from ..utils import AutoStrEnum
 from ..networks.mlp import MLP
 from ..features.ifeature import Batch
@@ -280,7 +280,7 @@ class WaveNet(ARM, nn.Module):
         self.eval_slice = slice(-1, None) if config.pad_side == 1 else slice(0, 1)
         self._gen_context = {}
 
-    def forward(self, inputs, *, temperature=None):
+    def forward(self, inputs, **parameters):
         x = self.input_modules(inputs)
         x = self.transpose(x)
         in_1x1, skips = tuple(), None
@@ -294,7 +294,7 @@ class WaveNet(ARM, nn.Module):
             y = self.transpose(x)
         if not self.training:
             y = y[:, self.eval_slice]
-        return self.output_module(y, temperature=temperature)
+        return self.output_module(y, **parameters)
 
     @classmethod
     def get_kernels_and_dilation(cls, kernel_sizes, blocks):

@@ -7,7 +7,7 @@ import torch.nn as nn
 from .mlp import MLP
 from .arm import ARMWithHidden, ARMConfig
 from ..features.ifeature import Batch
-from ..modules.io import ModuleFactory, ZipReduceVariables, ZipMode
+from ..modules.io import IOFactory, ZipReduceVariables, ZipMode
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -107,9 +107,6 @@ class SampleRNN(ARMWithHidden, nn.Module):
         rnn_bias: bool = True
         unfold_inputs: bool = False
 
-        inputs: Tuple[ModuleFactory.Config, ...] = (
-            ModuleFactory.Config(module_type="framed_linear", module_params=None),
-        )
         inputs_mode: ZipMode = "sum"
         learn_temperature: bool = True
 
@@ -119,12 +116,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         q_levels = config.inputs[0].class_size
         tiers = []
         for i, fs in enumerate(config.frame_sizes[:-1]):
-            modules = tuple(ModuleFactory(
-                class_size=q_levels, module_type=cfg.projection_type,
-                hidden_dim=config.hidden_dim, frame_size=fs,
-                unfold_step=fs if config.unfold_inputs else None
-            )
-                            for cfg in config.inputs)
+            modules = ()
             input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
             tiers += [
                 SampleRNNTier(
@@ -139,13 +131,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                         if i < len(config.frame_sizes) - 2
                         else 1)
                 )]
-        modules = tuple(ModuleFactory(
-            class_size=q_levels,
-            module_type="fir" if "embedding" not in cfg.projection_type else "fir_embedding",
-            hidden_dim=config.hidden_dim, frame_size=config.frame_sizes[-1],
-            unfold_step=1 if config.unfold_inputs else None
-        )
-                        for cfg in config.inputs)
+        modules = ()
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
         tiers += [
             SampleRNNTier(
