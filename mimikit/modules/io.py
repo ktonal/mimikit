@@ -60,7 +60,6 @@ class MLPParams(ModuleParams):
     in_dim: int = dtc.field(init=False, default=0)
     hidden_dim: int = 1
     n_hidden_layers: int = 1
-    n_components: Optional[int] = None
 
 
 class LearnableFFT(ModuleParams):

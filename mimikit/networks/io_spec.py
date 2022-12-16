@@ -1,6 +1,7 @@
 from enum import auto
-from typing import Tuple
+from typing import Tuple, Optional, Union
 import torch.nn as nn
+import dataclasses as dtc
 
 from ..utils import AutoStrEnum
 from ..config import Config
@@ -18,22 +19,44 @@ __all__ = [
 
 class InputSpec(Config):
     var_name: str
-    data_key: str
     feature: Feature
     module: IOFactory
 
+    def __post_init__(self):
+        # wire feature -> module
+        pass
+
 
 class ObjectiveType(AutoStrEnum):
-    mean_l1_prop = auto()
-    cross_entropy = auto()
+    reconstruction = auto()
+    categorical_dist = auto()
+    bernoulli_dist = auto()
+    continuous_bernoulli = auto()
+    logistic_dist = auto()
+    gaussian_dist = auto()
+    gaussian_elbo = auto()
+
+
+class Objective(Config):
+    objective_type: ObjectiveType
+    n_components: Optional[int] = None
+    n_params: int = dtc.field(
+        init=False, repr=False, default=1
+    )
+    support: Union[int, Tuple[float, float]] = dtc.field(
+        init=False, repr=False, default=2
+    )
 
 
 class TargetSpec(Config):
     var_name: str
-    data_key: str
     feature: Feature
     module: IOFactory
-    objective: ObjectiveType
+    objective: Objective
+
+    def __post_init__(self):
+        # wire feature, objective, module
+        pass
 
     @staticmethod
     def cross_entropy(output, target):

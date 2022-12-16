@@ -2,39 +2,68 @@ import numpy as np
 import torch
 import dataclasses as dtc
 import abc
-from typing import Protocol, Union, Iterable, Tuple
+from typing import Protocol, Union, Tuple, Optional
 from omegaconf import OmegaConf, DictConfig
+import h5mapper as h5m
 
 from ..config import Config
 
 __all__ = [
     "Feature",
+    "DiscreteFeature",
+    "RealFeature",
     "Batch",
     'IFeature'
 ]
 
 
+@dtc.dataclass
+class SequenceSpec:
+    data_key: str = "snd"
+    shift: int = 0
+    length: int = 0
+    frame_size: Optional[int] = None
+    hop_length: Optional[int] = None
+    center: bool = False
+
+    def add_shift(self, s: int):
+        self.shift += s
+        return self
+
+    def add_length(self, l: int):
+        self.length += l
+        return self
+
+    def set_frame(self, fs: int, hl: int):
+        self.frame_size = fs
+        self.hop_length = hl
+        return self
+
+
 # @dtc.dataclass
 class Feature(abc.ABC, Config):
+    @property
     @abc.abstractmethod
-    def batch_item(
-            self,
-            data='snd',
-            # TODO: Following 2 are ALWAYS IN SAMPLES (never in frames)
-            shift=0,
-            length=1,
-            frame_size=None,
-            hop_length=None,
-            center=False,
-            pad_mode="reflect",
-            downsampling=1,
-            **kwargs
-    ):
+    def feature_dtype(self) -> h5m.Feature:
         ...
 
-    @abc.abstractmethod
-    def loss_fn(self, outputs, targets):
-        ...
+    train_spec: SequenceSpec = dtc.field(
+        init=False, repr=False, default=SequenceSpec()
+    )
+    infer_spec: SequenceSpec = dtc.field(
+        init=False, repr=False, default=SequenceSpec()
+    )
+
+
+class DiscreteFeature(abc.ABC, Feature):
+    class_size: int = dtc.field(init=False, repr=False, default=2)
+    vector_dim: int = dtc.field(init=False, repr=False, default=1)
+
+
+class RealFeature(abc.ABC, Feature):
+    out_dim: int = dtc.field(init=False, repr=False, default=1)
+    support: Tuple[float, float] = dtc.field(
+        init=False, repr=False, default=(-float("inf"), float("inf")))
 
 
 class Batch(Config):
