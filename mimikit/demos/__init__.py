@@ -1,4 +1,3 @@
-# from .freqnet import *
 from .srnn import *
 from .s2s import *
 from .wn import *

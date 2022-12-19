@@ -20,7 +20,6 @@ from .modules import *
 from .models import *
 from .networks import *
 from .ui import *
-from .train import *
 from .utils import *
 from .views import *
 

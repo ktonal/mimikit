@@ -6,38 +6,9 @@ from ..modules.activations import ScaledSigmoid, Abs
 from ..networks import *
 
 __all__ = [
-    "qx_io",
-    "wn_qx_io",
     "mag_spec_io",
     "pol_spec_io"
 ]
-
-
-def qx_io(q_levels, net_in_dim, net_out_dim, mlp_dim, mlp_activation=nn.ReLU()):
-    return nn.Embedding(q_levels, net_in_dim), \
-           SingleClassMLP(net_out_dim, mlp_dim, q_levels, mlp_activation)
-
-
-def wn_qx_io(q_levels, net_in_dim, net_out_dim, mlp_dim, mlp_activation=nn.ReLU()):
-    class Dropout1d(nn.Dropout):
-
-        def forward(self, input):
-            # if self.training:
-            # N, L, D = input.size()
-            # ones = super(Dropout1d, self).forward(torch.ones(N * L).to(input.device))
-            # out = (input.view(-1, D) * ones.unsqueeze(1)).view(N, L, D)
-            input = ((input.float() / q_levels) - .5) * 4
-            return input.unsqueeze(-1)
-            # return input
-
-    inpt_mod = HOM("x -> y1",
-                   (nn.Sequential(
-                       # nn.Embedding(q_levels, net_in_dim),
-                       Dropout1d(0), ), "x -> y1")
-                   )
-    # embd = nn.utils.weight_norm(nn.Embedding(q_levels, net_in_dim), "weight")
-    # return inpt_mod, ConvMLP(net_out_dim, mlp_dim, q_levels)
-    return inpt_mod, SingleClassMLP(net_out_dim, mlp_dim, q_levels, learn_temperature=True, n_hidden_layers=3)
 
 
 def mag_spec_io(spec_dim, net_dim, in_chunks, out_chunks, scaled_activation=False, with_sampler=False):

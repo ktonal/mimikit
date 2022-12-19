@@ -47,7 +47,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
             - [x] no HOM
             - [ ] from_config()
             - [ ] IOSpec
-        - [ ] remove HOMS module and impls
+        - [x] remove HOMS module and impls
     - [X] Factor Train ARM in TrainLoop
         - [ ] save configs
     - [ ] Cleanup GenerateLoop
@@ -108,6 +108,14 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] fix librosa mulaw
     - [ ] compression param for MuLaw
     - [ ] FFT window
+- [ ] class DataBank
+    - [ ] Definition, Creation
+    - [ ] integration with Features
+- [ ] Multiple IO
+    - [ ] AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
+    - [ ] Models support
+    - [ ] TrainLoop Support
+    - [ ] GenLoop Support
 - [ ] Target Distributions
     - Scalar and Vector
         - [ ] Mixture of Logistics
