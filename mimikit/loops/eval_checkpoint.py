@@ -19,7 +19,7 @@ def eval_checkpoint(ckpt: Checkpoint, soundbank: h5m.SoundBank):
 
     def process_outputs(outputs, bidx):
         outputs = outputs[0]
-        y = feature.transform(soundbank.snd[:])
+        y = feature.t(soundbank.snd[:])
         y = torch.from_numpy(y).to(outputs)
         nn = torch.stack([nearest_neighbor(out, y)[1] for out in outputs])
         hx = torch.stack([cum_entropy(n, neg_diff=False) for n in nn]).detach().cpu().numpy()

@@ -3,19 +3,19 @@ from enum import auto
 import torch
 import torch.nn as nn
 import dataclasses as dtc
-from typing import Optional, Tuple, Dict, List, Iterable
+from typing import Optional, Tuple, Dict, List, Iterable, Callable
 from itertools import accumulate, chain
 import operator as opr
 
 from .arm import ARM, ARMConfig
-from .io_spec import IOSpec, InputSpec, TargetSpec
-from ..modules.io import IOFactory
+from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
+from ..modules.io import IOFactory, MLPParams, ChunkedLinearParams
 from ..utils import AutoStrEnum
 from ..networks.mlp import MLP
 from ..features.ifeature import Batch
 from ..features.audio import Spectrogram, MuLawSignal
 from ..modules.misc import Chunk, CausalPad, Transpose
-from ..modules.activations import GatingUnit, Abs
+from ..modules.activations import GatingUnit, Abs, ActivationConfig
 
 __all__ = [
     "WNLayer",
@@ -170,8 +170,6 @@ class WNLayer(nn.Module):
 
 
 class WaveNet(ARM, nn.Module):
-    use_fast_generate = True
-
     # @dtc.dataclass
     class Config(ARMConfig):
         io_spec: IOSpec = None
@@ -188,60 +186,12 @@ class WaveNet(ARM, nn.Module):
         pad_side: int = 1
         stride: int = 1
         bias: bool = True
+        use_fast_generate: bool = True
 
     @classmethod
-    def get_input_modules(cls, config: "WaveNet.Config"):
-        batch = config.batch
-        modules = []
-        all_dims = [config.dims_dilated[0], *config.dims_1x1]
-        assert len(all_dims) == len(batch.inputs) == 1, "lengths of batch and input dims must be 1"
-        for i, feat in enumerate(batch.inputs):
-            if isinstance(feat, MuLawSignal):
-                modules += [
-                    nn.Embedding(feat.q_levels, all_dims[i])
-                ]
-            elif isinstance(feat, Spectrogram):
-                if feat.coordinate == "mag":
-                    modules += [
-                        nn.Linear(1 + feat.n_fft // 2, all_dims[i])
-                    ]
-                else:
-                    raise NotImplementedError("Spectrogram with coordinate='pol' not supported yet")
-            else:
-                raise NotImplementedError(f"feature of type '{type(feat)}' not supported")
-        return modules
-
-    @classmethod
-    def get_output_module(cls, config: "WaveNet.Config"):
-        batch = config.batch
-        modules = []
-        for feat in batch.targets:
-            if isinstance(feat, MuLawSignal):
-                modules += [
-                    MLP(
-                        in_dim=config.dims_dilated[0],
-                        hidden_dim=config.dims_dilated[0],
-                        out_dim=feat.q_levels,
-                        n_hidden_layers=1,
-                        learn_temperature=True
-                    )]
-            elif isinstance(feat, Spectrogram):
-                if feat.coordinate == "mag":
-                    modules += [
-                        nn.Sequential(
-                            nn.Linear(config.dims_dilated[0], 1 + feat.n_fft // 2),
-                            Abs()
-                        )]
-                else:
-                    raise NotImplementedError("Spectrogram with coordinate='pol' not supported yet")
-            else:
-                raise NotImplementedError(f"feature of type '{type(feat)}' not supported")
-        return modules[0]
-
-    @classmethod
-    def from_config(cls, config: "WaveNet.Config") -> "WaveNet":
+    def get_layers(cls, config: "WaveNet.Config") -> List[WNLayer]:
         kernel_sizes, dilation = cls.get_kernels_and_dilation(config.kernel_sizes, config.blocks)
-        layers = [
+        return [
             WNLayer(
                 input_dim=config.dims_dilated[0],
                 dims_dilated=config.dims_dilated, dims_1x1=config.dims_1x1,
@@ -259,8 +209,17 @@ class WaveNet(ARM, nn.Module):
             )
             for n, (k, d) in enumerate(zip(kernel_sizes, dilation))
         ]
-        input_modules = cls.get_input_modules(config)
-        output_module = cls.get_output_module(config)
+
+    @classmethod
+    def from_config(cls, config: "WaveNet.Config") -> "WaveNet":
+        layers = cls.get_layers(config)
+        all_dims = [*config.dims_dilated, *config.dims_1x1]
+        # set Inner Connection
+        input_modules = [spec.module.copy().set(out_dim=h_dim).get()
+                         for spec, h_dim in zip(config.io_spec.inputs, all_dims)]
+        output_module = config.io_spec.targets[0].module.copy() \
+            .set(in_dim=all_dims[0] if config.skips_dim is None else config.skips_dim) \
+            .get()
         return cls(config=config, layers=layers, input_modules=input_modules, output_module=output_module)
 
     def __init__(
@@ -272,7 +231,7 @@ class WaveNet(ARM, nn.Module):
     ):
         super(WaveNet, self).__init__()
         self._config = config
-        self.input_modules = input_modules[0]
+        self.input_modules = input_modules[0]  # TODO
         self.transpose = Transpose(1, 2)
         self.layers: Iterable[WNLayer] = nn.ModuleList(layers)
         self.has_skips = config.skips_dim is not None
@@ -331,8 +290,8 @@ class WaveNet(ARM, nn.Module):
         return kernel_sizes, dilation
 
     @property
-    def time_axis(self) -> int:
-        return 1
+    def config(self) -> Config:
+        return self._config
 
     @property
     def shift(self) -> int:
@@ -342,16 +301,22 @@ class WaveNet(ARM, nn.Module):
     def rf(self) -> int:
         return sum(layer.cause for layer in self.layers) + 1
 
-    @property
-    def hop_length(self) -> Optional[int]:
-        return None
-
     def output_length(self, n_input_steps: int) -> int:
         return n_input_steps if (self.config.pad_side != 0) else (n_input_steps - self.shift + 1)
 
     @property
-    def config(self) -> Config:
-        return self._config
+    def use_fast_generate(self):
+        return self._config.use_fast_generate
+
+    def train_batch(self, length=1, unit="step", downsampling=1):
+        return tuple(spec.feature.copy()
+                     .batch_item(length, unit, downsampling)
+                     for spec in self.config.io_spec.inputs), \
+               tuple(spec.feature.copy()
+                     .add_shift(self.shift, "step")
+                     .add_length(self.output_length(0), "step")
+                     .batch_item(length, unit, downsampling)
+                     for spec in self.config.io_spec.targets)
 
     def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         if not self.use_fast_generate:
@@ -368,7 +333,7 @@ class WaveNet(ARM, nn.Module):
             d, k = layer.dilation, layer.kernel_size
             rf = d * k
             if self.config.pad_side == 0:
-                size = (self.rf - layer.cause)
+                # size = (self.rf - layer.cause)
                 # indices = [size - n for n in range(0, rf, d)][::-1]
                 indices = [*range(-layer.cause - 1, 0, d)]
             else:
@@ -455,3 +420,35 @@ class WaveNet(ARM, nn.Module):
         for layer in ctx['layers']:
             layer._fast_mode = False
         self._gen_context = {}
+
+    qx_io = IOSpec(
+        inputs=(InputSpec(
+            feature=MuLawSignal(),
+            module=IOFactory(module_type="embedding")
+        ),),
+        targets=(TargetSpec(
+            feature=MuLawSignal(),
+            module=IOFactory(
+                module_type="mlp",
+                params=MLPParams()
+            ),
+            objective=Objective("categorical_dist")
+        ),))
+
+    fft_io = IOSpec(
+        inputs=(InputSpec(
+            feature=Spectrogram(coordinate="mag", center=False),
+            module=IOFactory(
+                module_type="chunked_linear",
+                params=ChunkedLinearParams(n_heads=1)
+            )),),
+        targets=(TargetSpec(
+            feature=Spectrogram(coordinate="mag", center=False),
+            module=IOFactory(
+                module_type="chunked_linear",
+                params=ChunkedLinearParams(n_heads=1),
+                activation=ActivationConfig(
+                    act="Abs",
+                )),
+            objective=Objective("reconstruction")
+        ),))

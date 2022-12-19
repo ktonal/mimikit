@@ -33,14 +33,16 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 
 - [ ] code cleanup
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
-        - [ ] SampleRNN
+        - [x] SampleRNN
             - [x] no HOM
             - [x] from_config()
-            - [ ] IOSpec
-        - [ ] WaveNet
+            - [x] IOSpec
+            - [x] loss fn
+        - [x] WaveNet
             - [x] no HOM
             - [x] from_config()
-            - [ ] IOSpec
+            - [x] IOSpec
+            - [x] loss fn
         - [ ] S2S
             - [x] no HOM
             - [ ] from_config()
@@ -51,20 +53,19 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Cleanup GenerateLoop
         - [ ] **parameters
         - [ ] getters/setters
-        - [ ] move AudioLogger from Callback to Loop
-    - [ ] Cleanup Callbacks and loggers
+        - [x] move AudioLogger from Callback to Loop
+    - [x] Cleanup Callbacks and loggers
         - [x] CheckpointCallback
             - [x] remove h5 stuff
             - [x] save HP with OmegaConf
         - [x] AudioLogger
             - [x] remove h5 stuff
             - [x] pydub for audio write
-        - [ ] GenerateCallback integration and config
     - [X] Feature Configs
         - [X] MuLaw
         - [X] FFT
-        - [ ] batch items units in samples
-    - [ ] Cleanup Loss Functions
+        - [x] batch items units in samples
+    - [x] Cleanup Loss Functions
     - [ ] Cleanup Activations
     - [ ] IOSpec
         - [ ] layers can contribute to loss
@@ -85,12 +86,14 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] S2S
     - [ ] Features View
     - [ ] Training View
+    - [ ] `Run` Button
     - [ ] define UI in notebooks
         - [ ] validate config
         - [ ] call main()
     - [ ] make_notebooks
         - [ ] hide code
         - [ ] embed UI state?
+        - [ ] test on colab
 - [X] Upgrade pytorch lightning
 - [ ] Ensemble NoteBook
 - [ ] Clustering NoteBook
@@ -104,6 +107,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Mu/A Law
     - [ ] fix librosa mulaw
     - [ ] compression param for MuLaw
+    - [ ] FFT window
 - [ ] Target Distributions
     - Scalar and Vector
         - [ ] Mixture of Logistics

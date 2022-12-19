@@ -19,8 +19,8 @@ class MLP(nn.Module):
             n_hidden_layers: int = 0,
             activation: nn.Module = nn.Mish(),
             bias: bool = True,
-            dropout: Optional[float] = None,
-            dropout1d: Optional[float] = None,
+            dropout: float = 0.,
+            dropout1d: float = 0.,
             learn_temperature: bool = True,
     ):
         super(MLP, self).__init__()
@@ -34,22 +34,19 @@ class MLP(nn.Module):
         self.dropout1d = dropout1d
         self.learn_temperature = learn_temperature
 
-        assert not (dropout is not None and dropout1d is not None), "only one of dropout and dropout1d can be a float"
-        if dropout is not None:
-            self.dp = nn.Dropout(dropout)
-        elif dropout1d is not None:
-            # TODO: torch>=1.12
-            self.dp = nn.Dropout1d(dropout1d)
-        else:
-            self.dp = None
+        dp = []
+        if dropout > 0.:
+            dp += [nn.Dropout(dropout)]
+        if dropout1d > 0.:
+            dp += [nn.Dropout1d(dropout1d)]
 
         fc = [
             nn.Linear(in_dim, hidden_dim, bias=bias), self.activation,
-            *((self.dp, ) if self.dp else ())
+            *dp
         ]
         fc += [
             *((nn.Linear(hidden_dim, hidden_dim, bias=bias), self.activation,
-               *((self.dp, ) if self.dp else ())) * n_hidden_layers)
+               *dp) * n_hidden_layers)
         ]
         self.fc = nn.Sequential(
             *fc, nn.Linear(hidden_dim, self.out_dim, bias=bias)

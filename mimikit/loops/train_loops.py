@@ -3,7 +3,7 @@ import hashlib
 from typing import Optional, Tuple
 
 import torch
-from pytorch_lightning import LightningModule, Trainer
+from pytorch_lightning import LightningModule, Trainer, callbacks as pl_callbacks
 import os
 import h5mapper as h5m
 
@@ -67,10 +67,10 @@ class TrainLoop(LoggingHooks,
         print("****************************************************")
         root_dir = os.path.join(cfg.root_dir, ID)
         os.makedirs(root_dir, exist_ok=True)
-        if "mp3" in cfg.OUTPUT_TRAINING:
+        if cfg.OUTPUT_TRAINING:
             output_dir = os.path.join(root_dir, "outputs")
             os.makedirs(output_dir, exist_ok=True)
-            filename_template = os.path.join(output_dir, "epoch{epoch}_prm{prompt_idx}.wav")
+            filename_template = os.path.join(output_dir, "epoch{epoch}_prm{prompt_idx}.mp3")
         else:
             filename_template = ""
 
@@ -85,27 +85,14 @@ class TrainLoop(LoggingHooks,
                        input_feature,
                        target_feature,
                        cfg: TrainARMConfig):
-        batch = (
-            input_feature.batch_item(
-                data=torch.from_numpy(soundbank.snd[:]) if cfg.in_mem_data else "snd",
-                shift=0, length=cfg.batch_length, downsampling=cfg.downsampling),
-            target_feature.batch_item(
-                data=torch.from_numpy(soundbank.snd[:]) if cfg.in_mem_data else "snd",
-                shift=net.shift, length=net.output_length(cfg.batch_length),
-                downsampling=cfg.downsampling)
-        )
+
+        batch = net.train_batch(cfg.batch_length, "step", cfg.downsampling)
 
         if cfg.tbptt_chunk_length is not None:
-            if getattr(input_feature, 'domain', '') == 'time-freq' and isinstance(getattr(batch[0], 'getter', False),
-                                                                                  h5m.Getter):
-                item_len = batch[0].getter.length
-                seq_len = item_len
-                chunk_length = item_len * cfg.tbptt_chunk_length
-                N = len(h5m.ProgrammableDataset(soundbank, batch))
-            else:  # feature is in time domain
-                seq_len = cfg.batch_length
-                chunk_length = cfg.tbptt_chunk_length
-                N = soundbank.snd.shape[0]
+            # feature MUST be in time domain
+            seq_len = cfg.batch_length
+            chunk_length = cfg.tbptt_chunk_length
+            N = soundbank.snd.shape[0]
             loader_kwargs = dict(
                 batch_sampler=TBPTTSampler(
                     N,
@@ -154,7 +141,7 @@ class TrainLoop(LoggingHooks,
         # Gen Loop
         max_i = soundbank.snd.shape[0] - getattr(input_feature, "hop_length", 1) * cfg.prompt_length
         g_dl = soundbank.serve(
-            (input_feature.batch_item(shift=0, length=cfg.prompt_length, training=False),),
+            (input_feature.batch_item(length=cfg.prompt_length, unit="step"),),
             sampler=IndicesSampler(N=cfg.n_examples,
                                    max_i=max_i,
                                    redraw=True),
@@ -180,7 +167,6 @@ class TrainLoop(LoggingHooks,
             callbacks += [
                 MMKCheckpoint(epochs=cfg.every_n_epochs, root_dir=root_dir)
             ]
-        print("*******", cfg.MONITOR_TRAINING, cfg.OUTPUT_TRAINING)
         if cfg.MONITOR_TRAINING or cfg.OUTPUT_TRAINING:
             callbacks += [
                 GenerateCallback(
@@ -189,7 +175,8 @@ class TrainLoop(LoggingHooks,
                     output_features=[target_feature, ],
                     audio_logger=AudioLogger(
                         sr=target_feature.sr,
-                        title_template="epoch={epoch}"
+                        title_template="epoch={epoch}" if cfg.MONITOR_TRAINING else None,
+                        file_template=filename_template if cfg.OUTPUT_TRAINING else None
                     ),
                 )]
 
@@ -199,11 +186,12 @@ class TrainLoop(LoggingHooks,
 
     @classmethod
     def from_config(cls, soundbank, network: ARM, config: TrainARMConfig):
-        batch: Batch = network.config.batch
+        inputs, targets = network.train_batch(config.batch_length)
         dataloader = cls.get_dataloader(
-            soundbank, network, batch.inputs[0], batch.targets[0], config)
+            soundbank, network, inputs[0], targets[0], config)
         optim = cls.get_optimizer(network, dataloader, config)
-        return cls(config, soundbank, dataloader, network, batch.targets[0].loss_fn, optim)
+        return cls(config, soundbank, dataloader, network,
+                   network.config.io_spec.targets[0].loss_fn, optim)
 
     @property
     def config(self):
@@ -244,24 +232,26 @@ class TrainLoop(LoggingHooks,
     def training_step(self, batch, batch_idx):
         batch, target = batch
         output = self.forward(batch)
-        return self.loss_fn(output, target)
+        # print(batch[0].size(), output.size(), target[0].size())
+        return self.loss_fn(output, target[0])
 
-    def run(self, max_epochs=100, limit_train_batches=1.):
+    def run(self):
         root_dir, output_template = self.initialize_root_directory(self.net.config, self.train_config)
         callbacks = self.get_callbacks(
             self.net, self.soundbank,
-            self.net.config.batch.inputs[0],
-            self.net.config.batch.targets[0],
+            self.net.config.io_spec.inputs[0].feature,
+            self.net.config.io_spec.targets[0].feature,
             root_dir, output_template,
             self.train_config
         )
         self.trainer = Trainer(
             default_root_dir=root_dir,
-            max_epochs=max_epochs,
-            limit_train_batches=limit_train_batches,
-            callbacks=[EpochProgressBarCallback(), *callbacks],
-            # progress_bar_refresh_rate=10,
-            # process_position=1,
+            max_epochs=self.train_config.max_epochs,
+            limit_train_batches=self.train_config.limit_train_batches,
+            callbacks=[
+                EpochProgressBarCallback(),
+                pl_callbacks.TQDMProgressBar(refresh_rate=20, process_position=1),
+                *callbacks],
             logger=None,
             enable_checkpointing=False,
             num_sanity_val_steps=0,

@@ -88,7 +88,7 @@ class Ensemble(nn.Module):
     def run_event(self, inputs, net, feature, n_steps, *params):
         resample = Resample(self.base_sr, feature.sr)
         inputs_resampled = resample(inputs)
-        prompt = feature.transform(inputs_resampled)
+        prompt = feature.t(inputs_resampled)
         n_input_samples = inputs.shape[1]
 
         output = [[]]
@@ -96,7 +96,7 @@ class Ensemble(nn.Module):
         def process_outputs(outputs, _):
             inv_resample = Resample(feature.sr, self.base_sr)
             # prompt + generated in base_sr :
-            y = feature.inverse_transform(outputs[0])
+            y = feature.inv(outputs[0])
             out = inv_resample(y)
             output[0] = out[:, n_input_samples:]
 

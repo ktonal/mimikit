@@ -1,21 +1,21 @@
 from enum import auto
-from typing import Optional, Tuple, Dict, Union, Iterable
+from typing import Optional, Tuple, Dict, Union, Iterable, Callable, List
 import dataclasses as dtc
 import torch
 import torch.nn as nn
 
 from .mlp import MLP
 from .arm import ARMWithHidden, ARMConfig
-from ..features.ifeature import Batch
-from ..modules.io import IOFactory, ZipReduceVariables, ZipMode
+from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
+from ..features.audio import MuLawSignal
+from ..features.ifeature import Batch, DiscreteFeature, TimeUnit
+from ..modules.io import IOFactory, ZipReduceVariables, ZipMode, MLPParams
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
-
 
 __all__ = [
     "SampleRNN"
 ]
-
 
 T = torch.Tensor
 
@@ -60,7 +60,7 @@ class SampleRNNTier(nn.Module):
 
     def forward(
             self,
-            inputs: Tuple[Union[T, Tuple[T, ...]], Optional[T]]
+            inputs: Tuple[Tuple[T, ...], Optional[T]]
     ) -> T:
         """x: (batch, n_frames, hidden_dim) ; x_upper: (batch, n_frames, hidden_dim)"""
         x, x_upper = inputs
@@ -95,10 +95,8 @@ class SampleRNNTier(nn.Module):
 
 
 class SampleRNN(ARMWithHidden, nn.Module):
-
-    # @dtc.dataclass
     class Config(ARMConfig):
-        batch: Batch = Batch([], [])
+        io_spec: IOSpec = None
         frame_sizes: Tuple[int, ...] = (16, 8, 8)
         hidden_dim: int = 256
         rnn_class: RNNType = "lstm"
@@ -108,15 +106,17 @@ class SampleRNN(ARMWithHidden, nn.Module):
         unfold_inputs: bool = False
 
         inputs_mode: ZipMode = "sum"
-        learn_temperature: bool = True
 
     @classmethod
     def from_config(cls, config: "SampleRNN.Config") -> "SampleRNN":
-        assert len(config.inputs) == 1, "More than 1 input isn't supported yet"
-        q_levels = config.inputs[0].class_size
+        assert len(config.io_spec.inputs) == len(config.io_spec.targets) == 1, \
+            "More than 1 feature isn't supported yet"
         tiers = []
+        in_spec = config.io_spec.inputs[0]
+        assert isinstance(in_spec.feature, DiscreteFeature)
+        h_dim = config.hidden_dim
         for i, fs in enumerate(config.frame_sizes[:-1]):
-            modules = ()
+            modules = (in_spec.module.copy().set(frame_size=fs, hop_length=fs, out_dim=h_dim).get(),)
             input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
             tiers += [
                 SampleRNNTier(
@@ -131,7 +131,14 @@ class SampleRNN(ARMWithHidden, nn.Module):
                         if i < len(config.frame_sizes) - 2
                         else 1)
                 )]
-        modules = ()
+        if "framed" in in_spec.module.module_type:
+            modules = (IOFactory(module_type="framed_conv1d")
+                       .set(class_size=in_spec.feature.class_size,
+                            frame_size=config.frame_sizes[-1], hop_length=1, out_dim=h_dim).get(),)
+        else:
+            modules = (IOFactory(module_type="embedding_conv1d")
+                       .set(class_size=in_spec.feature.class_size,
+                            frame_size=config.frame_sizes[-1], hop_length=1, out_dim=h_dim).get(),)
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
         tiers += [
             SampleRNNTier(
@@ -140,12 +147,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                 rnn_class="none",
                 up_sampling=None
             )]
-        output_module = MLP(
-            in_dim=config.hidden_dim,
-            hidden_dim=config.hidden_dim,
-            out_dim=q_levels,
-            learn_temperature=config.learn_temperature
-        )
+        output_module = config.io_spec.targets[0].module.copy().set(in_dim=h_dim).get()
         return cls(
             config=config, tiers=tiers, output_module=output_module)
 
@@ -158,17 +160,23 @@ class SampleRNN(ARMWithHidden, nn.Module):
         super(SampleRNN, self).__init__()
         self._config = config
         self.frame_sizes = config.frame_sizes
-        self.tiers = nn.ModuleList(tiers)
+        self.tiers: List[SampleRNNTier] = nn.ModuleList(tiers)
         self.output_module = output_module
 
         # caches for inference
         self.outputs = []
         self.prompt_length = 0
 
-    def forward(self, tiers_input: Tuple[T, ...]):
+    def forward(self, inputs: T):
         prev_output = None
-        for tier_input, tier in zip(tiers_input, self.tiers):
+        fs0 = self.frame_sizes[0]
+        for tier, fs in zip(self.tiers[:-1], self.frame_sizes[:-1]):
+            tier_input = (inputs[:, fs0 - fs:-fs],)
             prev_output = tier.forward((tier_input, prev_output))
+        fs = self.frame_sizes[-1]
+        # :-1 is surprising but right!
+        tier_input = (inputs[:, fs0 - fs:-1],)
+        prev_output = self.tiers[-1].forward((tier_input, prev_output))
         output = self.output_module(prev_output)
         return output
 
@@ -196,7 +204,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         inputs = inputs[0]
         for i in range(len(tiers) - 1):
             if t % fs[i] == 0:
-                inpt = inputs[:, -fs[i]:].unsqueeze(1)
+                inpt = inputs[:, -fs[i]:]
                 if i == 0:
                     prev_out = None
                 else:
@@ -205,7 +213,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                 outputs[i] = out
         if t < self.prompt_length:
             return tuple()
-        inpt = inputs[:, -fs[-1]:].reshape(-1, 1, fs[-1])
+        inpt = inputs[:, -fs[-1]:]
         prev_out = outputs[-1][:, (t % fs[-2]) - fs[-2]].unsqueeze(1)
         out = tiers[-1](((inpt,), prev_out))
         out = self.output_module(out, temperature=temperature)
@@ -224,20 +232,32 @@ class SampleRNN(ARMWithHidden, nn.Module):
         return self._config
 
     @property
-    def time_axis(self) -> int:
-        return 1
-
-    @property
-    def shift(self) -> int:
+    def rf(self):
         return self.frame_sizes[0]
 
-    @property
-    def rf(self) -> int:
-        return self.frame_sizes[0]
+    def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1):
+        return tuple(spec.feature.copy()
+                     .batch_item(length, unit, downsampling)
+                     for spec in self.config.io_spec.inputs
+                     ), \
+               tuple(spec.feature.copy()
+                     .add_shift(self.frame_sizes[0], TimeUnit.sample)
+                     .add_length(-self.frame_sizes[0], TimeUnit.sample)
+                     .batch_item(length, unit, downsampling)
+                     for spec in self.config.io_spec.targets
+                     )
 
-    @property
-    def hop_length(self) -> Optional[int]:
-        return None
-
-    def output_length(self, n_input_steps: int) -> int:
-        return n_input_steps
+    qx_io = IOSpec(
+        inputs=(InputSpec(
+            feature=MuLawSignal(),
+            module=IOFactory(
+                module_type="framed_linear",
+            )),),
+        targets=(TargetSpec(
+            feature=MuLawSignal(),
+            module=IOFactory(
+                module_type="mlp",
+                params=MLPParams()
+            ),
+            objective=Objective("categorical_dist")
+        ),))

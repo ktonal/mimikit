@@ -141,7 +141,7 @@ class AudioLogger:
     def __post_init__(self):
         if self.file_template is not None:
             self.target_dir = os.path.dirname(self.file_template)
-            self.format = os.path.splitext(self.file_template)[-1]
+            self.format = os.path.splitext(self.file_template)[-1][1:]
 
     @staticmethod
     def format_template(template, **parameters):

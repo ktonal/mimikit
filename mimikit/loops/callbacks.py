@@ -109,19 +109,17 @@ class GenerateCallback(pl.callbacks.Callback):
     def __init__(self,
                  generate_loop=None,
                  every_n_epochs=10,
-                 plot_audios=True,
-                 play_audios=True,
                  output_features=tuple(),
                  audio_logger=None):
         sample_rate = {feat.sr for feat in output_features
                        if getattr(feat, 'sr', False)}
         sample_rate = sample_rate.pop() if len(sample_rate) > 0 else None
-        if play_audios and sample_rate is None:
+        if sample_rate is None:
             raise ValueError("Cannot play audio files if no output_feature has a `sr` attribute")
         self.loop = generate_loop
         self.every_n_epochs = every_n_epochs
-        self.plot_audios = plot_audios
-        self.play_audios = play_audios
+        self.display_audios = audio_logger is not None and audio_logger.title_template is not None
+        self.write_audios = audio_logger is not None and audio_logger.file_template is not None
         self.output_features = output_features
         self.sample_rate = sample_rate
         self.logger = audio_logger
@@ -133,12 +131,13 @@ class GenerateCallback(pl.callbacks.Callback):
 
     def process_outputs(self, outputs, batch_idx, epoch=0):
         for feature, output in zip(self.output_features, outputs):
-            output = feature.inverse_transform(output)
+            output = feature.inv(output)
             for i, out in enumerate(output):
-                if self.plot_audios:
-                    self.logger.display_waveform(out, epoch=epoch)
-                if self.play_audios:
+                if self.display_audios:
+                    self.logger.display_waveform(out, epoch=epoch, prompt_idx=batch_idx)
                     self.logger.display_html(out)
+                if self.write_audios:
+                    self.logger.write(out, epoch=epoch, prompt_idx=batch_idx)
 
     def on_train_epoch_end(self, trainer: pl.Trainer, model):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:

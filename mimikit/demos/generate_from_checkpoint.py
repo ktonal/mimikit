@@ -30,7 +30,7 @@ def demo():
     soundbank = SoundBank("gen.h5", mode='r', keep_open=True)
 
     def process_outputs(outputs, bidx):
-        output = feature.inverse_transform(outputs[0])
+        output = feature.inv(outputs[0])
         for i, out in enumerate(output):
             y = out.detach().cpu().numpy()
             plt.figure(figsize=(20, 2))
@@ -53,7 +53,8 @@ def demo():
     loop = mmk.GenerateLoop(
         network=net,
         dataloader=g_dl,
-        inputs=(h5m.Input(None, h5m.AsSlice(dim=1, shift=-net.rf, length=net.rf), setter=h5m.Setter(dim=1)),),
+        inputs=(h5m.Input(None, h5m.AsSlice(dim=1, shift=-net.rf, length=net.rf),
+                          setter=h5m.Setter(dim=1)),),
         n_steps=n_steps,
         device='cuda' if torch.cuda.is_available() else 'cpu',
         time_hop=net.hp.get("hop", 1),

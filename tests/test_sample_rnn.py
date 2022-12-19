@@ -4,7 +4,8 @@ import pytest
 import torch
 from assertpy import assert_that
 
-from mimikit.modules.inputs import FramedInput
+from mimikit import MuLawSignal, IOFactory, MLPParams
+from mimikit.networks.io_spec import *
 from mimikit.networks.sample_rnn_v2 import SampleRNN
 from mimikit.checkpoint import Checkpoint
 
@@ -20,42 +21,38 @@ def test_should_instantiate_from_default_config():
 
 # @pytest.mark.skip("Not really supported yet...")
 def test_should_take_n_unfolded_inputs():
-    given_frame_sizes = (16, 4, 8,)
+    given_frame_sizes = (16, 4, 2,)
     given_config = SampleRNN.Config(
         frame_sizes=given_frame_sizes,
-        inputs=(
-            # 3 inputs of different dtypes
-            # ModuleFactory.Config(class_size=None, projection_type="fir"),
-            # ModuleFactory.Config(class_size=None, projection_type="linear"),
-            FramedInput.Config(class_size=8, projection_type="embedding"),
-        ),
+        io_spec=IOSpec(
+            inputs=(
+                InputSpec(
+                    feature=MuLawSignal(),
+                    module=IOFactory(
+                        module_type="framed_linear",
+                    )
+                ),
+            ),
+            targets=(
+                TargetSpec(
+                    feature=MuLawSignal(),
+                    module=IOFactory(
+                        module_type="mlp",
+                        params=MLPParams()
+                    ),
+                    objective=Objective("categorical_dist")
+                ),
+            )),
         inputs_mode='sum',
-        unfold_inputs=False
     )
-    n_frames = (1, given_frame_sizes[0]//given_frame_sizes[1])
-    # each tier's inputs is in a tuple (-> prepare multiple input features!)
-    given_inputs: Tuple[Tuple[torch.Tensor], ...] = tuple(
-        (
-            # torch.randn(8, n, fs),
-            # torch.randn(8, n, fs),
-            torch.randint(0, 8, (8, n, fs)),
-        )
-        for fs, n in zip(given_frame_sizes[:-1], n_frames)
-    )
-    given_inputs = (*given_inputs,
-                    (
-                        # torch.randn(8, given_frame_sizes[0], given_frame_sizes[-1]),
-                        # torch.randn(8, given_frame_sizes[0], given_frame_sizes[-1]),
-                        torch.randint(0, 8, (8, given_frame_sizes[0], given_frame_sizes[-1])),
-                    )
-                    )
-
+    given_inputs = torch.arange(64).reshape(2, 32)
+    given_inputs[1] -= 16
     under_test = SampleRNN.from_config(given_config)
     outputs: torch.Tensor = under_test(given_inputs)
 
     assert_that(type(outputs)).is_equal_to(torch.Tensor)
     assert_that(outputs.shape).is_equal_to(
-        (8, given_frame_sizes[0], given_config.inputs[0].class_size)
+        (2, given_inputs.size(1)-given_frame_sizes[0], given_config.io_spec.inputs[0].feature.q_levels)
     )
 
 
@@ -85,9 +82,9 @@ def test_generate(
     given_prompt = torch.randint(0, q_levels, (1, 32,))
     srnn.eval()
     # For now, prompts are just Tuple[T] (--> Tuple[Tuple[T, ...]] for multi inputs!)
-    srnn.before_generate((given_prompt, ), batch_index=0)
+    srnn.before_generate((given_prompt,), batch_index=0)
     output = srnn.generate_step(
-        (given_prompt[:, -srnn.rf:], ),
+        (given_prompt[:, -srnn.rf:],),
         t=given_prompt.size(1),
         temperature=given_temp)
     srnn.after_generate(output, batch_index=0)
@@ -95,4 +92,3 @@ def test_generate(
     assert_that(type(output)).is_equal_to(tuple)
     assert_that(output[0].size(0)).is_equal_to(given_prompt.size(0))
     assert_that(output[0].ndim).is_equal_to(given_prompt.ndim)
-

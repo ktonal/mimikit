@@ -1,14 +1,7 @@
-import h5mapper
-import torch.nn as nn
-import librosa
-import dataclasses as dtc
-import IPython.display as ipd
-import soundfile as sf
-import torch
+import h5mapper as h5m
 
 from . import audio_fmodules as T
-# from ..modules import mean_L1_prop, mean_2d_diff
-from .ifeature import Feature
+from .ifeature import DiscreteFeature, RealFeature, SequenceSpec
 
 __all__ = [
     'AudioSignal',
@@ -20,134 +13,80 @@ __all__ = [
 
 
 # @dtc.dataclass(unsafe_hash=True)
-class AudioSignal(Feature):
-    """
-    audio signal managers
-    """
-    __ext__ = 'audio'
-    domain = "time"
-
+class AudioSignal(RealFeature):
     sr: int = 22050
-    normalize: bool = False
     emphasis: float = 0.
 
-    def __post_init__(self):
-        self.base_feature = T.FileToSignal(self.sr)
+    h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
+    out_dim = 1
+    support = (-1., 1.)
 
-    def transform(self, inputs):
+    # noinspection PyMethodOverriding
+    def __post_init__(self):
+        # we need this for instantiating fresh SequenceSpecs
+        super().__post_init__(self.sr)
+
+    def t(self, inputs):
         if self.emphasis:
             inputs = T.Emphasis(self.emphasis)(inputs)
-        if self.normalize:
-            inputs = T.Normalize()(inputs)
         return inputs
 
-    def inverse_transform(self, inputs):
+    def inv(self, inputs):
         if self.emphasis:
             inputs = T.Deemphasis(self.emphasis)(inputs)
-        if self.normalize:
-            inputs = T.Normalize()(inputs)
         return inputs
 
-    def batch_item(self, data='snd', shift=0, length=1,
-                   frame_size=None,
-                   hop_length=None,
-                   center=False,
-                   pad_mode="reflect",
-                   downsampling=1,
-                   **kwargs):
-        if frame_size is None:
-            getter = h5mapper.AsSlice(shift=shift, length=length, downsampling=downsampling)
-        else:
-            getter = h5mapper.AsFramedSlice(shift=shift, length=length,
-                                            frame_size=frame_size, hop_length=hop_length,
-                                            center=center, pad_mode=pad_mode,
-                                            downsampling=downsampling)
-        inpt = h5mapper.Input(data=data, getter=getter, transform=self.transform)
-        return inpt
-
-    def loss_fn(self, output, target):
-        return {"loss": nn.MSELoss()(output.squeeze(), target) * 100}
-
-    def load(self, path):
-        y = self.base_feature(path)
-        y = self.transform(y)
-        return y
-
-    def display(self, inputs, **waveplot_kwargs):
-        waveplot_kwargs.setdefault('sr', self.sr)
-        return librosa.display.waveplot(inputs, **waveplot_kwargs)
-
-    def play(self, inputs):
-        return ipd.display(ipd.Audio(inputs, rate=self.sr))
-
-    def write(self, filename, inputs):
-        return sf.write(filename, inputs, self.sr, 'PCM_24')
-
 
 # @dtc.dataclass(unsafe_hash=True)
-class MuLawSignal(AudioSignal):
+class MuLawSignal(DiscreteFeature):
+    sr: int = 16000
+    emphasis: float = 0.
     q_levels: int = 256
-    pr_y = None
+    compression_factor: float = 1.
 
+    class_size = property(lambda self: self.q_levels)
+    vector_dim = 1
+
+    h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
+
+    # noinspection PyMethodOverriding
     def __post_init__(self):
-        self.class_size = self.q_levels
-        self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
-        self.transform_ = T.MuLawCompress(q_levels=self.q_levels)
-        self.inverse_transform_ = T.MuLawExpand(self.q_levels)
+        super().__post_init__(self.sr)
+        self.base = AudioSignal(self.sr, self.emphasis)
+        self.t_ = T.MuLawCompress(q_levels=self.q_levels)
+        self.inv_ = T.MuLawExpand(self.q_levels)
 
-    def transform(self, inputs):
-        return self.transform_(inputs)
+    def t(self, inputs):
+        return self.t_(self.base.t(inputs))
 
-    def inverse_transform(self, inputs):
-        return self.inverse_transform_(inputs)
-
-    def loss_fn(self, output, target):
-        # FFT
-        # y_o, y_t = self.inverse_transform(output.argmax(dim=-1)), self.inverse_transform(target)
-        # fft = Spectrogram(sr=self.sr, n_fft=512, hop_length=512, coordinate="mag", center=True)
-        # S_o, S_t = fft.transform(y_o), fft.transform(y_t)
-        # fft_loss = mean_L1_prop(S_o, S_t)
-
-        # Gumbel softmax
-        # output, target = output.view(-1, output.size(-1)), target.view(-1)
-        # output = nn.functional.gumbel_softmax(output, tau=1.)
-        # criterion = nn.NLLLoss(reduction='mean', weight=self.pr_y)
-        # loss = criterion(torch.maximum(output, torch.tensor(1e-16).view(1, 1).to(output.device)).log_(), target)
-        # diff = output.detach().argmax(dim=-1) != target
-        # err = diff.sum() / output.size(0)
-
-        # cross entropy
-        criterion = nn.CrossEntropyLoss(reduction="none", weight=self.pr_y)
-        output, target = output.view(-1, output.size(-1)), target.view(-1)
-        loss = criterion(output, target).mean()
-        diff = output.detach().argmax(dim=-1) != target
-        err = diff.sum() / output.size(0)
-
-        return {"loss": loss, "err": err}
+    def inv(self, inputs):
+        return self.inv_(self.base.inv(inputs))
 
 
 # @dtc.dataclass(unsafe_hash=True)
-class ALawSignal(AudioSignal):
+class ALawSignal(DiscreteFeature):
+    sr: int = 16000
+    emphasis: float = 0.
     A: float = 87.7
     q_levels: int = 256
-    target_width: int = 1
 
+    class_size = property(lambda self: self.q_levels)
+    vector_dim = 1
+
+    h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
+
+    # noinspection PyMethodOverriding
     def __post_init__(self):
-        self.class_size = self.q_levels
-        self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
-        self.transform_ = T.ALawCompress(A=self.A, q_levels=self.q_levels)
-        self.inverse_transform_ = T.ALawExpand(A=self.A, q_levels=self.q_levels)
+        super().__post_init__(self.sr)
+        self.base = AudioSignal(self.sr, self.emphasis)
+        self.t_ = T.ALawCompress(A=self.A, q_levels=self.q_levels)
+        self.inv_ = T.ALawExpand(A=self.A, q_levels=self.q_levels)
 
-    def transform(self, inputs):
-        return self.transform_(inputs)
+    def t(self, inputs):
+        return self.t_(self.base.t(inputs))
 
-    def inverse_transform(self, inputs):
-        return self.inverse_transform_(inputs)
-
-    def loss_fn(self, output, target):
-        criterion = nn.CrossEntropyLoss(reduction="mean")
-        L = criterion(output.view(-1, output.size(-1)), target.view(-1))
-        return {"loss": L}
+    def inv(self, inputs):
+        return self.inv_(self.base.inv(inputs))
 
 
 class MultiScale:
@@ -158,10 +97,10 @@ class MultiScale:
         self.hop_lengths = hop_lengths
 
     def transform(self, inputs):
-        return self.base.transform(inputs)
+        return self.base.t(inputs)
 
-    def inverse_transform(self, inputs):
-        return self.base.inverse_transform(inputs)
+    def inv(self, inputs):
+        return self.base.inv(inputs)
 
     def batch_item(self, data='snd', shift=0, length=1,
                    frame_size=None, hop_length=None, center=False, pad_mode="reflect",
@@ -180,43 +119,34 @@ class MultiScale:
 
 
 # @dtc.dataclass(unsafe_hash=True)
-class Spectrogram(AudioSignal):
-    domain = "time-freq"
-
+class Spectrogram(RealFeature):
+    sr: int = 22050
+    emphasis: float = 0.
     n_fft: int = 2048
     hop_length: int = 512
     coordinate: str = 'pol'
     center: bool = True
 
+    out_dim = property(lambda self: 1 + self.n_fft // 2)
+    support = (0., float("inf"))
+
+    h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
+
+    # noinspection PyMethodOverriding
     def __post_init__(self):
-        self.out_dim = 1 + self.n_fft // 2
-        self.base_feature = AudioSignal(self.sr, self.normalize, self.emphasis)
+        self.seq_spec = SequenceSpec(self.sr, shift=-int(self.center)*self.n_fft//2,
+                                     frame_size=self.n_fft,
+                                     hop_length=self.hop_length)
+        self.base = AudioSignal(self.sr, self.emphasis)
         if self.coordinate == 'mag':
-            self.transform_ = T.MagSpec(self.n_fft, self.hop_length, center=self.center)
-            self.inverse_transform_ = T.GLA(self.n_fft, self.hop_length, center=self.center, n_iter=32)
+            self.t_ = T.MagSpec(self.n_fft, self.hop_length, center=self.center)
+            self.inv_ = T.GLA(self.n_fft, self.hop_length, center=self.center, n_iter=32)
         else:
-            self.transform_ = T.STFT(self.n_fft, self.hop_length, self.coordinate, center=self.center)
-            self.inverse_transform_ = T.ISTFT(self.n_fft, self.hop_length, self.coordinate, center=self.center)
+            self.t_ = T.STFT(self.n_fft, self.hop_length, self.coordinate, center=self.center)
+            self.inv_ = T.ISTFT(self.n_fft, self.hop_length, self.coordinate, center=self.center)
 
-    def transform(self, inputs):
-        return self.transform_(inputs)
+    def t(self, inputs):
+        return self.t_(self.base.t(inputs))
 
-    def inverse_transform(self, inputs):
-        return self.inverse_transform_(inputs)
-
-    def batch_item(self, data='snd', shift=0, length=1, downsampling=1, **kwargs):
-        getter = h5mapper.AsSlice(shift=shift, length=length, downsampling=downsampling)
-        getter.shift, getter.length = getter.shift_and_length_to_samples(
-            self.n_fft, self.hop_length, self.center
-        )
-        return h5mapper.Input(data=data, getter=getter, transform=self.transform)
-
-    def loss_fn(self, output, target):
-        if self.coordinate == 'mag':
-            return {"loss": mean_L1_prop(output, target)}
-        elif self.coordinate == 'pol':
-            mag = mean_L1_prop(output[..., 0], target[..., 0])
-            phs = mean_2d_diff(output[..., 1], target[..., 1])
-            return {"loss": mag + phs, 'mag': mag.detach(), "phs": phs.detach()}
-        else:
-            raise NotImplementedError(f"no default loss function for coordinate '{self.coordinate}'")
+    def inv(self, inputs):
+        return self.inv_(self.base.inv(inputs))

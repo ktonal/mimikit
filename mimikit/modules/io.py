@@ -6,13 +6,17 @@ from torch import nn as nn
 
 from .activations import ActivationConfig
 from .resamplers import Conv1dResampler
-from ..config import Config
+from .targets import OutputWrapper
+from ..networks.mlp import MLP
+from ..config import Config, private_runtime_field
 from ..modules.misc import Unsqueeze, Flatten, Chunk, Unfold, ShapeWrap
 from ..utils import AutoStrEnum
 
 __all__ = [
     "ModuleType",
+    "LinearParams",
     "ChunkedLinearParams",
+    "MLPParams",
     "IOFactory",
     "ZipMode",
     "ZipReduceVariables"
@@ -57,9 +61,13 @@ class ChunkedLinearParams(ModuleParams):
 
 
 class MLPParams(ModuleParams):
-    in_dim: int = dtc.field(init=False, default=0)
     hidden_dim: int = 1
     n_hidden_layers: int = 1
+    activation: ActivationConfig = ActivationConfig("Mish")
+    bias: bool = True
+    dropout: float = 0.
+    dropout1d: float = 0.
+    learn_temperature: bool = True
 
 
 class LearnableFFT(ModuleParams):
@@ -81,16 +89,24 @@ class IOFactory(Config):
     dropout: float = 0.
     dropout1d: float = 0.
 
-    in_dim: Optional[int] = dtc.field(init=False, repr=False, default=None)
-    out_dim: Optional[int] = dtc.field(init=False, repr=False, default=None)
-    hop_length: Optional[int] = dtc.field(init=False, repr=False, default=None)
-    frame_size: Optional[int] = dtc.field(init=False, repr=False, default=None)
-    class_size: Optional[int] = dtc.field(init=False, repr=False, default=None)
+    in_dim: Optional[int] = private_runtime_field(None)
+    out_dim: Optional[int] = private_runtime_field(None)
+    hop_length: Optional[int] = private_runtime_field(None)
+    frame_size: Optional[int] = private_runtime_field(None)
+    class_size: Optional[int] = private_runtime_field(None)
+    # for output distributions:
+    sampler: Optional[nn.Module] = private_runtime_field(None)
+    n_params: Optional[int] = private_runtime_field(None)
+    n_components: Optional[int] = private_runtime_field(None)
 
     def set(self, **kwargs):
         for k, v in kwargs.items():
             if not hasattr(self, k):
-                raise KeyError(f"key {k} not found in IOFactory instance")
+                raise AttributeError(f"attribute '{k}' not found in IOFactory")
+            else:
+                if getattr(self, k) is not None:
+                    raise RuntimeError(f"can not set attribute '{k}'. "
+                                       f"It has already been set to '{getattr(self, k)}'")
             setattr(self, k, v)
         return self
 
@@ -102,7 +118,7 @@ class IOFactory(Config):
         if msg:
             raise ValueError(msg)
 
-    def __call__(self) -> nn.Module:
+    def get(self) -> nn.Module:
         in_dim, out_dim, class_size, frame_size, hop_length = \
             self.in_dim, self.out_dim, self.class_size, self.frame_size, self.hop_length
 
@@ -161,17 +177,31 @@ class IOFactory(Config):
                 Conv1dResampler(in_dim=out_dim, t_factor=1 / frame_size, d_factor=1)
                 # -> (batch, n_frames, hidden_dim)
             )
+        elif self.module_type == "mlp":
+            self.not_none("in_dim", "out_dim", "params")
+            params = self.params
+            assert isinstance(params, MLPParams)
+            mod = MLP(
+                in_dim=in_dim, out_dim=out_dim, hidden_dim=params.hidden_dim,
+                n_hidden_layers=params.n_hidden_layers, activation=params.activation.get(),
+                bias=params.bias, dropout=params.dropout, dropout1d=params.dropout1d,
+                learn_temperature=params.learn_temperature
+            )
         else:
             raise NotImplementedError(f"module_type '{self.module_type}' not implemented")
 
         after = []
         if self.activation is not None and self.activation.act != "Identity":
-            after += [self.activation.object()]
+            after += [self.activation.get()]
         if self.dropout > 0:
             after += [nn.Dropout(self.dropout)]
         if self.dropout1d > 0:
             after += [nn.Dropout1d(self.dropout1d)]
 
+        if self.sampler is not None:
+            return OutputWrapper(
+                nn.Sequential(*before, mod, *after), self.sampler
+            )
         return nn.Sequential(*before, mod, *after)
 
 

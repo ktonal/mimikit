@@ -3,28 +3,33 @@ from typing import Tuple, Optional, Union
 import torch.nn as nn
 import dataclasses as dtc
 
+from ..modules.targets import CategoricalSampler
 from ..utils import AutoStrEnum
 from ..config import Config
-from ..features.ifeature import Feature
+from ..features.ifeature import Feature, DiscreteFeature, RealFeature
 from ..modules.io import IOFactory
 from ..modules.loss_functions import MeanL1Prop
 
 
 __all__ = [
     "InputSpec",
+    "ObjectiveType",
+    "Objective",
     "TargetSpec",
     "IOSpec"
 ]
 
 
 class InputSpec(Config):
-    var_name: str
     feature: Feature
     module: IOFactory
 
     def __post_init__(self):
         # wire feature -> module
-        pass
+        if isinstance(self.feature, DiscreteFeature):
+            self.module.set(class_size=self.feature.class_size)
+        elif isinstance(self.feature, RealFeature):
+            self.module.set(in_dim=self.feature.out_dim)
 
 
 class ObjectiveType(AutoStrEnum):
@@ -49,14 +54,20 @@ class Objective(Config):
 
 
 class TargetSpec(Config):
-    var_name: str
     feature: Feature
     module: IOFactory
     objective: Objective
 
     def __post_init__(self):
         # wire feature, objective, module
-        pass
+        if self.objective.objective_type == "reconstruction":
+            assert isinstance(self.feature, RealFeature)
+            self.module.set(out_dim=self.feature.out_dim)
+            self._loss_fn = self.mean_l1_prop
+        elif self.objective.objective_type == "categorical_dist":
+            assert isinstance(self.feature, DiscreteFeature)
+            self.module.set(out_dim=self.feature.class_size, sampler=CategoricalSampler())
+            self._loss_fn = self.cross_entropy
 
     @staticmethod
     def cross_entropy(output, target):
@@ -69,17 +80,12 @@ class TargetSpec(Config):
         criterion = MeanL1Prop()
         return {"loss": criterion(output, target)}
 
+    @property
+    def loss_fn(self):
+        return self._loss_fn
+
 
 class IOSpec(Config):
     inputs: Tuple[InputSpec, ...]
     targets: Tuple[TargetSpec, ...]
 
-    def batch(self):
-        inputs = {spec.var_name: spec.feature for spec in self.inputs}
-        targets = {spec.var_name: spec.feature for spec in self.targets}
-        return inputs, targets
-
-    def loss_fn(self):
-        funcs = {str(trgt.objective) for trgt in self.targets}
-        assert len(funcs) == 1, "only one objective per IOSpec supported"
-        return getattr(TargetSpec, funcs.pop())

@@ -206,7 +206,7 @@ class STFT(FModule):
     def np_func(self, inputs):
         # returned shape is (time x freq)
         S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
-                         center=self.center,).T
+                         center=self.center,).transpose(-1, -2)
         if self.coordinate == 'pol':
             S = np.stack((abs(S), np.angle(S)), axis=-1)
         elif self.coordinate == 'car':
@@ -216,7 +216,8 @@ class STFT(FModule):
     def torch_func(self, inputs):
         S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
                        center=self.center,
-                       window=torch.hann_window(self.n_fft, device=inputs.device)).transpose(-1, -2).contiguous()
+                       window=torch.hann_window(self.n_fft, device=inputs.device))
+        S = S.transpose(-1, -2).contiguous()
         if self.coordinate == 'pol':
             S = torch.stack((abs(S), torch.angle(S)), dim=-1)
         elif self.coordinate == 'car':

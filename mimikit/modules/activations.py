@@ -2,7 +2,7 @@ from enum import auto
 import torch
 from torch import nn
 
-from ..config import Config
+from ..config import Config, private_runtime_field
 from ..utils import AutoStrEnum
 
 __all__ = [
@@ -26,18 +26,21 @@ class ActivationEnum(AutoStrEnum):
     Identity = auto()
     Abs = auto()
 
-    def object(self):
-        try:
-            return getattr(nn, self)()
-        except AttributeError:
-            return globals()[self]
-
 
 class ActivationConfig(Config):
     act: ActivationEnum = "Identity"
     scaled: bool = False
     with_range: bool = False
     static: bool = False
+
+    dim: int = private_runtime_field(1)
+
+    def get(self):
+        try:
+            a = getattr(nn, self.act)()
+        except AttributeError:
+            a = globals()[self.act]()
+        return a
 
 
 class Abs(nn.Module):

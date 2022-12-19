@@ -1,9 +1,11 @@
 import abc
-from typing import Optional, Tuple, Dict, ClassVar
+from typing import Tuple, Dict, Callable
 import torch
+import h5mapper as h5m
 
-from ..features.ifeature import Batch
+from ..features.ifeature import Batch, TimeUnit
 from ..config import Configurable, Config
+from .io_spec import IOSpec
 
 __all__ = [
     "ARMConfig",
@@ -12,8 +14,12 @@ __all__ = [
 ]
 
 
-class ARMConfig(Config):
-    batch: Batch
+class ARMConfig(Config, abc.ABC):
+
+    @property
+    @abc.abstractmethod
+    def io_spec(self) -> IOSpec:
+        ...
 
 
 class ARM(Configurable, torch.nn.Module):
@@ -30,30 +36,12 @@ class ARM(Configurable, torch.nn.Module):
 
     @property
     @abc.abstractmethod
-    def time_axis(self) -> int:
-        ...
-
-    @property
-    @abc.abstractmethod
-    def shift(self) -> int:
-        """difference in # of steps
-         between first predicted and first received steps"""
-        ...
-
-    @property
-    @abc.abstractmethod
-    def rf(self) -> int:
-        """# of steps in the receptive field"""
-        ...
-
-    @property
-    @abc.abstractmethod
-    def hop_length(self) -> Optional[int]:
-        """# of predicted steps in 1 inference pass"""
+    def rf(self):
         ...
 
     @abc.abstractmethod
-    def output_length(self, n_input_steps: int) -> int:
+    def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1)\
+            -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
         ...
 
     @abc.abstractmethod

@@ -1,15 +1,21 @@
 import abc
 import sys
+from copy import deepcopy
 from omegaconf import OmegaConf, ListConfig, DictConfig
-from typing import List, Tuple, Union, Dict, Any, overload
+from typing import List, Tuple, Union, Dict, Any
 import dataclasses as dtc
 from functools import reduce
 
 
 __all__ = [
+    "private_runtime_field",
     "Config",
     "Configurable",
 ]
+
+
+def private_runtime_field(default):
+    return dtc.field(init=False, repr=False, metadata=dict(omegaconf_ignore=True), default_factory=lambda: default)
 
 
 # noinspection PyTypeChecker
@@ -98,7 +104,7 @@ class Config:
         return dtc.asdict(self)
 
     def copy(self):
-        return type(self)(**vars(self))
+        return deepcopy(self)
 
     def validate(self) -> Tuple[bool, str]:
         return True, ''

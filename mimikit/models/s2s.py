@@ -72,7 +72,7 @@ class Seq2SeqLSTM(S2SNet):
 
 
 class Seq2SeqMuLaw(Seq2SeqLSTM):
-    feature = MuLawSignal(sr=16000, q_levels=256, normalize=True)
+    feature = MuLawSignal(sr=16000, q_levels=256)
 
     def __init__(self, feature=None, mlp_dim=128, **net_hp):
         net_hp["input_module"] = feature.input_module(net_hp["input_dim"])

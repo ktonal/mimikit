@@ -14,4 +14,4 @@ numba
 soxr
 pydub
 ipywidgets>=8.0.0
-ipyfilechooser
+omegaconf>=2.3.0

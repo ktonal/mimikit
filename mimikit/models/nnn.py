@@ -22,7 +22,7 @@ class NearestNextNeighbor(nn.Module):
     def __init__(self, feature, snd, path_length=16):
         super(NearestNextNeighbor, self).__init__()
         self.feature = feature
-        self.snd = feature.transform(snd[:])
+        self.snd = feature.t(snd[:])
         self._t = -100
         self._starts = None
         self._param = nn.Parameter(torch.ones(1))
