@@ -11,7 +11,6 @@ from .logger import LoggingHooks, AudioLogger
 from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint
 from .samplers import IndicesSampler, TBPTTSampler
 from .generate import GenerateLoop
-from ..features.ifeature import Batch
 from ..networks.arm import ARM
 from ..config import Config
 
@@ -153,7 +152,8 @@ class TrainLoop(LoggingHooks,
             dataloader=g_dl,
             inputs=(h5m.Input(None, h5m.AsSlice(dim=1, shift=-net.rf, length=net.rf),
                               setter=h5m.Setter(dim=1)),
-                    *((h5m.Input(cfg.temperature, h5m.AsSlice(dim=1 + int(hasattr(net.hp, 'hop')), length=1),
+                    *((h5m.Input(torch.tensor(cfg.temperature).view(-1, 1).expand(cfg.n_examples, cfg.n_steps),
+                                 h5m.AsSlice(dim=1, length=1),
                                  setter=None),)
                       if cfg.temperature is not None else ())),
             n_steps=cfg.n_steps,
@@ -212,6 +212,9 @@ class TrainLoop(LoggingHooks,
         self.net = net
         self.loss_fn = loss_fn
         self.optim = optim
+        self.tbptt_len = self.train_config.tbptt_chunk_length
+        if self.tbptt_len is not None:
+            self.tbptt_len //= self.config.batch_length
 
     def forward(self, inputs):
         if not isinstance(inputs, (tuple, list)):
@@ -225,8 +228,7 @@ class TrainLoop(LoggingHooks,
         return self.loader
 
     def on_train_batch_start(self, batch, batch_idx):
-        tbptt_len = self.train_config.tbptt_chunk_length
-        if tbptt_len is not None and (batch_idx % tbptt_len) == 0:
+        if self.tbptt_len is not None and (batch_idx % self.tbptt_len) == 0:
             self.net.reset_hidden()
 
     def training_step(self, batch, batch_idx):

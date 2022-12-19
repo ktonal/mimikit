@@ -1,5 +1,5 @@
 from enum import auto
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional, Union, List
 import torch.nn as nn
 import dataclasses as dtc
 
@@ -88,4 +88,47 @@ class TargetSpec(Config):
 class IOSpec(Config):
     inputs: Tuple[InputSpec, ...]
     targets: Tuple[TargetSpec, ...]
+
+    @property
+    def sr(self):
+        srs = {i.feature.sr for i in [*self.inputs, *self.targets]}
+        if len(srs) > 1:
+            # it is the responsibility of the user to have consistent sr
+            raise RuntimeError(f"Expected to find a single sample_rate "
+                               f"but found several: '{srs}'")
+        return srs.pop()
+
+    @property
+    def input_features(self) -> List[Feature]:
+        return [i.feature for i in self.inputs]
+
+    @property
+    def target_features(self) -> List[Feature]:
+        return [t.feature for t in self.targets]
+
+    @property
+    def matching_io(self) -> Tuple[List[Optional[int]], List[Optional[int]]]:
+        inputs = [None] * len(self.inputs)
+        targets = [None] * len(self.targets)
+        trg_feats = self.target_features
+        for n, i in enumerate(self.input_features):
+            try:
+                idx = trg_feats.index(i)
+            except ValueError:
+                idx = None
+            if idx is not None:
+                inputs[n] = idx
+                targets[idx] = n
+        return inputs, targets
+
+
+    @property
+    def is_auxiliary_target(self) -> List[bool]:
+        in_feats = self.input_features
+        return [f not in in_feats for f in self.target_features]
+
+    @property
+    def is_fixture_input(self) -> List[bool]:
+        target_feats = self.target_features
+        return [f not in target_feats for f in self.input_features]
 

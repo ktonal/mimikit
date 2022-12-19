@@ -13,8 +13,7 @@ __all__ = [
 
 from .logger import AudioLogger
 
-from ..config import Configurable, Config
-from ..features.ifeature import Batch
+from ..config import Config
 from ..networks.arm import ARM
 from .samplers import IndicesSampler
 

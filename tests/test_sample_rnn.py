@@ -45,8 +45,8 @@ def test_should_take_n_unfolded_inputs():
             )),
         inputs_mode='sum',
     )
-    given_inputs = torch.arange(64).reshape(2, 32)
-    given_inputs[1] -= 16
+    given_inputs = torch.arange(128).reshape(2, 64)
+    # given_inputs[1] -= 64
     under_test = SampleRNN.from_config(given_config)
     outputs: torch.Tensor = under_test(given_inputs)
 

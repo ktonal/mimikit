@@ -33,7 +33,7 @@ class ActivationConfig(Config):
     with_range: bool = False
     static: bool = False
 
-    dim: int = private_runtime_field(1)
+    dim: int = private_runtime_field(None)
 
     def get(self):
         try:

@@ -3,7 +3,7 @@ from typing import Tuple, Dict, Callable
 import torch
 import h5mapper as h5m
 
-from ..features.ifeature import Batch, TimeUnit
+from ..features.ifeature import TimeUnit
 from ..config import Configurable, Config
 from .io_spec import IOSpec
 

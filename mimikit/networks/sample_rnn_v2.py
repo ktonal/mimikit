@@ -1,14 +1,13 @@
 from enum import auto
-from typing import Optional, Tuple, Dict, Union, Iterable, Callable, List
+from typing import Optional, Tuple, Dict, Union, Iterable, List
 import dataclasses as dtc
 import torch
 import torch.nn as nn
 
-from .mlp import MLP
 from .arm import ARMWithHidden, ARMConfig
 from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
 from ..features.audio import MuLawSignal
-from ..features.ifeature import Batch, DiscreteFeature, TimeUnit
+from ..features.ifeature import DiscreteFeature, TimeUnit
 from ..modules.io import IOFactory, ZipReduceVariables, ZipMode, MLPParams
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
@@ -172,10 +171,12 @@ class SampleRNN(ARMWithHidden, nn.Module):
         fs0 = self.frame_sizes[0]
         for tier, fs in zip(self.tiers[:-1], self.frame_sizes[:-1]):
             tier_input = (inputs[:, fs0 - fs:-fs],)
+            # print(tier_input)
             prev_output = tier.forward((tier_input, prev_output))
         fs = self.frame_sizes[-1]
         # :-1 is surprising but right!
         tier_input = (inputs[:, fs0 - fs:-1],)
+        # print(tier_input)
         prev_output = self.tiers[-1].forward((tier_input, prev_output))
         output = self.output_module(prev_output)
         return output
@@ -183,7 +184,6 @@ class SampleRNN(ARMWithHidden, nn.Module):
     def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         self.outputs = [None] * (len(self.frame_sizes) - 1)
         _batch = prompts[0][:, prompts[0].size(1) % self.rf:]
-
         self.reset_hidden()
         self.prompt_length = len(_batch[0])
         # warm-up
@@ -199,7 +199,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         tiers = self.tiers
         outputs = self.outputs
         fs = self.frame_sizes
-        temperature = parameters.get("temperature", None)
+        temperature = inputs[1] if len(inputs) > 1 else None
         # TODO: multiple inputs
         inputs = inputs[0]
         for i in range(len(tiers) - 1):
@@ -237,6 +237,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
 
     def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1):
         return tuple(spec.feature.copy()
+                     .set_frame(self.frame_sizes[0], self.frame_sizes[0])
                      .batch_item(length, unit, downsampling)
                      for spec in self.config.io_spec.inputs
                      ), \
@@ -257,7 +258,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
             feature=MuLawSignal(),
             module=IOFactory(
                 module_type="mlp",
-                params=MLPParams()
+                params=MLPParams(hidden_dim=128)
             ),
             objective=Objective("categorical_dist")
         ),))

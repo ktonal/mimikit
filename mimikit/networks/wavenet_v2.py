@@ -3,7 +3,7 @@ from enum import auto
 import torch
 import torch.nn as nn
 import dataclasses as dtc
-from typing import Optional, Tuple, Dict, List, Iterable, Callable
+from typing import Optional, Tuple, Dict, List, Iterable
 from itertools import accumulate, chain
 import operator as opr
 
@@ -11,11 +11,9 @@ from .arm import ARM, ARMConfig
 from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
 from ..modules.io import IOFactory, MLPParams, ChunkedLinearParams
 from ..utils import AutoStrEnum
-from ..networks.mlp import MLP
-from ..features.ifeature import Batch
 from ..features.audio import Spectrogram, MuLawSignal
 from ..modules.misc import Chunk, CausalPad, Transpose
-from ..modules.activations import GatingUnit, Abs, ActivationConfig
+from ..modules.activations import GatingUnit, ActivationConfig
 
 __all__ = [
     "WNLayer",

@@ -61,7 +61,7 @@ class ChunkedLinearParams(ModuleParams):
 
 
 class MLPParams(ModuleParams):
-    hidden_dim: int = 1
+    hidden_dim: int = 128
     n_hidden_layers: int = 1
     activation: ActivationConfig = ActivationConfig("Mish")
     bias: bool = True

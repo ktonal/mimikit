@@ -1,4 +1,3 @@
-from copy import deepcopy
 from enum import Enum
 
 import numpy as np
@@ -6,7 +5,6 @@ import torch
 import dataclasses as dtc
 import abc
 from typing import Protocol, Union, Tuple, Optional
-from omegaconf import OmegaConf, DictConfig
 import h5mapper as h5m
 
 from ..config import Config, private_runtime_field
@@ -17,7 +15,6 @@ __all__ = [
     "Feature",
     "DiscreteFeature",
     "RealFeature",
-    "Batch",
     'IFeature'
 ]
 
@@ -47,14 +44,6 @@ def samples2frames(x, spec: SequenceSpec):
 
 def frames2samples(x, spec: SequenceSpec):
     return hops2samples(x, spec) + (spec.frame_size - spec.hop_length)
-
-
-def steps2samples(x, spec: SequenceSpec):
-    pass
-
-
-def samples2steps(x, spec: SequenceSpec):
-    pass
 
 
 def samples2seconds(x, spec: SequenceSpec):
@@ -142,7 +131,7 @@ class Feature(abc.ABC, Config):
         s = self.seq_spec
         if hasattr(self, "hop_length"):
             s.length += s.frame_size - s.hop_length
-        if not getattr(self, "as_framed_slice", False):
+        if hasattr(self, "hop_length") or getattr(self.seq_spec, "frame_size", None) is None:
             getter = h5m.AsSlice(shift=s.shift, length=s.length, downsampling=downsampling)
         else:
             # TODO: either Spectrogram must use rfft as transform or this must be removed!
@@ -181,52 +170,6 @@ class RealFeature(Feature, abc.ABC):
     @abc.abstractmethod
     def support(self) -> Tuple[float, float]:
         ...
-
-
-class Batch(Config):
-    inputs: Tuple[Feature, ...] = (),
-    targets: Tuple[Feature, ...] = (),
-
-    def serialize(self):
-        feats = {"inputs": [], "targets": []}
-        for i, inpt in enumerate(self.inputs):
-            feats[f"inputs"].append({i: inpt.dict()})
-        for i, trgt in enumerate(self.targets):
-            feats[f"targets"].append({i: trgt.dict()})
-        return OmegaConf.to_yaml(OmegaConf.create(feats))
-
-    @staticmethod
-    def deserialize(raw_yaml):
-        cfg: DictConfig = OmegaConf.create(raw_yaml)
-        inputs = []
-        targets = []
-
-        for data in cfg.inputs:
-            data = [*data.values()][0]
-            inputs += [Feature.object(data)]
-        for data in cfg.targets:
-            data = [*data.values()][0]
-            targets += [Feature.object(data)]
-
-        return Batch(inputs=inputs, targets=targets)
-
-    def __repr__(self):
-        inpt = ',\n\t'.join([repr(x) for x in self.inputs])
-        trgt = ',\n\t'.join([repr(x) for x in self.targets])
-        return f"<Batch\n" \
-               f"   inputs=(\n\t{inpt})\n" \
-               f"   targets=(\n\t{trgt})>"
-
-    def __eq__(self, other):
-        if not isinstance(other, Batch):
-            return False
-        feats_self, feats_other = [*self.inputs, *self.targets], [*other.inputs, *other.targets]
-        if len(feats_self) != len(feats_other):
-            return False
-        for f_self, f_other in zip(feats_self, feats_other):
-            if f_self != f_other:
-                return False
-        return True
 
 
 DataType = Union[np.ndarray, torch.Tensor]

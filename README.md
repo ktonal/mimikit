@@ -33,51 +33,17 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 
 - [ ] code cleanup
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
-        - [x] SampleRNN
-            - [x] no HOM
-            - [x] from_config()
-            - [x] IOSpec
-            - [x] loss fn
-        - [x] WaveNet
-            - [x] no HOM
-            - [x] from_config()
-            - [x] IOSpec
-            - [x] loss fn
         - [ ] S2S
             - [x] no HOM
             - [ ] from_config()
             - [ ] IOSpec
-        - [x] remove HOMS module and impls
-    - [X] Factor Train ARM in TrainLoop
+    - [ ] Factor Train ARM in TrainLoop
         - [ ] save configs
     - [ ] Cleanup GenerateLoop
         - [ ] **parameters
         - [ ] getters/setters
-        - [x] move AudioLogger from Callback to Loop
-    - [x] Cleanup Callbacks and loggers
-        - [x] CheckpointCallback
-            - [x] remove h5 stuff
-            - [x] save HP with OmegaConf
-        - [x] AudioLogger
-            - [x] remove h5 stuff
-            - [x] pydub for audio write
-    - [X] Feature Configs
-        - [X] MuLaw
-        - [X] FFT
-        - [x] batch items units in samples
-    - [x] Cleanup Loss Functions
+        - [ ] move AudioLogger from Callback to Loop
     - [ ] Cleanup Activations
-    - [ ] IOSpec
-        - [ ] layers can contribute to loss
-        - [ ] GenerateLoop
-    - [ ] Scripts
-        - [ ] General Flow:
-            IOSpec() -> soundbank
-            Network(..., io_spec, ...) -> model
-            Loop(soundbank, model, config)
-        - [ ] SampleRNN
-        - [ ] FreqNet
-        - [ ] S2S
 - [ ] Views / UI
     - [ ] File / Data View
     - [ ] Networks View
@@ -91,10 +57,17 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] validate config
         - [ ] call main()
     - [ ] make_notebooks
+        - [ ] Scripts
+            - [ ] General Flow:
+                IOSpec() -> soundbank
+                Network(..., io_spec, ...) -> model
+                Loop(soundbank, model, config)
+            - [ ] SampleRNN
+            - [ ] FreqNet
+            - [ ] S2S
         - [ ] hide code
         - [ ] embed UI state?
         - [ ] test on colab
-- [X] Upgrade pytorch lightning
 - [ ] Ensemble NoteBook
 - [ ] Clustering NoteBook
     - [ ] class ClusterBank(h5m.TypedFile):
@@ -113,6 +86,12 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] integration with Features
 - [ ] Multiple IO
     - [ ] AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
+        - [ ] AR --> Input == Target --> shared data
+        - [ ] Fixture --> no target --> data is read or passed
+        - [ ] Auxiliary --> no input --> output is just collected
+    - [ ] Batch Alignment for
+        - [ ] Multiple SR
+        - [ ] Multiple Domains
     - [ ] Models support
     - [ ] TrainLoop Support
     - [ ] GenLoop Support
@@ -121,6 +100,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] Mixture of Logistics
         - [ ] Mixture of Gaussian 
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
+    - [ ] Layers can contribute to loss
 - [ ] New Features
     - [ ] KMer (seqPrior)
     - [ ] BitVector
@@ -130,7 +110,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] (Learnable) MFCC
     - [ ] Mixed Batch (fft + signal + clusters)
 - [ ] New Networks
-    - [ ] SampleGan (WaveGan with labeled segments)
+    - [ ] SampleGan (WaveGan with labeled segments?)
     - [ ] Stable Diffusion Experiment
     
     
