@@ -40,12 +40,14 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Factor Train ARM in TrainLoop
         - [ ] save configs
     - [ ] Cleanup GenerateLoop
+        - [ ] Prompt Index
         - [ ] **parameters
         - [ ] getters/setters
         - [ ] move AudioLogger from Callback to Loop
-    - [ ] Cleanup Activations
 - [ ] Views / UI
     - [ ] File / Data View
+        - [x] FilePicker
+        - [ ] FileUpload
     - [ ] Networks View
         - [ ] SampleRNN
         - [ ] FreqNet
@@ -92,9 +94,11 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Batch Alignment for
         - [ ] Multiple SR
         - [ ] Multiple Domains
+    - [ ] Same Variable, different repr (e.g. x_0 -> Raw, MuLaw --> ?)
     - [ ] Models support
     - [ ] TrainLoop Support
     - [ ] GenLoop Support
+    - [ ] Logger/Display Support
 - [ ] Target Distributions
     - Scalar and Vector
         - [ ] Mixture of Logistics
@@ -111,6 +115,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Mixed Batch (fft + signal + clusters)
 - [ ] New Networks
     - [ ] SampleGan (WaveGan with labeled segments?)
+    - [ ] PocoNet
     - [ ] Stable Diffusion Experiment
     
     

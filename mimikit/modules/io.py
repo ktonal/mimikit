@@ -162,7 +162,7 @@ class IOFactory(Config):
             )
 
         elif self.module_type == 'framed_conv1d':
-            self.not_none("frame_size", "hop_length", "out_dim")
+            self.not_none("frame_size", "out_dim")
             mod = nn.Sequential(
                 Flatten(-2),  # -> (batch, n_frames * frame_size)
                 Unsqueeze(-1),  # -> (batch, n_frames * frame_size, 1)
@@ -192,6 +192,8 @@ class IOFactory(Config):
 
         after = []
         if self.activation is not None and self.activation.act != "Identity":
+            if self.activation.scaled:
+                self.activation.dim = out_dim
             after += [self.activation.get()]
         if self.dropout > 0:
             after += [nn.Dropout(self.dropout)]
@@ -222,7 +224,7 @@ class ZipReduceVariables(nn.Module):
         self.heads = nn.ModuleList(modules)
         self.M = len(self.heads)
         if mode == "sum":
-            self.weights = torch.zeros(self.M, requires_grad=False)
+            self.weights = torch.ones(self.M, requires_grad=False)
         elif mode == "mean":
             self.weights = (torch.ones(self.M, requires_grad=False) / self.M).log_()
         elif mode == "static_mix":

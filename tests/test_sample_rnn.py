@@ -4,7 +4,7 @@ import pytest
 import torch
 from assertpy import assert_that
 
-from mimikit import MuLawSignal, IOFactory, MLPParams
+from mimikit import MuLawSignal, IOFactory, MLPParams, LinearParams
 from mimikit.networks.io_spec import *
 from mimikit.networks.sample_rnn_v2 import SampleRNN
 from mimikit.checkpoint import Checkpoint
@@ -24,25 +24,7 @@ def test_should_take_n_unfolded_inputs():
     given_frame_sizes = (16, 4, 2,)
     given_config = SampleRNN.Config(
         frame_sizes=given_frame_sizes,
-        io_spec=IOSpec(
-            inputs=(
-                InputSpec(
-                    feature=MuLawSignal(),
-                    module=IOFactory(
-                        module_type="framed_linear",
-                    )
-                ),
-            ),
-            targets=(
-                TargetSpec(
-                    feature=MuLawSignal(),
-                    module=IOFactory(
-                        module_type="mlp",
-                        params=MLPParams()
-                    ),
-                    objective=Objective("categorical_dist")
-                ),
-            )),
+        io_spec=SampleRNN.qx_io,
         inputs_mode='sum',
     )
     given_inputs = torch.arange(128).reshape(2, 64)
@@ -75,8 +57,8 @@ def test_should_load_when_saved(tmp_path_factory):
 def test_generate(
         given_temp
 ):
-    given_config = SampleRNN.Config()
-    q_levels = given_config.inputs[0].class_size
+    given_config = SampleRNN.Config(io_spec=SampleRNN.qx_io)
+    q_levels = given_config.io_spec.inputs[0].feature.q_levels
     srnn = SampleRNN.from_config(given_config)
 
     given_prompt = torch.randint(0, q_levels, (1, 32,))

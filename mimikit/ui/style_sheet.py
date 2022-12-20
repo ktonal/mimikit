@@ -9,26 +9,24 @@ MMK_STYLE_SHEET = W.HTML(
 """
 <style>
 
-/////////////  FILE PICKER
-
-.not-a-button {
+.picker-button {
     border: 0px !important;
     border-radius: 5px !important;
-    background-color: rgb(255, 255, 255) !important;
+    background-color: white !important;
     text-align: left !important;
 }
 .not-a-button:hover {
-    box-shadow: initial !important;
+    box-shadow: none !important;
 }
 .selected-button {
     background-color: lightgreen !important;
 }
 .selected {
-    overflow: scroll !important;
-    
+    overflow-wrap: anywhere !important;
+    text-color: black !important;
+    padding: 2px !important;
+    opacity: 1 !important;
 }
-
-/////////////  TOOLTIPS
 
 .tltp {
         border-radius: 8px 8px !important;

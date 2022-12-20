@@ -121,7 +121,6 @@ class IOSpec(Config):
                 targets[idx] = n
         return inputs, targets
 
-
     @property
     def is_auxiliary_target(self) -> List[bool]:
         in_feats = self.input_features

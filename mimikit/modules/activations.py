@@ -9,12 +9,11 @@ __all__ = [
     "ActivationEnum",
     "ActivationConfig",
     "Abs",
+    "Sin",
+    "Cos",
     "GatingUnit",
     "StaticScaledActivation",
     "ScaledActivation",
-    "ScaledAbs",
-    "ScaledTanh",
-    "ScaledSigmoid"
 ]
 
 
@@ -25,13 +24,15 @@ class ActivationEnum(AutoStrEnum):
     ReLU = auto()
     Identity = auto()
     Abs = auto()
+    Sin = auto()
+    Cos = auto()
 
 
 class ActivationConfig(Config):
     act: ActivationEnum = "Identity"
     scaled: bool = False
-    with_range: bool = False
     static: bool = False
+    with_rate: bool = False
 
     dim: int = private_runtime_field(None)
 
@@ -40,6 +41,10 @@ class ActivationConfig(Config):
             a = getattr(nn, self.act)()
         except AttributeError:
             a = globals()[self.act]()
+        if self.scaled:
+            if self.static:
+                return StaticScaledActivation(a, self.dim, self.with_rate)
+            return ScaledActivation(a, self.dim, self.with_rate)
         return a
 
 
@@ -47,6 +52,16 @@ class Abs(nn.Module):
 
     def forward(self, x):
         return x.abs()
+
+
+class Sin(nn.Module):
+    def forward(self, x):
+        return torch.sin(x)
+
+
+class Cos(nn.Module):
+    def forward(self, x):
+        return torch.cos(x)
 
 
 class GatingUnit(nn.Module):
@@ -60,40 +75,61 @@ class GatingUnit(nn.Module):
         return self.act_f(x_f) * self.act_g(x_g)
 
 
-class StaticScaledActivation(nn.Module):
-    def __init__(self, activation, dim):
-        super(StaticScaledActivation, self).__init__()
-        self.activation = activation
-        self.scales = nn.Parameter(torch.rand(dim, ) * 100, )
-        self.rg = nn.Parameter(torch.rand(dim, ), )
-        self.dim = dim
-
-    def forward(self, x):
-        s, rg = self.scales.to(x.device), self.rg.to(x.device)
-        return self.activation(rg * x / s) * s
-
-
 class ScaledActivation(nn.Module):
-    def __init__(self, activation, dim, with_range=True):
+    def __init__(self, activation, dim, with_rate=True):
         super(ScaledActivation, self).__init__()
         self.activation = activation
-        self.scales = nn.Linear(dim, dim)
+        self.s = nn.Linear(dim, dim)
+        self.r = nn.Linear(dim, dim) if with_rate else lambda x: 1.
         self.dim = dim
 
     def forward(self, x):
-        return self.activation(x) / self.activation(self.scales(x))
+        s, r = self.s(x), self.r(x)
+        return self.activation(r * x / s) * s
 
 
-class ScaledSigmoid(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledSigmoid, self).__init__(nn.Sigmoid(), dim, with_range)
+class StaticScaledActivation(nn.Module):
+    def __init__(self, activation, dim, with_rate=True):
+        super(StaticScaledActivation, self).__init__()
+        self.activation = activation
+        self.s = nn.Parameter(torch.rand(dim, ) * 20, )
+        self.r = nn.Parameter(torch.rand(dim, ) * .1, ) if with_rate else 1.
+        self.dim = dim
+
+    def forward(self, x):
+        s, r = self.s.to(x.device), self.r.to(x.device)
+        return self.activation(r * x / s) * s
 
 
-class ScaledTanh(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledTanh, self).__init__(nn.Tanh(), dim, with_range)
+PI = torch.acos(torch.zeros(1)).item()
+
+# Legacy activations for fft Phases:
+# here `phs` is real output: (B, T, n_fft//2+1)
 
 
-class ScaledAbs(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledAbs, self).__init__(Abs(), dim, with_range)
+class PhaseA(nn.Module):
+    def __init__(self, dim):
+        super(PhaseA, self).__init__()
+        self.psis = nn.Parameter(torch.ones(dim, ))
+        self.tanh = nn.Tanh()
+
+    def forward(self, phs):
+        return torch.cos(self.tanh(phs) * self.psis) * PI
+
+
+class PhaseB(nn.Module):
+    def __init__(self, dim):
+        super(PhaseB, self).__init__()
+        self.psis = nn.Parameter(torch.ones(dim))
+
+    def forward(self, phs):
+        return torch.cos(phs * self.psis) * PI
+
+
+class PhaseC(nn.Module):
+    def __init__(self):
+        super(PhaseC, self).__init__()
+        self.tanh = nn.Tanh()
+
+    def forward(self, phs):
+        return self.tanh(phs) * PI

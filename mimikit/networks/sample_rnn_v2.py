@@ -8,7 +8,7 @@ from .arm import ARMWithHidden, ARMConfig
 from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
 from ..features.audio import MuLawSignal
 from ..features.ifeature import DiscreteFeature, TimeUnit
-from ..modules.io import IOFactory, ZipReduceVariables, ZipMode, MLPParams
+from ..modules.io import IOFactory, ZipReduceVariables, ZipMode, MLPParams, LinearParams
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -87,7 +87,7 @@ class SampleRNNTier(nn.Module):
         else:
             if hidden is None or x.size(0) != hidden.size(1):
                 B = x.size(0)
-                h0 = nn.Parameter(torch.randn(self.n_rnn, B, self.hidden_dim).to(x.device))
+                h0 = torch.randn(self.n_rnn, B, self.hidden_dim).to(x.device)
                 return h0
             else:
                 return hidden.detach()
@@ -237,13 +237,11 @@ class SampleRNN(ARMWithHidden, nn.Module):
 
     def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1):
         return tuple(spec.feature.copy()
-                     .set_frame(self.frame_sizes[0], self.frame_sizes[0])
-                     .batch_item(length, unit, downsampling)
+                     .batch_item(length+self.frame_sizes[0], unit, downsampling)
                      for spec in self.config.io_spec.inputs
                      ), \
                tuple(spec.feature.copy()
                      .add_shift(self.frame_sizes[0], TimeUnit.sample)
-                     .add_length(-self.frame_sizes[0], TimeUnit.sample)
                      .batch_item(length, unit, downsampling)
                      for spec in self.config.io_spec.targets
                      )
@@ -253,12 +251,17 @@ class SampleRNN(ARMWithHidden, nn.Module):
             feature=MuLawSignal(),
             module=IOFactory(
                 module_type="framed_linear",
+                params=LinearParams()
             )),),
         targets=(TargetSpec(
             feature=MuLawSignal(),
             module=IOFactory(
                 module_type="mlp",
-                params=MLPParams(hidden_dim=128)
+                params=MLPParams(hidden_dim=128, n_hidden_layers=0)
             ),
             objective=Objective("categorical_dist")
         ),))
+
+    # TODO?
+    #  - per tier feature (diff q_levels, ...)
+    #  - per tier config (hidden_dim, rnn,...)

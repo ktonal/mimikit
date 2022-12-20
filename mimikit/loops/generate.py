@@ -1,4 +1,4 @@
-from typing import Optional, Any, Callable, Tuple, Iterable, Dict, overload, Sized
+from typing import Optional, Any, Callable, Tuple, Iterable, Dict, overload, Sized, Literal
 import numpy as np
 import torch
 import h5mapper as h5m
@@ -37,6 +37,19 @@ def prepare_prompt(device, prompt, n_blanks, at_least_nd=2):
 def generate_tqdm(rng):
     return tqdm(rng, desc="Generate", dynamic_ncols=True,
                 leave=False, unit="step", mininterval=0.25)
+
+
+class SamplerIndex(h5m.Input):
+    def __call__(self, item, file=None):
+        return np.array([item])
+
+
+class Parameter:
+    def __init__(self, value, type: Literal["constant", "interp", "custom"]):
+        pass
+
+    def expand_as(self, tensor):
+        pass
 
 
 class GenerateLoop:
