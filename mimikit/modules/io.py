@@ -226,7 +226,7 @@ class ZipReduceVariables(nn.Module):
         if mode == "sum":
             self.weights = torch.ones(self.M, requires_grad=False)
         elif mode == "mean":
-            self.weights = (torch.ones(self.M, requires_grad=False) / self.M).log_()
+            self.weights = torch.ones(self.M, requires_grad=False) / self.M
         elif mode == "static_mix":
             self.weights = nn.Parameter(- torch.rand(self.M))
 

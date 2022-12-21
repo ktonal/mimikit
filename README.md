@@ -35,7 +35,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
         - [ ] S2S
             - [x] no HOM
-            - [ ] from_config()
+            - [x] from_config()
             - [ ] IOSpec
     - [ ] Factor Train ARM in TrainLoop
         - [ ] save configs
@@ -47,12 +47,15 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Views / UI
     - [ ] File / Data View
         - [x] FilePicker
-        - [ ] FileUpload
+        - [x] FileUpload
+        - [ ] NB Data cell with colab support
+    - [ ] IOSpec View
+        - [ ] Features
+        - [ ] IOFactory
     - [ ] Networks View
         - [ ] SampleRNN
-        - [ ] FreqNet
+        - [x] WaveNet
         - [ ] S2S
-    - [ ] Features View
     - [ ] Training View
     - [ ] `Run` Button
     - [ ] define UI in notebooks
@@ -85,7 +88,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] FFT window
 - [ ] class DataBank
     - [ ] Definition, Creation
-    - [ ] integration with Features
+    - [ ] integration with Features, IOSpec
 - [ ] Multiple IO
     - [ ] AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
         - [ ] AR --> Input == Target --> shared data
@@ -104,7 +107,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] Mixture of Logistics
         - [ ] Mixture of Gaussian 
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
-    - [ ] Layers can contribute to loss
+    - [ ] Layers can contribute to loss (e.g. ELBO)
 - [ ] New Features
     - [ ] KMer (seqPrior)
     - [ ] BitVector
@@ -124,6 +127,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Hooks for storing outputs
 - [ ] Multi-Checkpoint Models (stochastic averaging)
 - [ ] Resampler classes with `n_layers`
+- [ ] jitability
 - [ ] Network Visualizer (UI)
 - [ ] Resume Training
     - [ ] Optimizer in Checkpoint

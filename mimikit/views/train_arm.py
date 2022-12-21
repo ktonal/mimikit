@@ -8,26 +8,29 @@ __all__ = [
 
 
 def train_arm_view(cfg: TrainARMConfig):
+    label_layout = W.Layout(min_width="max-content", margin="0 0 0 auto")
+    param_layout = W.Layout(width="100%", margin="8px 0 8px 0")
     return UI.ConfigView(
         cfg,
         UI.Param(name="batch_size",
                  widget=UI.pw2_widget(
-                     W.Label(value="Batch Size: ", layout=W.Layout(min_width="max-content", margin="0 0 0 auto"),
+                     W.Label(value="Batch Size: ",
+                             layout=label_layout,
                              tooltip="test tooltip"),
                      W.Text(value="64", layout=W.Layout(width="25%"), disabled=False),
                      W.Button(icon="plus", layout=W.Layout(width="25%")),
                      W.Button(icon="minus", layout=W.Layout(width="25%")),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  ),
                  compute=lambda conf, v: int(v)
                  ),
         UI.Param(name="batch_length",
                  widget=UI.pw2_widget(
-                     W.Label(value="Batch Length: ", layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                     W.Label(value="Batch Length: ", layout=label_layout),
                      W.Text(value="64", layout=W.Layout(width="25%")),
                      W.Button(icon="plus", layout=W.Layout(width="25%")),
                      W.Button(icon="minus", layout=W.Layout(width="25%")),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  ),
                  compute=lambda conf, v: int(v)
                  ),
@@ -39,12 +42,12 @@ def train_arm_view(cfg: TrainARMConfig):
                                      "training will be performed for this number of epochs."),
                      W.IntText(value=cfg.max_epochs,
                                layout={"width": "70%", }),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  )),
         UI.Param(name="max_lr",
                  widget=UI.Labeled(
                      W.Label(value="Learning Rate: ",
-                             layout=W.Layout(min_width="max-content", margin="0 0 0 auto")
+                             layout=label_layout
                              ),
                      W.FloatSlider(
                          value=1e-3, min=1e-5, max=1e-2, step=.00001,
@@ -52,38 +55,38 @@ def train_arm_view(cfg: TrainARMConfig):
                          layout={"width": "75%"}
                      ),
                      W.HBox(
-                         layout=W.Layout(width="100%", margin="8px 0 8px 0")
+                         layout=param_layout
                      )
                  )),
         UI.Param(name="betas",
                  widget=UI.Labeled(
-                     W.Label(value="Beta 1", layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                     W.Label(value="Beta 1", layout=label_layout),
                      W.FloatLogSlider(
                          value=.9, min=-.75, max=0., step=.001, base=2,
                          layout={"width": "75%"}),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  ),
                  compute=lambda conf, ev: (ev, conf.betas[1])),
         UI.Param(name="betas",
                  widget=UI.Labeled(
-                     W.Label(value="Beta 2", layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                     W.Label(value="Beta 2", layout=label_layout),
                      W.FloatLogSlider(
                          value=.9, min=-.75, max=0., step=.001, base=2,
                          layout={"width": "75%"}),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  ),
                  compute=lambda conf, ev: (conf.betas[0], ev)),
         UI.Param(name="CHECKPOINT_TRAINING",
                  widget=UI.yesno_widget(
                      W.Label(value="Checkpoint Training: ",
-                             layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                             layout=label_layout),
                      container=W.HBox(layout=W.Layout(width="100%")),
                      initial_value=True,
                      buttons_layout=W.Layout(width="27.5%")
                  )),
         UI.Param(name="MONITOR_TRAINING",
                  widget=UI.yesno_widget(
-                     W.Label(value="Monitor Training: ", layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                     W.Label(value="Monitor Training: ", layout=label_layout),
                      container=W.HBox(layout=W.Layout(width="100%")),
                      initial_value=True,
                      buttons_layout=W.Layout(width="27.5%")
@@ -91,24 +94,24 @@ def train_arm_view(cfg: TrainARMConfig):
         UI.Param(name="every_n_epochs",
                  widget=UI.Labeled(
                      W.Label(value="Test/Checkpoint every $N$ epochs",
-                             layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                             layout=label_layout),
                      W.IntText(value=cfg.every_n_epochs,
                                layout={"width": "100px", }),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  )),
         UI.Param(name='n_examples',
                  widget=UI.Labeled(
-                     W.Label("$N$ Test examples", layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                     W.Label("$N$ Test examples", layout=label_layout),
                      W.IntText(value=cfg.n_examples,
                                layout={"width": "100px", }),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  )),
         UI.Param(name='n_steps',
                  widget=UI.Labeled(
-                     W.Label("Tests length (in sec.)", layout=W.Layout(min_width="max-content", margin="0 0 0 auto")),
+                     W.Label("Tests length (in sec.)", layout=label_layout),
                      W.IntText(value=16.,
                                layout={"width": "100px", }),
-                     W.HBox(layout=W.Layout(width="100%", margin="8px 0 8px 0"))
+                     W.HBox(layout=param_layout)
                  ))
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 titles=("Optimization Loop",), selected_index=0, layout=W.Layout(margin="0 auto 0 0", width="500px"))

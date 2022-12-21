@@ -1,6 +1,7 @@
 from ipywidgets import widgets as W
 import os
-import re
+
+from ..loops.callbacks import tqdm
 
 
 __all__ = [
@@ -9,6 +10,7 @@ __all__ = [
     "yesno_widget",
     "Labeled",
     "with_tooltip",
+    "UploadWidget",
 ]
 
 
@@ -114,3 +116,19 @@ def with_tooltip(widget, tooltip):
                     disabled=True,
                    ).add_class("tltp")
     return W.HBox([widget, tltp], layout=W.Layout(min_width="max_content",))
+
+
+def UploadWidget(dest="./"):
+    def write_uploads(inputs):
+        for file in tqdm(inputs["new"], leave=False):
+            with open(os.path.join(dest, file.name), "wb") as f:
+                f.write(file.content.tobytes())
+
+    upload = W.FileUpload(
+        accept='',
+        multiple=True,
+    )
+
+    upload.observe(write_uploads, names='value')
+
+    return upload

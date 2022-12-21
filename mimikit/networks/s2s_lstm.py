@@ -3,9 +3,10 @@ import torch.nn as nn
 from typing import Optional
 import dataclasses as dtc
 
+from ..config import Config
 from ..modules.activations import Abs
-from pytorch_lightning.utilities import AttributeDict
-
+from ..networks.arm import ARMConfig, ARMWithHidden
+from .io_spec import IOSpec
 from ..networks.parametrized_gaussian import ParametrizedGaussian
 
 __all__ = [
@@ -16,34 +17,42 @@ __all__ = [
 ]
 
 
-@dtc.dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class EncoderLSTM(nn.Module):
-    input_d: int = 512
-    model_dim: int = 512
-    num_layers: int = 1
-    n_lstm: Optional[int] = 1
-    bottleneck: Optional[str] = "add"
-    n_fc: Optional[int] = 1
-    bias: Optional[bool] = False
-    weight_norm: Optional[bool] = False
-    hop: int = 8
-    with_tbptt: bool = False
+    def __init__(
+            self,
+            input_d: int = 512,
+            model_dim: int = 512,
+            num_layers: int = 1,
+            n_lstm: Optional[int] = 1,
+            bottleneck: Optional[str] = "add",
+            n_fc: Optional[int] = 1,
+            bias: Optional[bool] = False,
+            weight_norm: Optional[bool] = False,
+            hop: int = 8,
+            with_tbptt: bool = False,
+    ):
+        super(EncoderLSTM, self).__init__()
+        self.model_dim = model_dim
+        self.num_layers = num_layers
+        self.n_lstm = n_lstm
+        self.bottleneck = bottleneck
+        self.hop = hop
+        self.with_tbptt = with_tbptt
 
-    def __post_init__(self):
-        nn.Module.__init__(self)
         self.lstms = nn.ModuleList([
-            nn.LSTM(self.input_d if i == 0 else self.model_dim,
-                    self.model_dim if self.bottleneck == "add" else self.model_dim // 2,
-                    bias=self.bias,
-                    num_layers=self.num_layers,
+            nn.LSTM(input_d if i == 0 else model_dim,
+                    model_dim if bottleneck == "add" else model_dim // 2,
+                    bias=bias,
+                    num_layers=num_layers,
                     batch_first=True, bidirectional=True)
-            for i in range(self.n_lstm)
+            for i in range(n_lstm)
         ])
         self.fc = nn.Sequential(
-            *[nn.Sequential(nn.Linear(self.model_dim, self.model_dim), nn.Tanh()) for _ in range(self.n_fc - 1)],
-            nn.Linear(self.model_dim, self.model_dim, bias=False),  # NO ACTIVATION !
+            *[nn.Sequential(nn.Linear(model_dim, model_dim), nn.Tanh())
+              for _ in range(n_fc - 1)],
+            nn.Linear(model_dim, model_dim, bias=False),  # NO ACTIVATION !
         )
-        if self.weight_norm:
+        if weight_norm:
             for lstm in self.lstms:
                 for name, p in dict(lstm.named_parameters()).items():
                     if "weight" in name:
@@ -84,23 +93,28 @@ class EncoderLSTM(nn.Module):
             return tuple(h_.detach() for h_ in h)
 
 
-@dtc.dataclass(init=True, repr=False, eq=False, frozen=False, unsafe_hash=True)
 class DecoderLSTM(nn.Module):
-    model_dim: int = 512
-    num_layers: int = 1
-    bottleneck: Optional[str] = "add"
-    bias: Optional[bool] = False
-    weight_norm: Optional[tuple] = (False, False)
+    def __init__(self,
+                 model_dim: int = 512,
+                 num_layers: int = 1,
+                 bottleneck: Optional[str] = "add",
+                 bias: Optional[bool] = False,
+                 weight_norm: Optional[tuple] = (False, False),
+                 ):
+        super(DecoderLSTM, self).__init__()
+        self.model_dim = model_dim
+        self.num_layers = num_layers
+        self.bottleneck = bottleneck
 
-    def __post_init__(self):
-        nn.Module.__init__(self)
-        self.lstm1 = nn.LSTM(self.model_dim, self.model_dim if self.bottleneck == "add" else self.model_dim // 2,
+        self.lstm1 = nn.LSTM(model_dim, model_dim if bottleneck == "add" else model_dim // 2,
                              bias=self.bias,
-                             num_layers=self.num_layers, batch_first=True, bidirectional=True)
-        self.lstm2 = nn.LSTM(self.model_dim, self.model_dim if self.bottleneck == "add" else self.model_dim // 2,
-                             bias=self.bias,
-                             num_layers=self.num_layers, batch_first=True, bidirectional=True)
-        for lstm, wn in zip([self.lstm1, self.lstm2], self.weight_norm):
+                             num_layers=num_layers,
+                             batch_first=True, bidirectional=True)
+        self.lstm2 = nn.LSTM(model_dim, model_dim if bottleneck == "add" else model_dim // 2,
+                             bias=bias,
+                             num_layers=num_layers,
+                             batch_first=True, bidirectional=True)
+        for lstm, wn in zip([self.lstm1, self.lstm2], weight_norm):
             if wn:
                 for name, p in dict(lstm.named_parameters()).items():
                     if "weight" in name:
@@ -133,44 +147,48 @@ def tile(a, dim, n_tile):
     return torch.index_select(a, dim, order_index.to(a.device))
 
 
-class Seq2SeqLSTMNetwork(nn.Module):
-    device = property(lambda self: next(self.parameters()).device)
+class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
+    class Config(ARMConfig):
+        io_spec: IOSpec = None
+        input_dim: int = 513
+        model_dim: int = 1024
+        num_layers: int = 1
+        n_lstm: int = 1
+        bottleneck: str = "add"
+        n_fc: int = 1
+        hop: int = 8
+        bias: Optional[bool] = False
+        weight_norm: bool = False
+        input_module: Optional[nn.Module] = None
+        output_module: Optional[nn.Module] = None
+        with_tbptt: bool = False
+        with_sampler: bool = True
+
+    @classmethod
+    def from_config(cls, cfg: "Seq2SeqLSTMNetwork.Config"):
+        enc = EncoderLSTM(cfg.input_dim,
+                          cfg.model_dim, cfg.num_layers, cfg.n_lstm, cfg.bottleneck, cfg.n_fc,
+                          bias=cfg.bias, weight_norm=cfg.weight_norm, hop=cfg.hop,
+                          with_tbptt=cfg.with_tbptt)
+        dec = DecoderLSTM(cfg.model_dim, cfg.num_layers, cfg.bottleneck,
+                          bias=cfg.bias, weight_norm=(cfg.weight_norm,) * 2)
+        return cls(cfg, input_module=None, output_module=None, encoder=enc, decoder=dec)
 
     def __init__(self,
-                 input_dim: int = 513,
-                 model_dim: int = 1024,
-                 num_layers: int = 1,
-                 n_lstm: int = 1,
-                 bottleneck: str = "add",
-                 n_fc: int = 1,
-                 hop: int = 8,
-                 bias: Optional[bool] = False,
-                 weight_norm: bool = False,
-                 input_module: Optional[nn.Module] = None,
-                 output_module: Optional[nn.Module] = None,
-                 with_tbptt: bool = False,
-                 with_sampler: bool = True
+                 config: "Seq2SeqLSTMNetwork.Config",
+                 input_module: nn.Module,
+                 output_module: nn.Module,
+                 encoder: EncoderLSTM,
+                 decoder: DecoderLSTM,
                  ):
-        init_ctx = locals()
         super(Seq2SeqLSTMNetwork, self).__init__()
-        init_ctx.pop("output_module")
-        init_ctx.pop("input_module")
-        init_ctx.pop("self")
-        init_ctx.pop("__class__")
-        self.hp = AttributeDict(init_ctx)
-        self.inpt_mod = input_module if input_module is not None else nn.Identity()
-        self.enc = EncoderLSTM(input_dim,
-                               model_dim, num_layers, n_lstm, bottleneck, n_fc,
-                               bias=bias, weight_norm=weight_norm, hop=hop,
-                               with_tbptt=with_tbptt)
-        self.dec = DecoderLSTM(model_dim, num_layers, bottleneck,
-                               bias=bias, weight_norm=(weight_norm,) * 2)
-        if with_sampler:
-            self.sampler = ParametrizedGaussian(model_dim, model_dim, bias=bias)
-        self.outpt_mod = nn.Sequential(
-            nn.Linear(model_dim, input_dim, bias=False), Abs()
-        ) if output_module is None else output_module
-        self.hop = self.rf = self.shift = self.hp.hop
+        self._config = config
+        self.inpt_mod = input_module
+        self.enc = encoder
+        self.dec = decoder
+        if config.with_sampler:
+            self.sampler = ParametrizedGaussian(config.model_dim, config.model_dim, bias=config.bias)
+        self.outpt_mod = output_module
         self.output_length = lambda n: n
 
     def forward(self, x, temperature=None):

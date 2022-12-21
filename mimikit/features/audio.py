@@ -8,7 +8,6 @@ __all__ = [
     'MuLawSignal',
     'ALawSignal',
     'Spectrogram',
-    'MultiScale',
 ]
 
 
@@ -87,35 +86,6 @@ class ALawSignal(DiscreteFeature):
 
     def inv(self, inputs):
         return self.inv_(self.base.inv(inputs))
-
-
-class MultiScale:
-
-    def __init__(self, base, frame_sizes, hop_lengths):
-        self.base = base
-        self.frame_sizes = frame_sizes
-        self.hop_lengths = hop_lengths
-
-    def transform(self, inputs):
-        return self.base.t(inputs)
-
-    def inv(self, inputs):
-        return self.base.inv(inputs)
-
-    def batch_item(self, data='snd', shift=0, length=1,
-                   frame_size=None, hop_length=None, center=False, pad_mode="reflect",
-                   training=True, **kwargs):
-        if training:
-            return tuple(
-                self.base.batch_item(data, self.frame_sizes[0] - fs, length,
-                                     frame_size=fs, hop_length=hop)
-                for fs, hop in zip(self.frame_sizes, self.hop_lengths)
-            )
-        else:
-            return self.base.batch_item(data, shift, length)
-
-    def loss_fn(self, output, target):
-        return self.base.loss_fn(output, target)
 
 
 # @dtc.dataclass(unsafe_hash=True)
