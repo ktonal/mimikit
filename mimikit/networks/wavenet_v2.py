@@ -238,6 +238,8 @@ class WaveNet(ARM, nn.Module):
         self._gen_context = {}
 
     def forward(self, inputs, **parameters):
+        if isinstance(inputs, (tuple, list)):
+            inputs = inputs[0]
         x = self.input_modules(inputs)
         x = self.transpose(x)
         in_1x1, skips = tuple(), None
