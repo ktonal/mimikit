@@ -41,6 +41,8 @@ class FilePicker:
                 .add_class("selected")
         ],
             layout=W.Layout(width="100%", ))
+        self.widget.observe = self.widget.children[-1].observe
+        self.widget.value = self.widget.children[-1].value
         self.selected = set() if self.multiple else None
         self.update()
 
@@ -70,12 +72,12 @@ class FilePicker:
         is_dir = os.path.isdir(os.path.join(self.root, path))
         if path[0] == '.' and not self.show_hidden:
             show = False
-        if not self.pattern.match(path) and not is_dir:
+        if not bool(re.search(self.pattern, path)) and not is_dir and show:
             show = True
         return show
 
     def disabled(self, path):
-        return not self.pattern.match(path) and not os.path.isdir(
+        return not bool(re.search(self.pattern, path)) and not os.path.isdir(
             os.path.join(self.root, path))
 
     def click_path(self, button):

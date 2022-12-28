@@ -167,16 +167,16 @@ class SampleRNN(ARMWithHidden, nn.Module):
         self.prompt_length = 0
 
     def forward(self, inputs: T):
+        # TODO: _forward_one_for_all, _forward_one_for_each
+        #  or add transforms before input modules...
         prev_output = None
         fs0 = self.frame_sizes[0]
         for tier, fs in zip(self.tiers[:-1], self.frame_sizes[:-1]):
             tier_input = (inputs[:, fs0 - fs:-fs],)
-            # print(tier_input)
             prev_output = tier.forward((tier_input, prev_output))
         fs = self.frame_sizes[-1]
         # :-1 is surprising but right!
         tier_input = (inputs[:, fs0 - fs:-1],)
-        # print(tier_input)
         prev_output = self.tiers[-1].forward((tier_input, prev_output))
         output = self.output_module(prev_output)
         return output
@@ -265,3 +265,4 @@ class SampleRNN(ARMWithHidden, nn.Module):
     # TODO?
     #  - per tier feature (diff q_levels, ...)
     #  - per tier config (hidden_dim, rnn,...)
+    #  - chunk_length schedule

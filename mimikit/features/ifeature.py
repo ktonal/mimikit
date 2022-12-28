@@ -105,9 +105,14 @@ class Feature(abc.ABC, Config):
     def h5m_type(self) -> h5m.Feature:
         ...
 
+    @property
+    @abc.abstractmethod
+    def time_unit(self) -> TimeUnit:
+        ...
+
     def add_shift(self, s: int, unit: Union[TimeUnit, str] = TimeUnit.sample):
         unit = TimeUnit.from_name(unit)
-        if unit is TimeUnit.step and hasattr(self, "hop_length"):
+        if unit is TimeUnit.step and self.time_unit is TimeUnit.frame:
             unit = TimeUnit.hop
         s = TimeUnit.to_samples(s, unit, self.seq_spec)
         self.seq_spec.shift += s
@@ -115,7 +120,7 @@ class Feature(abc.ABC, Config):
 
     def add_length(self, l: int, unit: Union[TimeUnit, str] = TimeUnit.sample):
         unit = TimeUnit.from_name(unit)
-        if unit is TimeUnit.step and hasattr(self, "hop_length"):
+        if unit is TimeUnit.step and self.time_unit is TimeUnit.frame:
             unit = TimeUnit.hop
         v = TimeUnit.to_samples(abs(l), unit, self.seq_spec)
         self.seq_spec.length += v if l > 0 else -v
@@ -129,7 +134,7 @@ class Feature(abc.ABC, Config):
     def batch_item(self, length=0, unit=TimeUnit.step, downsampling=1) -> h5m.Input:
         self.add_length(length, unit)
         s = self.seq_spec
-        if hasattr(self, "hop_length"):
+        if self.time_unit is TimeUnit.frame:
             s.length += s.frame_size - s.hop_length
         if hasattr(self, "hop_length") or getattr(self.seq_spec, "frame_size", None) is None:
             getter = h5m.AsSlice(shift=s.shift, length=s.length, downsampling=downsampling)
@@ -147,6 +152,9 @@ class Feature(abc.ABC, Config):
             return samples2frames(steps, self.seq_spec)
         return steps
 
+    def __hash__(self):
+        return hash(repr(self))
+
 
 class DiscreteFeature(Feature, abc.ABC):
     @property
@@ -159,6 +167,8 @@ class DiscreteFeature(Feature, abc.ABC):
     def vector_dim(self) -> int:
         ...
 
+    __hash__ = Feature.__hash__
+
 
 class RealFeature(Feature, abc.ABC):
     @property
@@ -170,6 +180,8 @@ class RealFeature(Feature, abc.ABC):
     @abc.abstractmethod
     def support(self) -> Tuple[float, float]:
         ...
+
+    __hash__ = Feature.__hash__
 
 
 DataType = Union[np.ndarray, torch.Tensor]

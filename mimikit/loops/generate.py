@@ -1,12 +1,15 @@
-from typing import Optional, Any, Callable, Tuple, Iterable, Dict, overload, Sized, Literal
+from typing import Optional, Any, Callable, Tuple, Iterable, Dict, overload, Sized, Literal, Union
 import numpy as np
 import torch
 import h5mapper as h5m
+from functools import partial
 
 from .callbacks import tqdm
 
+
 __all__ = [
     'GenerateLoop',
+    "GenerateLoopV2",
     'prepare_prompt',
     'generate_tqdm',
 ]
@@ -39,24 +42,45 @@ def generate_tqdm(rng):
                 leave=False, unit="step", mininterval=0.25)
 
 
-class SamplerIndex(h5m.Input):
+FillType = Union[Literal["blank", "data"], torch.Tensor]
+
+
+def fill(
+        x: Optional[torch.Tensor],
+        prior_t: Tuple[FillType, int],
+        n_steps: Tuple[FillType, int],
+):
+    if isinstance(x, np.ndarray):
+        x = torch.from_numpy(x)
+    if x is not None:
+        to_cat = [x]
+        dt, dev = x.dtype, x.device
+        B, D = x.size(0), x.shape[2:]
+    else:
+        to_cat = []
+        dt, dev = torch.float32, "cpu"
+        B, D = 1, (1, )
+    for fill_type, n in [prior_t, n_steps]:
+        if isinstance(fill_type, torch.Tensor):
+            assert fill_type.shape == (B,)
+            to_cat += [fill_type.expand(B, n, 1)]
+        elif fill_type == "blank":
+            to_cat += [torch.zeros(B, n, *D, dtype=dt, device=dev)]
+        elif fill_type == "data":
+            pass
+    return torch.cat(to_cat, dim=1)
+
+
+class PromptIndices(h5m.Input):
+    def __init__(self, n):
+        self.getter = h5m.Getter()
+        self.getter.n = n
+
     def __call__(self, item, file=None):
-        return np.array([item])
+        return np.array([item], dtype=np.int32)
 
 
-class Parameter:
-    def __init__(self, value, type: Literal["constant", "interp", "custom"]):
-        pass
-
-    def expand_as(self, tensor):
-        pass
-
-
-class GenerateLoop:
-    """
-    interfaces' length must equal the number of items in the batches of the DataLoader
-    if an interfaces has None as setter, it is considered a parameter, not a "generable"
-    """
+class GenerateLoopV2:
 
     class Config(Config):
         output_duration_sec: float = 1.
@@ -67,40 +91,149 @@ class GenerateLoop:
 
         output_file_template: Optional[str] = None
         display_waveform: bool = True
-        # either GenerateLoop exposes self.add_callback(...)
-        # or evaluators must wrap networks and implement after_generate...
-        # or the loop changes to run(prompts, **parameters) -> outputs
-        # maybe even:
-        # for prompt in loop.prompts:
-        #    output = loop.run(prompt, **parameters)
-        #    logger.write(output)
-        # --> finer factoring...
+        callback: Optional[Callable[[Tuple[torch.Tensor, ...]], None]] = None
 
     @classmethod
     def from_config(cls, config: Config, soundbank, network: ARM):
+        io_spec = network.config.io_spec
+        sr = io_spec.sr
+        unit = io_spec.unit
+        output_n_samples = int(sr * config.output_duration_sec)
+        prompt_n_samples = int(sr * config.prompts_length_sec)
+        if unit.name == "frame":
+            n_steps = output_n_samples // 1
+            prior_t = prompt_n_samples // 1
+        else:
+            n_steps = output_n_samples
+            prior_t = prompt_n_samples
+        max_len = prompt_n_samples
+        max_i = soundbank.snd.shape[0] - max_len
+        # todo: fixture get n_prior + n_steps
         prompt_batch, _ = network.train_batch(config.prompts_length_sec, "second")
-        max_len = max(inpt.length for inpt in prompt_batch)
-        sr = soundbank.snd.sr
-        indices = tuple(int(x * sr) if x is not None else x for x in config.prompts_position_sec)
+        prompt_batch = (
+            PromptIndices(n=max_i), *prompt_batch
+        )
+        indices = tuple(int(x * sr) if x is not None else x
+                        for x in config.prompts_position_sec)
         dataloader = soundbank.serve(
             prompt_batch,
             sampler=IndicesSampler(N=len(indices),
                                    indices=indices,
-                                   max_i=soundbank.snd.shape[0] - max_len,
+                                   max_i=max_i,
                                    redraw=True),
             shuffle=False,
             batch_size=config.batch_size
         )
-        targets = network.config.io_spec.targets
-        n_steps = {t.feature.seconds_to_steps(config.output_duration_sec) for t in targets}
-        assert len(n_steps) == 1
-        n_steps = n_steps.pop()
-        inputs_interfaces = None
-        targets_interfaces = None
-        parameters = None
 
         logger = AudioLogger(file_template=config.output_file_template,
                              title_template=config.output_file_template)
+
+        return cls(config, network, prior_t, n_steps, dataloader, logger)
+
+    def __init__(
+            self,
+            config: "GenerateLoopV2.Config",
+            network: ARM,
+            prior_t: int,
+            n_steps: int,
+            dataloader: torch.utils.data.DataLoader,
+            logger: AudioLogger,
+    ):
+        self.config = config
+        self.network = network
+        self.prior_t = prior_t
+        self.n_steps = n_steps
+        self.dataloader = dataloader
+        self.logger = logger
+        self._initial_device = None
+        self._was_training = False
+        self.device = None
+        self.template_vars = {}
+
+    def setup(self):
+        net = self.network
+        self._initial_device = net.device
+        self._was_training = net.training
+        net.eval()
+        self.device = 'cuda' if torch.cuda.is_available() else "cpu"
+        net.to(self.device)
+        torch.set_grad_enabled(False)
+
+    def teardown(self):
+        self.network.to(self._initial_device)
+        self.network.train() if self._was_training else None
+        torch.set_grad_enabled(True)
+
+    def run(self):
+
+        self.setup()
+
+        for batch in self.dataloader:
+            prompt_idx, batch = batch[0], batch[1:]
+            # prepare
+            batch = tuple((torch.from_numpy(x) if isinstance(x, np.ndarray) else x).to(self.device)
+                          for x in batch)
+            self.network.before_generate(batch, prompt_idx)
+
+            rf, prior_t, n_steps = self.network.rf, self.prior_t, self.n_steps
+
+            tensors = h5m.process_batch(
+                batch, lambda x: isinstance(x, torch.Tensor),
+                partial(fill, prior_t=("data", prior_t), n_steps=("blank", n_steps))
+            )
+            # todo: initialize targets & couple auto regressive features
+            params = self.config.parameters
+            params = {} if params is None else params
+
+            # generate
+            until = 0
+            for t in generate_tqdm(range(prior_t, prior_t + n_steps)):
+                if t < until:
+                    continue
+                inputs = tuple(tensor[:, t-rf:t] for tensor in tensors)
+                outputs = self.network.generate_step(inputs, t=t, **params)
+                if not isinstance(outputs, tuple):
+                    outputs = outputs,
+                for tensor, out in zip(tensors, outputs):
+                    # let the net return None when ignoring this step
+                    if out is not None:
+                        n_out = out.size(1)
+                        tensor.data[:, t:t+n_out] = out
+                        until = t + n_out
+
+            # wrap up
+            final_outputs = tuple(x.data for x in tensors)
+            self.network.after_generate(final_outputs, prompt_idx)
+
+            self.process_outputs(final_outputs, prompt_idx, **self.template_vars)
+            yield final_outputs
+            if self.config.callback is not None:
+                self.config.callback(final_outputs)
+        self.teardown()
+
+    def process_outputs(
+            self,
+            final_outputs: Tuple[torch.Tensor, ...],
+            prompt_idx: torch.Tensor,
+            **template_vars
+    ):
+        if self.config.output_file_template is None and not self.config.display_waveform:
+            return
+        features = self.network.config.io_spec.target_features
+        outputs = tuple(feature.inv(out) for feature, out in zip(features, final_outputs))
+        for output in outputs:
+            for example, idx in zip(output, prompt_idx):
+                if self.config.output_file_template is not None:
+                    self.logger.write(example, prompt_idx=idx.item(), **template_vars)
+                if self.config.display_waveform:
+                    self.logger.display(example, prompt_idx=idx.item(), **template_vars)
+
+
+class GenerateLoop:
+    """
+    interfaces' length must equal the number of items in the batches of the DataLoader
+    if an interfaces has None as setter, it is considered a parameter, not a "generable"
+    """
 
     def __init__(self,
                  # config: "GenerateLoop.Config",
@@ -142,13 +275,6 @@ class GenerateLoop:
         self.net.train() if self._was_training else None
         if self.disable_grads:
             torch.set_grad_enabled(True)
-
-    def _process_outputs(self, final_outputs, batch_idx):
-        for output in final_outputs:
-            if self.config.output_file_template:
-                self.logger.write_batch(output, batch_idx=batch_idx)
-            if self.config.display_waveform:
-                self.logger.display_batch(output, batch_idx=batch_idx)
 
     def run_epoch(self):
         pass

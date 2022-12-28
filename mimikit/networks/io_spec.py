@@ -6,7 +6,7 @@ import dataclasses as dtc
 from ..modules.targets import CategoricalSampler
 from ..utils import AutoStrEnum
 from ..config import Config
-from ..features.ifeature import Feature, DiscreteFeature, RealFeature
+from ..features.ifeature import Feature, DiscreteFeature, RealFeature, TimeUnit
 from ..modules.io import IOFactory
 from ..modules.loss_functions import MeanL1Prop
 
@@ -47,9 +47,6 @@ class Objective(Config):
     n_components: Optional[int] = None
     n_params: int = dtc.field(
         init=False, repr=False, default=1
-    )
-    support: Union[int, Tuple[float, float]] = dtc.field(
-        init=False, repr=False, default=2
     )
 
 
@@ -97,6 +94,28 @@ class IOSpec(Config):
             raise RuntimeError(f"Expected to find a single sample_rate "
                                f"but found several: '{srs}'")
         return srs.pop()
+
+    @property
+    def unit(self) -> TimeUnit:
+        units = {i.feature.time_unit for i in [*self.inputs, *self.targets]}
+        if len(units) > 1:
+            # it is the responsibility of the user to have consistent unit
+            raise RuntimeError(f"Expected to find a single time unit "
+                               f"but found several: '{units}'")
+        return units.pop()
+
+    @property
+    def loss_fn(self):
+        def func(output, target):
+            out = {}
+            L = 0.
+            for spec, o, t in zip(self.targets, output, target):
+                d = spec.loss_fn(o, t)
+                L += d["loss"]
+                out[str(type(spec.feature))] = d["loss"]
+            out["loss"] = L
+            return out
+        return func
 
     @property
     def input_features(self) -> List[Feature]:

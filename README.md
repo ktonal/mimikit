@@ -37,13 +37,14 @@ You can explore the outputs of different trainings done with `mimikit` at this d
             - [x] no HOM
             - [x] from_config()
             - [ ] IOSpec
-    - [ ] Factor Train ARM in TrainLoop
-        - [ ] save configs
+        - [ ] update Checkpoint methods
     - [ ] Cleanup GenerateLoop
-        - [ ] Prompt Index
-        - [ ] **parameters
-        - [ ] getters/setters
-        - [ ] move AudioLogger from Callback to Loop
+        - [x] Prompt Index
+        - [x] **parameters
+        - [x] getters/setters
+        - [x] move AudioLogger from Callback to Loop
+        - [x] migrate train loop 
+        - [ ] migrate ensemble
 - [ ] Views / UI
     - [ ] File / Data View
         - [x] FilePicker
@@ -56,7 +57,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] SampleRNN
         - [x] WaveNet
         - [ ] S2S
-    - [ ] Training View
+    - [x] Training View
     - [ ] `Run` Button
     - [ ] define UI in notebooks
         - [ ] validate config
@@ -92,8 +93,13 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Multiple IO
     - [ ] AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
         - [ ] AR --> Input == Target --> shared data
+            prompt must be: prior_t data + n_steps blank
+            !! target interface must come from data
         - [ ] Fixture --> no target --> data is read or passed
+            prompt must be: prior_t + n_steps data
+            !! this modifies the length of the Dataset!
         - [ ] Auxiliary --> no input --> output is just collected
+            prompt must be: priot_t + n_steps blank
     - [ ] Batch Alignment for
         - [ ] Multiple SR
         - [ ] Multiple Domains
@@ -104,7 +110,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Logger/Display Support
 - [ ] Target Distributions
     - Scalar and Vector
-        - [ ] Mixture of Logistics
+        - [x] Mixture of Logistics
         - [ ] Mixture of Gaussian 
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
     - [ ] Layers can contribute to loss (e.g. ELBO)
@@ -116,10 +122,15 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] (Learnable) MelSpec
     - [ ] (Learnable) MFCC
     - [ ] Mixed Batch (fft + signal + clusters)
+    - [ ] Parametrized (one class, several params, e.g. q_levels=(2, 4, 8, ...))
 - [ ] New Networks
     - [ ] SampleGan (WaveGan with labeled segments?)
     - [ ] PocoNet
     - [ ] Stable Diffusion Experiment
+- [ ] Test utils
+    - [ ] test soundbank
+    - [ ] test model
+    - [ ] test checkpoint
     
     
 #### Future nice-to-have

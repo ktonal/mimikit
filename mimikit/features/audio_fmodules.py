@@ -1,3 +1,5 @@
+from typing import Optional
+
 import librosa
 import torch
 import torchaudio.functional as F
@@ -202,11 +204,16 @@ class STFT(FModule):
     hop_length: int = HOP_LENGTH
     coordinate: str = 'pol'
     center: bool = True
+    window: Optional[str] = None
+    pad_mode: str = "constant"
 
     def np_func(self, inputs):
         # returned shape is (time x freq)
         S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
-                         center=self.center,).transpose(-1, -2)
+                         center=self.center,
+                         window=self.window if self.window is not None else 1.,
+                         pad_mode=self.pad_mode
+                         ).transpose(-1, -2)
         if self.coordinate == 'pol':
             S = np.stack((abs(S), np.angle(S)), axis=-1)
         elif self.coordinate == 'car':
@@ -216,7 +223,8 @@ class STFT(FModule):
     def torch_func(self, inputs):
         S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
                        center=self.center,
-                       window=torch.hann_window(self.n_fft, device=inputs.device))
+                       window=torch.hann_window(self.n_fft, device=inputs.device),
+                       pad_mode=self.pad_mode)
         S = S.transpose(-1, -2).contiguous()
         if self.coordinate == 'pol':
             S = torch.stack((abs(S), torch.angle(S)), dim=-1)
@@ -231,6 +239,7 @@ class ISTFT(FModule):
     hop_length: int = HOP_LENGTH
     coordinate: str = 'pol'
     center: bool = True
+    window: Optional[str] = None
 
     def np_func(self, inputs):
         # inputs is of shape (time x freq)
@@ -238,7 +247,8 @@ class ISTFT(FModule):
             inputs = inputs[..., 0] * np.exp(1j * inputs[..., 1])
         elif self.coordinate == 'car':
             inputs = inputs[..., 0] * (1j * inputs[..., 1])
-        y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, center=self.center)
+        y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, center=self.center,
+                          window=self.window if self.window is not None else 1.)
         return y
 
     def torch_func(self, inputs):

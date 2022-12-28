@@ -48,12 +48,14 @@ class Conv1dResampler(nn.Module):
 
 class LSTMResampler(nn.Module):
 
-    def __init__(self, in_d, t_factor, d_factor, **kwargs):
+    def __init__(self, in_d, t_factor, d_factor, bidirectional=False, **kwargs):
         super().__init__()
-        self.lstm = nn.LSTM(in_d, int(in_d * t_factor * d_factor), batch_first=True, **kwargs)
+        self.lstm = nn.LSTM(in_d, int(in_d * t_factor * d_factor),
+                            batch_first=True, bidirectional=bidirectional, **kwargs)
         self.tf, self.df = t_factor, d_factor
+        self.bidirectional = bidirectional
 
     def forward(self, x, hidden=None):
         B, T, D = x.size()
         x, hidden = self.lstm(x, hidden)
-        return x.reshape(B, int(T * self.tf), int(D * self.df)), hidden
+        return x.reshape(B, int(T * self.tf), int(D * self.df) * (1 + self.bidirectional)), hidden

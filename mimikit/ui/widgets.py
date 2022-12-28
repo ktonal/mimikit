@@ -31,22 +31,25 @@ def EnumWidget(
         selected_index=0
 ):
     container.children = (label, *options)
+    dummy = W.Text(value='')
     container.value = options[selected_index].value if value_type is str else value_type(options[selected_index].value)
     for i, child in enumerate(options):
         def observer(ev, c=child, index=i):
             val = ev["new"]
-            if val:
+            if val and dummy.value != c.description:
                 container.selected_index = index
-                container.value = c.description if value_type is str else value_type(c.description)
+                dummy.value = c.description if value_type is str else value_type(c.description)
                 setattr(c, "button_style", "success")
                 for other in options:
                     if other.value and other is not c:
                         other.value = False
-            else:
-                c.button_style = ""
+                        other.button_style = ""
+            elif not val and dummy.value == c.description:
+                c.value = True
 
         child.observe(observer, "value")
     options[selected_index].value = True
+    container.observe = dummy.observe
     return container
 
 

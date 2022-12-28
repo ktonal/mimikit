@@ -1,6 +1,8 @@
 __version__ = '0.3.4'
 
 from . import checkpoint
+from . import config
+from . import dataset
 from . import extract
 from . import features
 from . import loops
@@ -13,6 +15,7 @@ from . import views
 
 from .checkpoint import *
 from .config import *
+from .dataset import *
 from .extract import *
 from .features import *
 from .loops import *
