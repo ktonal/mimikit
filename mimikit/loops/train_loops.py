@@ -210,6 +210,8 @@ class TrainLoop(LoggingHooks,
     def training_step(self, batch, batch_idx):
         batch, target = batch
         output = self.net.forward(batch)
+        if not isinstance(output, tuple):
+            output = output,
         return self.loss_fn(output, target)
 
     def run(self):
