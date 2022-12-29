@@ -1,5 +1,5 @@
 from enum import auto
-from typing import Optional, Tuple, Dict, Union, Iterable, List
+from typing import Optional, Tuple, Dict, Union, Iterable, List, Set
 import dataclasses as dtc
 import torch
 import torch.nn as nn
@@ -261,6 +261,10 @@ class SampleRNN(ARMWithHidden, nn.Module):
             ),
             objective=Objective("categorical_dist")
         ),))
+
+    @property
+    def generate_params(self) -> Set[str]:
+        return getattr(self.output_modules, "sampling_params", {})
 
     # TODO?
     #  - per tier feature (diff q_levels, ...)

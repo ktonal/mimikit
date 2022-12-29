@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import h5mapper as h5m
 
@@ -10,6 +10,7 @@ __all__ = [
     'MuLawSignal',
     'ALawSignal',
     'Spectrogram',
+    'SignalEnvelop',
 ]
 
 
@@ -127,7 +128,7 @@ class Spectrogram(RealFeature):
 
     # noinspection PyMethodOverriding
     def __post_init__(self):
-        self.seq_spec = SequenceSpec(self.sr, shift=-int(self.center)*self.n_fft//2,
+        self.seq_spec = SequenceSpec(self.sr, shift=0,
                                      frame_size=self.n_fft,
                                      hop_length=self.hop_length)
         self.base = AudioSignal(self.sr, self.emphasis)
@@ -151,3 +152,51 @@ class Spectrogram(RealFeature):
         return TimeUnit.frame
 
     __hash__ = RealFeature.__hash__
+
+
+class SignalEnvelop(RealFeature):
+    fft: Spectrogram = Spectrogram(n_fft=1024, hop_length=256, coordinate='mag',
+                                   center=True, pad_mode='reflect', window='hamming')
+    normalize: bool = True
+    up_sample_to_time_domain: bool = True
+    sr: Optional[int] = None
+
+    # noinspection PyMethodOverriding
+    def __post_init__(self):
+        self.seq_spec = self.fft.seq_spec
+        self.sr = self.fft.sr
+        self.hop_length = self.fft.hop_length
+
+    @property
+    def out_dim(self) -> int:
+        return 1
+
+    @property
+    def support(self) -> Tuple[float, float]:
+        return 0., 1. if self.normalize else float("inf")
+
+    def t(self, inputs):
+        return inputs
+
+    def inv(self, inputs):
+        return inputs
+
+    @property
+    def h5m_type(self) -> h5m.Feature:
+        return self.Extractor(self.fft, self.normalize,
+                              self.up_sample_to_time_domain)
+
+    @property
+    def time_unit(self) -> TimeUnit:
+        return TimeUnit.sample if self.up_sample_to_time_domain else TimeUnit.frame
+
+    __hash__ = RealFeature.__hash__
+
+    class Extractor(h5m.Array):
+        def __init__(self, fft, normalize=True, up_sample=True):
+            super().__init__()
+            self.extractor = T.Envelop(fft.t_, normalize, up_sample)
+            self.derived_from = 'snd'
+
+        def load(self, source):
+            return self.extractor(source)

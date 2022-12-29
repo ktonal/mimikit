@@ -6,6 +6,7 @@ import torchaudio.functional as F
 import torchaudio.transforms as T
 import numpy as np
 from scipy.signal import lfilter
+from scipy.interpolate import interp1d
 import dataclasses as dtc
 import abc
 
@@ -23,7 +24,8 @@ __all__ = [
     'STFT',
     'ISTFT',
     'MagSpec',
-    'GLA'
+    'GLA',
+    'Envelop'
 ]
 
 N_FFT = 2048
@@ -295,3 +297,27 @@ class GLA(FModule):
         # inputs is of shape (time x freq)
         return gla(inputs.transpose(-1, -2).contiguous())
 
+
+def up_sample_interp(x, rep):
+    xp = np.arange(x.shape[0])
+    f = interp1d(xp, x, "quadratic", assume_sorted=True, )
+    return f(np.linspace(0, x.shape[0] - 1, x.shape[0] * rep))
+
+
+@dtc.dataclass
+class Envelop(FModule):
+    fft: MagSpec
+    normalize: bool = True
+    up_sample_to_time_domain: bool = True
+
+    def np_func(self, inputs):
+        S = self.fft(inputs)
+        e = S.sum(axis=1)
+        if self.up_sample_to_time_domain:
+            e = up_sample_interp(e, self.fft.hop_length)[:inputs.shape[0]]
+        if self.normalize:
+            e /= e.max()
+        return e.astype(np.float32)
+
+    def torch_func(self, inputs):
+        return torch.from_numpy(self.np_func(inputs.detach().cpu().numpy()))

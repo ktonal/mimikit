@@ -6,6 +6,7 @@ from assertpy import assert_that
 import torch
 from torch.nn import Sigmoid
 
+from mimikit import IOSpec, InputSpec, TargetSpec, AudioSignal, IOFactory, LinearParams, Objective
 from mimikit.checkpoint import Checkpoint
 from mimikit.networks.wavenet_v2 import WNLayer, WaveNet
 
@@ -107,7 +108,7 @@ def test_layer_should_support_various_graphs(
 
 
 def test_should_instantiate_from_default_config():
-    given_config = WaveNet.Config()
+    given_config = WaveNet.Config(io_spec=WaveNet.qx_io)
 
     under_test = WaveNet.from_config(given_config)
 
@@ -116,7 +117,7 @@ def test_should_instantiate_from_default_config():
 
 
 def test_should_load_when_saved(tmp_path_factory):
-    given_config = WaveNet.Config()
+    given_config = WaveNet.Config(io_spec=WaveNet.qx_io)
     root = str(tmp_path_factory.mktemp("ckpt"))
     wn = WaveNet.from_config(given_config)
     ckpt = Checkpoint(id="123", epoch=1, root_dir=root)
@@ -134,8 +135,8 @@ def test_should_load_when_saved(tmp_path_factory):
 def test_generate(
         given_temp
 ):
-    given_config = WaveNet.Config()
-    q_levels = given_config.batch.inputs[0].q_levels
+    given_config = WaveNet.Config(io_spec=WaveNet.qx_io)
+    q_levels = given_config.io_spec.inputs[0].feature.q_levels
     wn = WaveNet.from_config(given_config)
 
     given_prompt = torch.randint(0, q_levels, (1, 128,))
@@ -151,3 +152,57 @@ def test_generate(
     assert_that(type(output)).is_equal_to(tuple)
     assert_that(output[0].size(0)).is_equal_to(given_prompt.size(0))
     assert_that(output[0].ndim).is_equal_to(given_prompt.ndim)
+
+
+def test_should_support_multiple_io():
+    given_io = IOSpec(
+        inputs=(
+            InputSpec(
+                feature=AudioSignal(sr=16000),
+                module=IOFactory(
+                    module_type='linear',
+                    params=LinearParams()
+                )
+            ),
+            InputSpec(
+                feature=AudioSignal(sr=16000),
+                module=IOFactory(
+                    module_type='linear',
+                    params=LinearParams()
+                )
+            ),
+        ),
+        targets=(
+            TargetSpec(
+                feature=AudioSignal(sr=16000),
+                module=IOFactory(
+                    module_type='linear',
+                    params=LinearParams()
+                ),
+                objective=Objective("reconstruction")
+            ),
+            TargetSpec(
+                feature=AudioSignal(sr=16000),
+                module=IOFactory(
+                    module_type='linear',
+                    params=LinearParams(),
+                ),
+                objective=Objective("reconstruction")
+            )),)
+    wn = WaveNet.from_config(WaveNet.Config(
+        io_spec=given_io,
+        dims_dilated=(128,),
+        dims_1x1=(44,)
+    ))
+
+    assert_that(wn).is_instance_of(WaveNet)
+
+    given_inputs = (
+        torch.randn(1, 32, 1),
+        torch.randn(1, 32, 1),
+    )
+
+    outputs = wn.forward(given_inputs)
+
+    assert_that(outputs).is_instance_of(tuple)
+    assert_that(outputs[0].size()).is_equal_to(outputs[1].size())

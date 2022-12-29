@@ -1,5 +1,5 @@
 import abc
-from typing import Tuple, Dict, Callable
+from typing import Tuple, Dict, Callable, Set
 import torch
 import h5mapper as h5m
 
@@ -64,6 +64,11 @@ class ARM(Configurable, torch.nn.Module):
                        final_outputs: Tuple[torch.Tensor, ...],
                        batch_index: int
                        ) -> None:
+        ...
+
+    @property
+    @abc.abstractmethod
+    def generate_params(self) -> Set[str]:
         ...
 
 

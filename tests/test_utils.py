@@ -1,4 +1,4 @@
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Set
 
 import pytest
 import torch
@@ -85,6 +85,10 @@ class TestARM(ARM, nn.Module):
                     .batch_item(length, unit)
                 for feat in self.config.io_spec.targets
             )
+
+    @property
+    def generate_params(self) -> Set[str]:
+        return set()
 
     def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         return

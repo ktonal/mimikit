@@ -6,7 +6,6 @@ from functools import partial
 
 from .callbacks import tqdm
 
-
 __all__ = [
     'GenerateLoop',
     "GenerateLoopV2",
@@ -59,7 +58,7 @@ def fill(
     else:
         to_cat = []
         dt, dev = torch.float32, "cpu"
-        B, D = 1, (1, )
+        B, D = 1, (1,)
     for fill_type, n in [prior_t, n_steps]:
         if isinstance(fill_type, torch.Tensor):
             assert fill_type.shape == (B,)
@@ -81,7 +80,6 @@ class PromptIndices(h5m.Input):
 
 
 class GenerateLoopV2:
-
     class Config(Config):
         output_duration_sec: float = 1.
         prompts_length_sec: float = 1.
@@ -89,8 +87,9 @@ class GenerateLoopV2:
         parameters: Optional[Dict[str, Any]] = None
         batch_size: int = 1
 
-        output_file_template: Optional[str] = None
+        output_name_template: Optional[str] = None
         display_waveform: bool = True
+        write_waveform: bool = False
         callback: Optional[Callable[[Tuple[torch.Tensor, ...]], None]] = None
 
     @classmethod
@@ -101,8 +100,9 @@ class GenerateLoopV2:
         output_n_samples = int(sr * config.output_duration_sec)
         prompt_n_samples = int(sr * config.prompts_length_sec)
         if unit.name == "frame":
-            n_steps = output_n_samples // 1
-            prior_t = prompt_n_samples // 1
+            hop_length = io_spec.hop_length
+            n_steps = output_n_samples // hop_length
+            prior_t = prompt_n_samples // hop_length
         else:
             n_steps = output_n_samples
             prior_t = prompt_n_samples
@@ -125,8 +125,10 @@ class GenerateLoopV2:
             batch_size=config.batch_size
         )
 
-        logger = AudioLogger(file_template=config.output_file_template,
-                             title_template=config.output_file_template)
+        logger = AudioLogger(
+            sr=sr,
+            file_template=config.output_name_template if config.write_waveform else None,
+            title_template=config.output_name_template if config.display_waveform else None)
 
         return cls(config, network, prior_t, n_steps, dataloader, logger)
 
@@ -184,13 +186,13 @@ class GenerateLoopV2:
             # todo: initialize targets & couple auto regressive features
             params = self.config.parameters
             params = {} if params is None else params
-
+            params = {k: v for k, v in params.items() if k in self.network.generate_params}
             # generate
             until = 0
             for t in generate_tqdm(range(prior_t, prior_t + n_steps)):
                 if t < until:
                     continue
-                inputs = tuple(tensor[:, t-rf:t] for tensor in tensors)
+                inputs = tuple(tensor[:, t - rf:t] for tensor in tensors)
                 outputs = self.network.generate_step(inputs, t=t, **params)
                 if not isinstance(outputs, tuple):
                     outputs = outputs,
@@ -198,7 +200,7 @@ class GenerateLoopV2:
                     # let the net return None when ignoring this step
                     if out is not None:
                         n_out = out.size(1)
-                        tensor.data[:, t:t+n_out] = out
+                        tensor.data[:, t:t + n_out] = out
                         until = t + n_out
 
             # wrap up
@@ -217,13 +219,13 @@ class GenerateLoopV2:
             prompt_idx: torch.Tensor,
             **template_vars
     ):
-        if self.config.output_file_template is None and not self.config.display_waveform:
+        if self.config.output_name_template is None and not self.config.display_waveform:
             return
         features = self.network.config.io_spec.target_features
         outputs = tuple(feature.inv(out) for feature, out in zip(features, final_outputs))
         for output in outputs:
             for example, idx in zip(output, prompt_idx):
-                if self.config.output_file_template is not None:
+                if self.config.write_waveform:
                     self.logger.write(example, prompt_idx=idx.item(), **template_vars)
                 if self.config.display_waveform:
                     self.logger.display(example, prompt_idx=idx.item(), **template_vars)

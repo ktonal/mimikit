@@ -1,9 +1,10 @@
 from enum import auto
-from typing import Tuple, Optional, Union, List
+from typing import Tuple, Optional, List
 import torch.nn as nn
 import dataclasses as dtc
+import h5mapper as h5m
 
-from ..modules.targets import CategoricalSampler
+from ..modules.targets import CategoricalSampler, MoLSampler, MoLLoss
 from ..utils import AutoStrEnum
 from ..config import Config
 from ..features.ifeature import Feature, DiscreteFeature, RealFeature, TimeUnit
@@ -35,9 +36,9 @@ class InputSpec(Config):
 class ObjectiveType(AutoStrEnum):
     reconstruction = auto()
     categorical_dist = auto()
+    logistic_dist = auto()
     bernoulli_dist = auto()
     continuous_bernoulli = auto()
-    logistic_dist = auto()
     gaussian_dist = auto()
     gaussian_elbo = auto()
 
@@ -65,6 +66,10 @@ class TargetSpec(Config):
             assert isinstance(self.feature, DiscreteFeature)
             self.module.set(out_dim=self.feature.class_size, sampler=CategoricalSampler())
             self._loss_fn = self.cross_entropy
+        elif self.objective.objective_type == 'logistic_dist':
+            self.module.set(out_dim=1, sampler=MoLSampler(self.objective.n_components),
+                            n_params=3, n_components=self.objective.n_components)
+            self._loss_fn = MoLLoss(self.objective.n_components, 'mean')
 
     @staticmethod
     def cross_entropy(output, target):
@@ -82,6 +87,11 @@ class TargetSpec(Config):
         return self._loss_fn
 
 
+EXTRACTOR_TYPE_2_DATASET_ATTR = dict(
+    Sound='snd', SignalEnvelop='env'
+)
+
+
 class IOSpec(Config):
     inputs: Tuple[InputSpec, ...]
     targets: Tuple[TargetSpec, ...]
@@ -94,6 +104,15 @@ class IOSpec(Config):
             raise RuntimeError(f"Expected to find a single sample_rate "
                                f"but found several: '{srs}'")
         return srs.pop()
+
+    @property
+    def hop_length(self):
+        hops = {i.feature.hop_length for i in [*self.inputs, *self.targets]}
+        if len(hops) > 1:
+            # it is the responsibility of the user to have consistent sr
+            raise RuntimeError(f"Expected to find a single hop_length "
+                               f"but found several: '{hops}'")
+        return hops.pop()
 
     @property
     def unit(self) -> TimeUnit:
@@ -116,6 +135,17 @@ class IOSpec(Config):
             out["loss"] = L
             return out
         return func
+
+    def dataset_class(self):
+        feats = [*self.input_features, *self.target_features]
+        attrs = {}
+        for i, f in enumerate(feats):
+            extractor = f.h5m_type
+            tp = type(extractor).__qualname__.split(".")[0]
+            attr = EXTRACTOR_TYPE_2_DATASET_ATTR[tp]
+            attrs[attr] = extractor
+            f.dataset_attr = attr
+        return type("Dataset", (h5m.TypedFile, ), attrs)
 
     @property
     def input_features(self) -> List[Feature]:

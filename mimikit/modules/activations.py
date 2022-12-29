@@ -14,6 +14,9 @@ __all__ = [
     "GatingUnit",
     "StaticScaledActivation",
     "ScaledActivation",
+    "PhaseA",
+    "PhaseB",
+    "PhaseC"
 ]
 
 
@@ -24,6 +27,9 @@ class ActivationEnum(AutoStrEnum):
     ReLU = auto()
     Identity = auto()
     Abs = auto()
+    PhaseA = auto()
+    PhaseB = auto()
+    PhaseC = auto()
     Sin = auto()
     Cos = auto()
 
@@ -38,9 +44,13 @@ class ActivationConfig(Config):
 
     def get(self):
         try:
-            a = getattr(nn, self.act)()
+            a = getattr(nn, self.act)
         except AttributeError:
-            a = globals()[self.act]()
+            a = globals()[self.act]
+        if self.act in ("PhaseA", "PhaseB"):
+            return a(self.dim)
+        else:
+            a = a()
         if self.scaled:
             if self.static:
                 return StaticScaledActivation(a, self.dim, self.with_rate)
@@ -92,16 +102,17 @@ class StaticScaledActivation(nn.Module):
     def __init__(self, activation, dim, with_rate=True):
         super(StaticScaledActivation, self).__init__()
         self.activation = activation
-        self.s = nn.Parameter(torch.rand(dim, ) * 20, )
-        self.r = nn.Parameter(torch.rand(dim, ) * .1, ) if with_rate else 1.
+        self.s = nn.Parameter(torch.rand(dim, ) * 100, )
+        self.r = nn.Parameter(1 + torch.rand(dim, ) * .1, ) if with_rate else torch.tensor([1.])
         self.dim = dim
 
     def forward(self, x):
         s, r = self.s.to(x.device), self.r.to(x.device)
-        return self.activation(r * x / s) * s
+        return self.activation(r * x) * s
 
 
 PI = torch.acos(torch.zeros(1)).item()
+
 
 # Legacy activations for fft Phases:
 # here `phs` is real output: (B, T, n_fft//2+1)

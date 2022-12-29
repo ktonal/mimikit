@@ -3,7 +3,7 @@ from enum import auto
 import torch
 import torch.nn as nn
 import dataclasses as dtc
-from typing import Optional, Tuple, Dict, List, Iterable
+from typing import Optional, Tuple, Dict, List, Iterable, Set
 from itertools import accumulate, chain
 import operator as opr
 
@@ -181,10 +181,10 @@ class WaveNet(ARM, nn.Module):
         groups: int = 1
         act_f: ActivationEnum = "Tanh"
         act_g: Optional[ActivationEnum] = "Sigmoid"
-        pad_side: int = 1
+        pad_side: int = 0
         stride: int = 1
         bias: bool = True
-        use_fast_generate: bool = True
+        use_fast_generate: bool = False
 
     @classmethod
     def get_layers(cls, config: "WaveNet.Config") -> List[WNLayer]:
@@ -213,47 +213,53 @@ class WaveNet(ARM, nn.Module):
         layers = cls.get_layers(config)
         all_dims = [*config.dims_dilated, *config.dims_1x1]
         # set Inner Connection
-        input_modules = [spec.module.copy().set(out_dim=h_dim).get()
+        input_modules = [spec.module.copy()
+                             .set(out_dim=h_dim)
+                             .get()
                          for spec, h_dim in zip(config.io_spec.inputs, all_dims)]
-        output_module = config.io_spec.targets[0].module.copy() \
-            .set(in_dim=all_dims[0] if config.skips_dim is None else config.skips_dim) \
-            .get()
-        return cls(config=config, layers=layers, input_modules=input_modules, output_module=output_module)
+        if config.skips_dim is not None:
+            all_dims[0] = config.skips_dim
+        all_dims = len(config.io_spec.targets) * [all_dims[0]]
+        output_module = [spec.module.copy()
+                             .set(in_dim=h_dim)
+                             .get()
+                         for spec, h_dim in zip(config.io_spec.targets, all_dims)]
+        return cls(config=config, layers=layers,
+                   input_modules=input_modules, output_modules=output_module)
 
     def __init__(
             self,
             config: "WaveNet.Config",
             layers: List[WNLayer],
             input_modules: List[nn.Module],
-            output_module: nn.Module
+            output_modules: List[nn.Module]
     ):
         super(WaveNet, self).__init__()
         self._config = config
-        self.input_modules = input_modules[0]  # TODO
+        self.input_modules = nn.ModuleList(input_modules)
         self.transpose = Transpose(1, 2)
         self.layers: Iterable[WNLayer] = nn.ModuleList(layers)
         self.has_skips = config.skips_dim is not None
-        self.output_module = output_module
+        self.output_modules = nn.ModuleList(output_modules)
         self.eval_slice = slice(-1, None) if config.pad_side == 1 else slice(0, 1)
         self._gen_context = {}
 
-    def forward(self, inputs, **parameters):
-        if isinstance(inputs, (tuple, list)):
-            inputs = inputs[0]
-        x = self.input_modules(inputs)
-        x = self.transpose(x)
-        in_1x1, skips = tuple(), None
+    def forward(self, inputs: Tuple, **parameters):
+        inputs = tuple(self.transpose(mod(x)) for mod, x in zip(self.input_modules, inputs))
+        dilated, in_1x1, skips = inputs[0], inputs[1:], None
         for layer in self.layers:
-            x, skips = layer.forward(
-                inputs_dilated=(x,), inputs_1x1=in_1x1, skips=skips
+            dilated, skips = layer.forward(
+                inputs_dilated=(dilated, ), inputs_1x1=in_1x1, skips=skips
             )
+            if not layer.needs_padding:
+                in_1x1 = tuple(layer.trim_cause(x) for x in in_1x1)
         if self.has_skips:
             y = self.transpose(skips)
         else:
-            y = self.transpose(x)
+            y = self.transpose(dilated)
         if not self.training:
             y = y[:, self.eval_slice]
-        return self.output_module(y, **parameters)
+        return tuple(mod(y, **parameters) for mod in self.output_modules)
 
     @classmethod
     def get_kernels_and_dilation(cls, kernel_sizes, blocks):
@@ -317,6 +323,10 @@ class WaveNet(ARM, nn.Module):
                      .add_length(self.output_length(0), "step")
                      .batch_item(length, unit, downsampling)
                      for spec in self.config.io_spec.targets)
+
+    @property
+    def generate_params(self) -> Set[str]:
+        return getattr(self.output_modules, "sampling_params", {})
 
     def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         if not self.use_fast_generate:
@@ -402,7 +412,7 @@ class WaveNet(ARM, nn.Module):
             inputs: Tuple[torch.Tensor, ...], *,
             t: int = 0,
             **parameters: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, ...]:
-        return self.forward(inputs[0], **parameters),
+        return self.forward(inputs, **parameters)
 
     def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         if not self.use_fast_generate:

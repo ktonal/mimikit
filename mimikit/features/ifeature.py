@@ -88,6 +88,7 @@ class TimeUnit(Enum):
 class Feature(abc.ABC, Config):
     sr: dtc.InitVar[Optional[int]] = None
     seq_spec: SequenceSpec = private_runtime_field(None)
+    dataset_attr: str = private_runtime_field(None)
 
     def __post_init__(self, sr):
         self.seq_spec = SequenceSpec(sr)
@@ -144,7 +145,7 @@ class Feature(abc.ABC, Config):
                                        frame_size=s.frame_size, hop_length=s.hop_length,
                                        center=s.center,
                                        downsampling=downsampling)
-        return h5m.Input(data="snd", getter=getter, transform=self.t)
+        return h5m.Input(data=self.dataset_attr, getter=getter, transform=self.t)
 
     def seconds_to_steps(self, duration):
         steps = seconds2samples(duration, self.seq_spec)

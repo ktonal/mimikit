@@ -121,6 +121,8 @@ class IOFactory(Config):
     def get(self) -> nn.Module:
         in_dim, out_dim, class_size, frame_size, hop_length = \
             self.in_dim, self.out_dim, self.class_size, self.frame_size, self.hop_length
+        n_params, n_components = self.n_params or 1, self.n_components or 1
+        out_dim *= n_params * n_components
 
         needs_casting = class_size is not None and "embedding" not in self.module_type
         is_freq_transform = self.module_type in ("fft", "melspec", "mfcc")
@@ -199,6 +201,8 @@ class IOFactory(Config):
             after += [nn.Dropout(self.dropout)]
         if self.dropout1d > 0:
             after += [nn.Dropout1d(self.dropout1d)]
+        if n_params > 1:
+            after += [Chunk(n_params)]
 
         if self.sampler is not None:
             return OutputWrapper(

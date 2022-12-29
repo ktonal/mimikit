@@ -11,7 +11,7 @@ from mimikit.checkpoint import Checkpoint
 
 
 def test_should_instantiate_from_default_config():
-    given_config = SampleRNN.Config()
+    given_config = SampleRNN.Config(io_spec=SampleRNN.qx_io)
 
     under_test = SampleRNN.from_config(given_config)
 
@@ -39,7 +39,7 @@ def test_should_take_n_unfolded_inputs():
 
 
 def test_should_load_when_saved(tmp_path_factory):
-    given_config = SampleRNN.Config()
+    given_config = SampleRNN.Config(io_spec=SampleRNN.qx_io)
     root = str(tmp_path_factory.mktemp("ckpt"))
     srnn = SampleRNN.from_config(given_config)
     ckpt = Checkpoint(id="123", epoch=1, root_dir=root)

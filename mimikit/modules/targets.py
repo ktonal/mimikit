@@ -1,7 +1,19 @@
-from typing import Literal, Tuple, Optional
+from typing import Literal, Tuple
 
 import torch
 from torch import distributions as D, nn as nn
+
+
+__all__ = [
+    "OutputWrapper",
+    "CategoricalSampler",
+    "MoLBase",
+    "MoLSampler",
+    "MoLLoss",
+    "MoLVectorBase",
+    "MoLVectorLoss",
+    "MoLVectorSampler"
+]
 
 
 class OutputWrapper(nn.Module):
@@ -16,9 +28,14 @@ class OutputWrapper(nn.Module):
             return self.sampler(params, **sampler_kwargs)
         return params
 
+    @property
+    def sampling_params(self):
+        return getattr(self.sampler, "sampling_params", {})
+
 
 class CategoricalSampler(nn.Module):
-        
+    sampling_params = {"temperature"}
+
     def forward(self, logits, *, temperature=None):
         if self.training:
             return logits
@@ -47,12 +64,12 @@ def Logistic(loc, scale) -> D.TransformedDistribution:
     )
 
 
-class MixtureOfLogisticsBase(nn.Module):
+class MoLBase(nn.Module):
     def __init__(
             self,
             n_components: int,
     ):
-        super(MixtureOfLogisticsBase, self).__init__()
+        super(MoLBase, self).__init__()
         self.n_components = n_components
 
     def mixture(self,
@@ -67,18 +84,19 @@ class MixtureOfLogisticsBase(nn.Module):
         )
     
 
-class MixtureOfLogisticsLoss(MixtureOfLogisticsBase, nn.Module):
+class MoLLoss(MoLBase, nn.Module):
     def __init__(
             self,
             n_components: int,
             reduction: Literal["sum", "mean", "none"],
     ):
-        super(MixtureOfLogisticsLoss, self).__init__(n_components=n_components)
+        super(MoLLoss, self).__init__(n_components=n_components)
         self.reduction = reduction
         
     def forward(self,
                 params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-                targets: torch.Tensor):
+                targets: torch.Tensor
+                ):
         mixture = self.mixture(params)
         probs = mixture.log_prob(targets.view(-1))
         if self.reduction != "none":
@@ -86,13 +104,13 @@ class MixtureOfLogisticsLoss(MixtureOfLogisticsBase, nn.Module):
         return probs
 
 
-class MixtureOfLogisticsSampler(MixtureOfLogisticsBase):
+class MoLSampler(MoLBase):
     def __init__(
             self,
             n_components: int,
             clamp_samples: Tuple[float, float] = (-1., 1.)
     ):
-        super(MixtureOfLogisticsSampler, self).__init__(n_components=n_components)
+        super(MoLSampler, self).__init__(n_components=n_components)
         self.clamp = clamp_samples
         
     def forward(
@@ -102,6 +120,76 @@ class MixtureOfLogisticsSampler(MixtureOfLogisticsBase):
         if self.training:
             return params
         mixture = self.mixture(params)
-        o_shape = params[0].shape
-        return mixture.sample((1,)).clamp(*self.clamp).reshape(*o_shape[:-1])
+        return mixture.sample((1,)).clamp(*self.clamp)
 
+
+def LogisticVector(loc, scale, dim) -> D.TransformedDistribution:
+    """credits to https://github.com/pytorch/pytorch/issues/7857"""
+    return D.TransformedDistribution(
+        D.Independent(D.Uniform(0, 1).expand((dim,)), 1),
+        [D.SigmoidTransform().inv, D.AffineTransform(loc, scale)]
+    )
+
+
+class MoLVectorBase(nn.Module):
+    def __init__(
+            self,
+            n_components: int,
+            vector_dim: int,
+    ):
+        super(MoLVectorBase, self).__init__()
+        self.n_components = n_components
+        self.vector_dim = vector_dim
+
+    def mixture(self,
+                fused_params: torch.Tensor,
+                ):
+        weight, params = fused_params[..., 0], fused_params[..., 1:]
+        loc, scale = params.chunk(2, -1)
+        dim, K = self.vector_dim, self.n_components
+        # assert weight.size(-1) == loc.size(-2) == scale.size(-2) == K
+        # weight, loc, scale = weight.view(-1, K), loc.view(-1, K, dim), scale.view(-1, K, dim)
+        return D.MixtureSameFamily(
+            D.Categorical(logits=weight), LogisticVector(loc, scale, self.vector_dim)
+        )
+
+
+class MoLVectorLoss(MoLVectorBase, nn.Module):
+    def __init__(
+            self,
+            n_components: int,
+            vector_dim: int,
+            reduction: Literal["sum", "mean", "none"],
+    ):
+        super(MoLVectorLoss, self).__init__(n_components=n_components, vector_dim=vector_dim)
+        self.reduction = reduction
+
+    def forward(self,
+                fused_params: torch.Tensor,
+                targets: torch.Tensor
+                ):
+        mixture = self.mixture(fused_params)
+        probs = mixture.log_prob(targets.view(-1, self.vector_dim))
+        if self.reduction != "none":
+            return - getattr(torch, self.reduction)(probs)
+        return probs
+
+
+class MoLVectorSampler(MoLVectorBase):
+    def __init__(
+            self,
+            n_components: int,
+            vector_dim: int,
+            clamp_samples: Tuple[float, float] = (-1., 1.)
+    ):
+        super(MoLVectorSampler, self).__init__(n_components=n_components, vector_dim=vector_dim)
+        self.clamp = clamp_samples
+
+    def forward(
+            self,
+            fused_params: torch.Tensor,
+    ):
+        if self.training:
+            return fused_params
+        mixture = self.mixture(fused_params)
+        return mixture.sample((1,)).clamp(*self.clamp).squeeze(0)

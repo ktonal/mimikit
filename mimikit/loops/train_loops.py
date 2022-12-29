@@ -101,10 +101,10 @@ class TrainLoop(LoggingHooks,
         n_workers = max(os.cpu_count(), min(cfg.batch_size, os.cpu_count()))
         prefetch = (cfg.batch_size // n_workers) // 2
         return soundbank.serve(batch,
-                               num_workers=n_workers,
-                               prefetch_factor=max(prefetch, 1),
-                               pin_memory=True,
-                               persistent_workers=True,
+                               num_workers=0,
+                               # prefetch_factor=max(prefetch, 1),
+                               # pin_memory=True,
+                               # persistent_workers=True,
                                **loader_kwargs
                                )
 
@@ -138,8 +138,9 @@ class TrainLoop(LoggingHooks,
                 prompts_position_sec=(None,)*cfg.n_examples,
                 parameters=dict(temperature=cfg.temperature),
                 batch_size=cfg.n_examples,
-                output_file_template=filename_template if cfg.OUTPUT_TRAINING else None,
-                display_waveform=cfg.MONITOR_TRAINING
+                output_name_template=filename_template,
+                display_waveform=cfg.MONITOR_TRAINING,
+                write_waveform=cfg.OUTPUT_TRAINING
             ),
             network=net, soundbank=soundbank
         )

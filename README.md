@@ -31,6 +31,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 
 #### v0.4.0
 
+- [ ] support n_components etc in IOSpec 
 - [ ] code cleanup
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
         - [ ] S2S
@@ -79,7 +80,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] class ClusterBank(h5m.TypedFile):
     - [ ] class ClusterLabel(Feature):
 - [ ] Segmentation NoteBook
-    - [ ] class Envelope(Feature):
+    - [x] class Envelope(Feature):
     - [ ] class SegmentLabel(Feature):
 - [ ] Output Evaluation NoteBook
 - [ ] UI Style sheet
@@ -91,6 +92,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Definition, Creation
     - [ ] integration with Features, IOSpec
 - [ ] Multiple IO
+    - [ ] tuple or not tuple
     - [ ] AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
         - [ ] AR --> Input == Target --> shared data
             prompt must be: prior_t data + n_steps blank
