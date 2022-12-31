@@ -27,14 +27,14 @@ def test_should_take_n_unfolded_inputs():
         io_spec=SampleRNN.qx_io,
         inputs_mode='sum',
     )
-    given_inputs = torch.arange(128).reshape(2, 64)
+    given_inputs = (torch.arange(128).reshape(2, 64), )
     # given_inputs[1] -= 64
     under_test = SampleRNN.from_config(given_config)
-    outputs: torch.Tensor = under_test(given_inputs)
+    outputs = under_test(given_inputs)
 
-    assert_that(type(outputs)).is_equal_to(torch.Tensor)
-    assert_that(outputs.shape).is_equal_to(
-        (2, given_inputs.size(1)-given_frame_sizes[0], given_config.io_spec.inputs[0].feature.q_levels)
+    assert_that(type(outputs)).is_equal_to(tuple)
+    assert_that(outputs[0].shape).is_equal_to(
+        (2, given_inputs[0].size(1)-given_frame_sizes[0], given_config.io_spec.inputs[0].feature.q_levels)
     )
 
 
@@ -61,16 +61,16 @@ def test_generate(
     q_levels = given_config.io_spec.inputs[0].feature.q_levels
     srnn = SampleRNN.from_config(given_config)
 
-    given_prompt = torch.randint(0, q_levels, (1, 32,))
+    given_prompt = (torch.randint(0, q_levels, (1, 32,)),)
     srnn.eval()
     # For now, prompts are just Tuple[T] (--> Tuple[Tuple[T, ...]] for multi inputs!)
-    srnn.before_generate((given_prompt,), batch_index=0)
+    srnn.before_generate(given_prompt, batch_index=0)
     output = srnn.generate_step(
-        (given_prompt[:, -srnn.rf:],),
-        t=given_prompt.size(1),
+        tuple(p[:, -srnn.rf:] for p in given_prompt),
+        t=given_prompt[0].size(1),
         temperature=given_temp)
     srnn.after_generate(output, batch_index=0)
 
     assert_that(type(output)).is_equal_to(tuple)
-    assert_that(output[0].size(0)).is_equal_to(given_prompt.size(0))
-    assert_that(output[0].ndim).is_equal_to(given_prompt.ndim)
+    assert_that(output[0].size(0)).is_equal_to(given_prompt[0].size(0))
+    assert_that(output[0].ndim).is_equal_to(given_prompt[0].ndim)

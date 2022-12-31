@@ -22,7 +22,7 @@ __all__ = [
 ]
 
 
-# @dtc.dataclass
+@dtc.dataclass
 class TrainARMConfig(Config):
     root_dir: str = './trainings'
     batch_size: int = 16
@@ -54,12 +54,14 @@ class TrainARMConfig(Config):
     temperature: Optional[Tuple[float]] = None
 
 
+@dtc.dataclass
 class ARMHP(Config):
     data: DatasetConfig
     network: ARMConfig
     training: TrainARMConfig
 
 
+# noinspection PyCallByClass
 class TrainLoop(LoggingHooks,
                 LightningModule):
 
@@ -100,11 +102,12 @@ class TrainLoop(LoggingHooks,
             loader_kwargs = dict(batch_size=cfg.batch_size, shuffle=True)
         n_workers = max(os.cpu_count(), min(cfg.batch_size, os.cpu_count()))
         prefetch = (cfg.batch_size // n_workers) // 2
+        with_cuda = torch.cuda.is_available()
         return soundbank.serve(batch,
-                               num_workers=0,
-                               # prefetch_factor=max(prefetch, 1),
-                               # pin_memory=True,
-                               # persistent_workers=True,
+                               num_workers=n_workers if with_cuda else 0,
+                               prefetch_factor=max(prefetch, 1) if with_cuda else 2,
+                               pin_memory=with_cuda,
+                               persistent_workers=with_cuda,
                                **loader_kwargs
                                )
 

@@ -28,7 +28,7 @@ def _get_type_object(type_) -> type:
         raise ImportError(f"could not find class '{qualname}' from module {module} in current environment")
 
 
-# @dtc.dataclass
+@dtc.dataclass
 class Config:
     type: str = dtc.field(init=False, repr=False, default="mimikit.config:Config")
 
@@ -46,17 +46,14 @@ class Config:
         else:
             setattr(cls, "__annotations__", {"type": str})
         # a la pydantic.BaseModel! but breaks Pycharm type-hints for __init__...
-        if "__dataclass_fields__" not in cls.__dict__:
-            _dtc = dtc.dataclass(cls)
-            attrs = ["__init__", "__eq__", "__dataclass_params__", "__dataclass_fields__", "__repr__"]
-            for attr in attrs:
-                setattr(cls, attr, getattr(_dtc, attr))
+        # if "__dataclass_fields__" not in cls.__dict__:
+        #     _dtc = dtc.dataclass(cls)
+        #     attrs = ["__init__", "__eq__", "__dataclass_params__", "__dataclass_fields__", "__repr__"]
+        #     for attr in attrs:
+        #         setattr(cls, attr, getattr(_dtc, attr))
 
     @staticmethod
     def validate_class(cls: type):
-        # if len(cls.__qualname__.split(".")) < 2:
-        #     raise TypeError(f"Please define your Config class *within*"
-        #                     f" a Configurable class so that it can be saved and loaded")
         if "__dataclass_fields__" not in cls.__dict__:
             if not issubclass(cls, (tuple, list)):
                 raise TypeError("Please decorate your Config class with @dataclass"

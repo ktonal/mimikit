@@ -1,5 +1,5 @@
 from typing import Tuple
-
+import dataclasses as dtc
 from .config import Config
 
 __all__ = [
@@ -7,6 +7,7 @@ __all__ = [
 ]
 
 
+@dtc.dataclass
 class DatasetConfig(Config):
     sources: Tuple[str] = tuple()
     destination: str = "dataset.h5"

@@ -10,7 +10,7 @@ import mimikit.config
 
 
 class MyCustom(mimikit.config.Configurable, nn.Module):
-    # @dtc.dataclass
+    @dtc.dataclass
     class CustomConfig(mmk.Config):
         x: int = 1
 

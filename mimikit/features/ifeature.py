@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import dataclasses as dtc
 import abc
-from typing import Protocol, Union, Tuple, Optional
+from typing import Protocol, Union, Tuple, Optional, ClassVar
 import h5mapper as h5m
 
 from ..config import Config, private_runtime_field
@@ -84,11 +84,11 @@ class TimeUnit(Enum):
             return seconds2samples(x, spec)
 
 
-# @dtc.dataclass
+@dtc.dataclass
 class Feature(abc.ABC, Config):
     sr: dtc.InitVar[Optional[int]] = None
     seq_spec: SequenceSpec = private_runtime_field(None)
-    dataset_attr: str = private_runtime_field(None)
+    dataset_attr: ClassVar[str] = ''
 
     def __post_init__(self, sr):
         self.seq_spec = SequenceSpec(sr)

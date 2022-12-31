@@ -1,6 +1,7 @@
 from enum import auto
 import torch
 from torch import nn
+import dataclasses as dtc
 
 from ..config import Config, private_runtime_field
 from ..utils import AutoStrEnum
@@ -25,6 +26,7 @@ class ActivationEnum(AutoStrEnum):
     Sigmoid = auto()
     Mish = auto()
     ReLU = auto()
+    SoftPlus = auto()
     Identity = auto()
     Abs = auto()
     PhaseA = auto()
@@ -32,8 +34,10 @@ class ActivationEnum(AutoStrEnum):
     PhaseC = auto()
     Sin = auto()
     Cos = auto()
+    GLU = auto()
 
 
+@dtc.dataclass
 class ActivationConfig(Config):
     act: ActivationEnum = "Identity"
     scaled: bool = False
@@ -102,14 +106,16 @@ class StaticScaledActivation(nn.Module):
     def __init__(self, activation, dim, with_rate=True):
         super(StaticScaledActivation, self).__init__()
         self.activation = activation
-        self.s = nn.Parameter(torch.rand(dim, ) * 100, )
-        self.r = nn.Parameter(1 + torch.rand(dim, ) * .1, ) if with_rate else torch.tensor([1.])
+        self.s = nn.Parameter(torch.ones(dim, ), )
+        self.r = nn.Parameter(torch.ones(dim, )) if with_rate else torch.tensor([1.])
         self.dim = dim
 
     def forward(self, x):
-        s, r = self.s.to(x.device), self.r.to(x.device)
-        return self.activation(r * x) * s
+        s, r = self.s.to(x.device).expand(*(1,) * (len(x.size()) - 1), self.dim),\
+               self.r.to(x.device).expand(*(1,) * (len(x.size()) - 1), self.dim)
+        return self.activation(x) * s
 
+# softplus, - logsigmoid,
 
 PI = torch.acos(torch.zeros(1)).item()
 

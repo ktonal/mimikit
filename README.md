@@ -30,8 +30,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 ## Todo
 
 #### v0.4.0
-
-- [ ] support n_components etc in IOSpec 
+ 
 - [ ] code cleanup
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
         - [ ] S2S
@@ -113,7 +112,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Target Distributions
     - Scalar and Vector
         - [x] Mixture of Logistics
-        - [ ] Mixture of Gaussian 
+        - [x] Mixture of Gaussian 
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
     - [ ] Layers can contribute to loss (e.g. ELBO)
 - [ ] New Features

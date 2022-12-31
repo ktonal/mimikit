@@ -168,7 +168,7 @@ class WNLayer(nn.Module):
 
 
 class WaveNet(ARM, nn.Module):
-    # @dtc.dataclass
+    @dtc.dataclass
     class Config(ARMConfig):
         io_spec: IOSpec = None
         kernel_sizes: Tuple[int, ...] = (2,)

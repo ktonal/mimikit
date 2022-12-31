@@ -9,8 +9,7 @@ from ..utils import AutoStrEnum
 from ..config import Config
 from ..features.ifeature import Feature, DiscreteFeature, RealFeature, TimeUnit
 from ..modules.io import IOFactory
-from ..modules.loss_functions import MeanL1Prop
-
+from ..modules.loss_functions import MeanL1Prop, AngularDistance
 
 __all__ = [
     "InputSpec",
@@ -21,6 +20,7 @@ __all__ = [
 ]
 
 
+@dtc.dataclass
 class InputSpec(Config):
     feature: Feature
     module: IOFactory
@@ -37,12 +37,14 @@ class ObjectiveType(AutoStrEnum):
     reconstruction = auto()
     categorical_dist = auto()
     logistic_dist = auto()
+    logistic_vector = auto()
     bernoulli_dist = auto()
     continuous_bernoulli = auto()
     gaussian_dist = auto()
     gaussian_elbo = auto()
 
 
+@dtc.dataclass
 class Objective(Config):
     objective_type: ObjectiveType
     n_components: Optional[int] = None
@@ -51,6 +53,7 @@ class Objective(Config):
     )
 
 
+@dtc.dataclass
 class TargetSpec(Config):
     feature: Feature
     module: IOFactory
@@ -87,11 +90,7 @@ class TargetSpec(Config):
         return self._loss_fn
 
 
-EXTRACTOR_TYPE_2_DATASET_ATTR = dict(
-    Sound='snd', SignalEnvelop='env'
-)
-
-
+@dtc.dataclass
 class IOSpec(Config):
     inputs: Tuple[InputSpec, ...]
     targets: Tuple[TargetSpec, ...]
@@ -141,10 +140,8 @@ class IOSpec(Config):
         attrs = {}
         for i, f in enumerate(feats):
             extractor = f.h5m_type
-            tp = type(extractor).__qualname__.split(".")[0]
-            attr = EXTRACTOR_TYPE_2_DATASET_ATTR[tp]
+            attr = f.dataset_attr
             attrs[attr] = extractor
-            f.dataset_attr = attr
         return type("Dataset", (h5m.TypedFile, ), attrs)
 
     @property

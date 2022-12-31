@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import librosa
 import torch
@@ -25,7 +25,8 @@ __all__ = [
     'ISTFT',
     'MagSpec',
     'GLA',
-    'Envelop'
+    'Envelop',
+    'EnvelopBank'
 ]
 
 N_FFT = 2048
@@ -321,3 +322,15 @@ class Envelop(FModule):
 
     def torch_func(self, inputs):
         return torch.from_numpy(self.np_func(inputs.detach().cpu().numpy()))
+
+
+@dtc.dataclass
+class EnvelopBank(FModule):
+    envelops: Tuple[Envelop, ...]
+
+    def np_func(self, inputs):
+        return np.hstack([e(inputs) for e in self.envelops])
+
+    def torch_func(self, inputs):
+        return torch.from_numpy(self.np_func(inputs.detach().cpu().numpy()))
+

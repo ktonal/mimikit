@@ -1,4 +1,5 @@
 from typing import Tuple, Dict, Set
+import dataclasses as dtc
 
 import pytest
 import torch
@@ -59,11 +60,9 @@ def test_fixture_db(tmp_db):
 
 
 class TestARM(ARM, nn.Module):
+    @dtc.dataclass
     class Config(ARMConfig):
         io_spec: IOSpec = None
-
-        def __init__(self, io_spec):
-            self.io_spec = io_spec
 
     @property
     def config(self) -> ARMConfig:

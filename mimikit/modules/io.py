@@ -37,6 +37,7 @@ class ModuleType(AutoStrEnum):
     mlp = auto()
 
 
+@dtc.dataclass
 class ModuleParams(Config):
     pass
 
@@ -50,16 +51,19 @@ class Linearizer(nn.Module):
         return ((x.float() / self.class_size) - .5) * 2
 
 
+@dtc.dataclass
 class LinearParams(ModuleParams):
     bias: bool = True
 
 
+@dtc.dataclass
 class ChunkedLinearParams(ModuleParams):
     bias: bool = True
     n_heads: int = 1
     sum_heads: bool = True
 
 
+@dtc.dataclass
 class MLPParams(ModuleParams):
     hidden_dim: int = 128
     n_hidden_layers: int = 1
@@ -70,18 +74,21 @@ class MLPParams(ModuleParams):
     learn_temperature: bool = True
 
 
+@dtc.dataclass
 class LearnableFFT(ModuleParams):
     n_fft: int = 2048
     hop_length: int = 512
     coordinate: Literal["mag", "pol"] = "mag"
 
 
+@dtc.dataclass
 class LearnableMelSpec(ModuleParams):
     n_mel: int = 88
     n_fft: int = 2048
     hop_length: int = 512
 
 
+@dtc.dataclass
 class IOFactory(Config):
     module_type: ModuleType
     params: Optional[ModuleParams] = None
@@ -123,7 +130,8 @@ class IOFactory(Config):
             self.in_dim, self.out_dim, self.class_size, self.frame_size, self.hop_length
         n_params, n_components = self.n_params or 1, self.n_components or 1
         out_dim *= n_params * n_components
-
+        if self.activation is not None and self.activation.act == "GLU":
+            out_dim *= 2
         needs_casting = class_size is not None and "embedding" not in self.module_type
         is_freq_transform = self.module_type in ("fft", "melspec", "mfcc")
         unfold_input = isinstance(hop_length, int) or is_freq_transform

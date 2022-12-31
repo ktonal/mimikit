@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import h5mapper as h5m
 from functools import partial
+import dataclasses as dtc
 
 from .callbacks import tqdm
 
@@ -80,6 +81,7 @@ class PromptIndices(h5m.Input):
 
 
 class GenerateLoopV2:
+    @dtc.dataclass
     class Config(Config):
         output_duration_sec: float = 1.
         prompts_length_sec: float = 1.

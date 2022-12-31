@@ -1,5 +1,5 @@
 from typing import Optional, Tuple
-
+import dataclasses as dtc
 import h5mapper as h5m
 
 from . import audio_fmodules as T
@@ -14,13 +14,13 @@ __all__ = [
 ]
 
 
-# @dtc.dataclass(unsafe_hash=True)
+@dtc.dataclass
 class AudioSignal(RealFeature):
     sr: int = 22050
 
     emphasis: float = 0.
     h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
-
+    dataset_attr = "snd"
     out_dim = 1
     support = (-1., 1.)
 
@@ -46,7 +46,7 @@ class AudioSignal(RealFeature):
     __hash__ = RealFeature.__hash__
 
 
-# @dtc.dataclass(unsafe_hash=True)
+@dtc.dataclass
 class MuLawSignal(DiscreteFeature):
     sr: int = 16000
     emphasis: float = 0.
@@ -57,6 +57,7 @@ class MuLawSignal(DiscreteFeature):
     vector_dim = 1
 
     h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
+    dataset_attr = "snd"
 
     # noinspection PyMethodOverriding
     def __post_init__(self):
@@ -78,7 +79,7 @@ class MuLawSignal(DiscreteFeature):
     __hash__ = DiscreteFeature.__hash__
 
 
-# @dtc.dataclass(unsafe_hash=True)
+@dtc.dataclass
 class ALawSignal(DiscreteFeature):
     sr: int = 16000
     emphasis: float = 0.
@@ -89,6 +90,7 @@ class ALawSignal(DiscreteFeature):
     vector_dim = 1
 
     h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
+    dataset_attr = "snd"
 
     # noinspection PyMethodOverriding
     def __post_init__(self):
@@ -110,7 +112,7 @@ class ALawSignal(DiscreteFeature):
     __hash__ = DiscreteFeature.__hash__
 
 
-# @dtc.dataclass(unsafe_hash=True)
+@dtc.dataclass
 class Spectrogram(RealFeature):
     sr: int = 22050
     emphasis: float = 0.
@@ -125,6 +127,7 @@ class Spectrogram(RealFeature):
     support = (0., float("inf"))
 
     h5m_type = property(lambda self: h5m.Sound(sr=self.sr, normalize=True))
+    dataset_attr = "snd"
 
     # noinspection PyMethodOverriding
     def __post_init__(self):
@@ -154,12 +157,14 @@ class Spectrogram(RealFeature):
     __hash__ = RealFeature.__hash__
 
 
+@dtc.dataclass
 class SignalEnvelop(RealFeature):
     fft: Spectrogram = Spectrogram(n_fft=1024, hop_length=256, coordinate='mag',
                                    center=True, pad_mode='reflect', window='hamming')
     normalize: bool = True
     up_sample_to_time_domain: bool = True
     sr: Optional[int] = None
+    dataset_attr = "env"
 
     # noinspection PyMethodOverriding
     def __post_init__(self):
@@ -200,3 +205,30 @@ class SignalEnvelop(RealFeature):
 
         def load(self, source):
             return self.extractor(source)
+
+
+@dtc.dataclass
+class SignalEnvelopBank(RealFeature):
+    envelops: Tuple[SignalEnvelop, ...] = ()
+
+    @property
+    def out_dim(self) -> int:
+        return len(self.envelops)
+
+    @property
+    def support(self) -> Tuple[float, float]:
+        return 0., float('inf')
+
+    def t(self, inputs):
+        return inputs
+
+    def inv(self, inputs):
+        return inputs
+
+    @property
+    def h5m_type(self) -> h5m.Feature:
+        pass
+
+    @property
+    def time_unit(self) -> TimeUnit:
+        pass

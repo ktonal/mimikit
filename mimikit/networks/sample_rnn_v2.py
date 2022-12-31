@@ -94,6 +94,7 @@ class SampleRNNTier(nn.Module):
 
 
 class SampleRNN(ARMWithHidden, nn.Module):
+    @dtc.dataclass
     class Config(ARMConfig):
         io_spec: IOSpec = None
         frame_sizes: Tuple[int, ...] = (16, 8, 8)
@@ -102,20 +103,16 @@ class SampleRNN(ARMWithHidden, nn.Module):
         n_rnn: int = 1
         rnn_dropout: float = 0.
         rnn_bias: bool = True
-        unfold_inputs: bool = False
-
         inputs_mode: ZipMode = "sum"
 
     @classmethod
     def from_config(cls, config: "SampleRNN.Config") -> "SampleRNN":
-        assert len(config.io_spec.inputs) == len(config.io_spec.targets) == 1, \
-            "More than 1 feature isn't supported yet"
         tiers = []
-        in_spec = config.io_spec.inputs[0]
-        assert isinstance(in_spec.feature, DiscreteFeature)
         h_dim = config.hidden_dim
         for i, fs in enumerate(config.frame_sizes[:-1]):
-            modules = (in_spec.module.copy().set(frame_size=fs, hop_length=fs, out_dim=h_dim).get(),)
+            modules = tuple(in_spec.module.copy()
+                            .set(frame_size=fs, hop_length=fs, out_dim=h_dim).get()
+                            for in_spec in config.io_spec.inputs)
             input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
             tiers += [
                 SampleRNNTier(
@@ -130,14 +127,18 @@ class SampleRNN(ARMWithHidden, nn.Module):
                         if i < len(config.frame_sizes) - 2
                         else 1)
                 )]
-        if "framed" in in_spec.module.module_type:
-            modules = (IOFactory(module_type="framed_conv1d")
-                       .set(class_size=in_spec.feature.class_size,
-                            frame_size=config.frame_sizes[-1], hop_length=1, out_dim=h_dim).get(),)
-        else:
-            modules = (IOFactory(module_type="embedding_conv1d")
-                       .set(class_size=in_spec.feature.class_size,
-                            frame_size=config.frame_sizes[-1], hop_length=1, out_dim=h_dim).get(),)
+        modules = []
+        for in_spec in config.io_spec.inputs:
+            if "framed" in in_spec.module.module_type:
+                modules += [IOFactory(module_type="framed_conv1d")
+                                .set(class_size=in_spec.feature.class_size,
+                                     frame_size=config.frame_sizes[-1],
+                                     hop_length=1, out_dim=h_dim).get()]
+            else:
+                modules += [IOFactory(module_type="embedding_conv1d")
+                                .set(class_size=in_spec.feature.class_size,
+                                     frame_size=config.frame_sizes[-1],
+                                     hop_length=1, out_dim=h_dim).get()]
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
         tiers += [
             SampleRNNTier(
@@ -146,7 +147,8 @@ class SampleRNN(ARMWithHidden, nn.Module):
                 rnn_class="none",
                 up_sampling=None
             )]
-        output_module = config.io_spec.targets[0].module.copy().set(in_dim=h_dim).get()
+        output_module = [target_spec.module.copy().set(in_dim=h_dim).get()
+                         for target_spec in config.io_spec.targets]
         return cls(
             config=config, tiers=tiers, output_module=output_module)
 
@@ -154,41 +156,41 @@ class SampleRNN(ARMWithHidden, nn.Module):
             self, *,
             config: "SampleRNN.Config",
             tiers: Iterable[nn.Module],
-            output_module: nn.Module,
+            output_module: List[nn.Module],
     ):
         super(SampleRNN, self).__init__()
         self._config = config
         self.frame_sizes = config.frame_sizes
         self.tiers: List[SampleRNNTier] = nn.ModuleList(tiers)
-        self.output_module = output_module
+        self.output_modules = nn.ModuleList(output_module)
 
         # caches for inference
         self.outputs = []
         self.prompt_length = 0
 
-    def forward(self, inputs: T):
+    def forward(self, inputs: Tuple):
         # TODO: _forward_one_for_all, _forward_one_for_each
         #  or add transforms before input modules...
         prev_output = None
         fs0 = self.frame_sizes[0]
         for tier, fs in zip(self.tiers[:-1], self.frame_sizes[:-1]):
-            tier_input = (inputs[:, fs0 - fs:-fs],)
+            tier_input = tuple(inpt[:, fs0 - fs:-fs] for inpt in inputs)
             prev_output = tier.forward((tier_input, prev_output))
         fs = self.frame_sizes[-1]
         # :-1 is surprising but right!
-        tier_input = (inputs[:, fs0 - fs:-1],)
+        tier_input = tuple(inpt[:, fs0 - fs:-1] for inpt in inputs)
         prev_output = self.tiers[-1].forward((tier_input, prev_output))
-        output = self.output_module(prev_output)
+        output = tuple(mod(prev_output) for mod in self.output_modules)
         return output
 
     def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         self.outputs = [None] * (len(self.frame_sizes) - 1)
-        _batch = prompts[0][:, prompts[0].size(1) % self.rf:]
+        _batch = tuple(p[:, p.size(1) % self.rf:] for p in prompts)
         self.reset_hidden()
         self.prompt_length = len(_batch[0])
         # warm-up
         for t in range(self.rf, self.prompt_length):
-            self.generate_step((_batch[:, t - self.rf:t],), t=t)
+            self.generate_step(tuple(b[:, t - self.rf:t] for b in _batch), t=t)
 
     def generate_step(
             self,
@@ -199,25 +201,22 @@ class SampleRNN(ARMWithHidden, nn.Module):
         tiers = self.tiers
         outputs = self.outputs
         fs = self.frame_sizes
-        temperature = inputs[1] if len(inputs) > 1 else None
-        # TODO: multiple inputs
-        inputs = inputs[0]
         for i in range(len(tiers) - 1):
             if t % fs[i] == 0:
-                inpt = inputs[:, -fs[i]:]
+                inpt = tuple(inpt[:, -fs[i]:] for inpt in inputs)
                 if i == 0:
                     prev_out = None
                 else:
                     prev_out = outputs[i - 1][:, (t // fs[i]) % (fs[i - 1] // fs[i])].unsqueeze(1)
-                out = tiers[i](((inpt,), prev_out))
+                out = tiers[i]((inpt, prev_out))
                 outputs[i] = out
         if t < self.prompt_length:
             return tuple()
-        inpt = inputs[:, -fs[-1]:]
+        inpt = tuple(inpt[:, -fs[-1]:] for inpt in inputs)
         prev_out = outputs[-1][:, (t % fs[-2]) - fs[-2]].unsqueeze(1)
-        out = tiers[-1](((inpt,), prev_out))
-        out = self.output_module(out, temperature=temperature)
-        return (out.squeeze(-1) if len(out.size()) > 2 else out),
+        out = tiers[-1]((inpt, prev_out))
+        outputs = tuple(mod(out, **parameters) for mod in self.output_modules)
+        return tuple(out.squeeze(-1) if len(out.size()) > 2 else out for out in outputs)
 
     def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         self.outputs = []
@@ -237,7 +236,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
 
     def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1):
         return tuple(spec.feature.copy()
-                     .batch_item(length+self.frame_sizes[0], unit, downsampling)
+                     .batch_item(length + self.frame_sizes[0], unit, downsampling)
                      for spec in self.config.io_spec.inputs
                      ), \
                tuple(spec.feature.copy()
