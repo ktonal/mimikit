@@ -106,14 +106,14 @@ class StaticScaledActivation(nn.Module):
     def __init__(self, activation, dim, with_rate=True):
         super(StaticScaledActivation, self).__init__()
         self.activation = activation
-        self.s = nn.Parameter(torch.ones(dim, ), )
+        self.s = nn.Parameter(torch.randn(dim)*.01 + torch.zeros(dim, ), )
         self.r = nn.Parameter(torch.ones(dim, )) if with_rate else torch.tensor([1.])
         self.dim = dim
 
     def forward(self, x):
         s, r = self.s.to(x.device).expand(*(1,) * (len(x.size()) - 1), self.dim),\
                self.r.to(x.device).expand(*(1,) * (len(x.size()) - 1), self.dim)
-        return self.activation(x) * s
+        return self.activation(x).abs()
 
 # softplus, - logsigmoid,
 

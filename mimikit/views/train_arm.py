@@ -10,7 +10,7 @@ __all__ = [
 def train_arm_view(cfg: TrainARMConfig):
     label_layout = W.Layout(min_width="max-content", margin="0 0 0 auto")
     param_layout = W.Layout(width="100%", margin="8px 0 8px 0")
-    return UI.ConfigView(
+    view = UI.ConfigView(
         cfg,
         UI.Param(name="batch_size",
                  widget=UI.pw2_widget(
@@ -114,4 +114,6 @@ def train_arm_view(cfg: TrainARMConfig):
                      W.HBox(layout=param_layout)
                  ))
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                titles=("Optimization Loop",), selected_index=0, layout=W.Layout(margin="0 auto 0 0", width="500px"))
+                selected_index=0, layout=W.Layout(margin="0 auto 0 0", width="100%"))
+    view.set_title(0, "Optimization Loop")
+    return view

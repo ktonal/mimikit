@@ -54,7 +54,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] Features
         - [ ] IOFactory
     - [ ] Networks View
-        - [ ] SampleRNN
+        - [x] SampleRNN
         - [x] WaveNet
         - [ ] S2S
     - [x] Training View
@@ -62,6 +62,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] define UI in notebooks
         - [ ] validate config
         - [ ] call main()
+    - [ ] UI Style sheet
     - [ ] make_notebooks
         - [ ] Scripts
             - [ ] General Flow:
@@ -76,17 +77,50 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] test on colab
 - [ ] Ensemble NoteBook
 - [ ] Clustering NoteBook
-    - [ ] class ClusterBank(h5m.TypedFile):
-    - [ ] class ClusterLabel(Feature):
 - [ ] Segmentation NoteBook
-    - [x] class Envelope(Feature):
-    - [ ] class SegmentLabel(Feature):
 - [ ] Output Evaluation NoteBook
-- [ ] UI Style sheet
+- [ ] New Features API:
+    - [ ] unary callables
+        - [ ] class ClusterLabel(Feature):
+        - [x] class Envelope(Feature):
+        - [ ] Gradient
+        - [ ] class SegmentLabel(Feature):
+            - [ ] from rec mat
+            - [ ] from env bank
+        - [ ] KMer (seqPrior)
+        - [ ] BitVector
+        - [ ] MelSpec
+        - [ ] MFCC
+        - [x] Compose
+        - [ ] Stack(*functionals, ...)
+        - [ ] Cast
+        - [ ] UpSample1d / UpSampleResultOf(SomeFFTFunc(...))
+        - [ ] SignalToFile
+        - [ ] PlotSeries
+        - [ ] PlotSpectrogram
+    - [ ] Everybody gets an inverse
+    - [ ] Extractor
+    - [ ] Getters
+        - [ ] TimeIndex
+        - [ ] Slice
+        - [ ] Frame
+    - [ ] class Feature(extractor, getter, transform)
+    - [ ] IOSpec integration
+    - [ ] UI
+    - [ ] Nice to have:
+        - [ ] Scaler
+            - [ ] MinMax
+            - [ ] Normal
+        - [ ] Augmentation(functional, prob)
+        - [ ] Learnable STFT
+        - [ ] (Learnable) MelSpec
+        - [ ] (Learnable) MFCC
+        - [ ] Mixed Batch (fft + signal + clusters)
+        - [ ] Parametrized (one class, several params, e.g. q_levels=(2, 4, 8, ...))
 - [ ] Mu/A Law
     - [ ] fix librosa mulaw
     - [ ] compression param for MuLaw
-    - [ ] FFT window
+    - [x] FFT window
 - [ ] class DataBank
     - [ ] Definition, Creation
     - [ ] integration with Features, IOSpec
@@ -96,9 +130,12 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] AR --> Input == Target --> shared data
             prompt must be: prior_t data + n_steps blank
             !! target interface must come from data
-        - [ ] Fixture --> no target --> data is read or passed
+        - [ ] Fixture --> no target 
+            --> data is read
             prompt must be: prior_t + n_steps data
             !! this modifies the length of the Dataset!
+            --> data is transformed from (possibly AR) input
+            !! this DOESN'T modify the length
         - [ ] Auxiliary --> no input --> output is just collected
             prompt must be: priot_t + n_steps blank
     - [ ] Batch Alignment for
@@ -115,15 +152,6 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [x] Mixture of Gaussian 
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
     - [ ] Layers can contribute to loss (e.g. ELBO)
-- [ ] New Features
-    - [ ] KMer (seqPrior)
-    - [ ] BitVector
-    - [ ] TimeIndex
-    - [ ] Learnable STFT
-    - [ ] (Learnable) MelSpec
-    - [ ] (Learnable) MFCC
-    - [ ] Mixed Batch (fft + signal + clusters)
-    - [ ] Parametrized (one class, several params, e.g. q_levels=(2, 4, 8, ...))
 - [ ] New Networks
     - [ ] SampleGan (WaveGan with labeled segments?)
     - [ ] PocoNet
@@ -135,8 +163,13 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     
     
 #### Future nice-to-have
-
+- [ ] DataTransforms / Feature.compose
+    - [ ] MinMaxScaler
+    - [ ] StandardScaler
+    - etc....
+- [ ] Loss Terms
 - [ ] Hooks for storing outputs
+- [ ] flowtorch
 - [ ] Multi-Checkpoint Models (stochastic averaging)
 - [ ] Resampler classes with `n_layers`
 - [ ] jitability

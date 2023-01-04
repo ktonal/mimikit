@@ -13,5 +13,7 @@ h5mapper==0.2.4
 numba
 soxr
 pydub
-ipywidgets>=8.0.0
+ipywidgets==7.7.1
 omegaconf>=2.3.0
+# eigen solver for spectral clustering:
+pyamg

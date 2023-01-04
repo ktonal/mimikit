@@ -3,10 +3,10 @@ __version__ = '0.3.4'
 from . import checkpoint
 from . import config
 from . import dataset
-from . import extract
 from . import features
 from . import loops
 from . import modules
+from . import extract
 from . import models
 from . import networks
 from . import demos

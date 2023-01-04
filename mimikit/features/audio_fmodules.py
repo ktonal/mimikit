@@ -10,8 +10,11 @@ from scipy.interpolate import interp1d
 import dataclasses as dtc
 import abc
 
+from ..config import Config
 
 __all__ = [
+    'FModule',
+    'Compose',
     'FileToSignal',
     'Normalize',
     'Emphasis',
@@ -35,7 +38,8 @@ SR = 22050
 Q_LEVELS = 256
 
 
-class FModule(abc.ABC):
+@dtc.dataclass
+class FModule(abc.ABC, Config):
 
     @abc.abstractmethod
     def np_func(self, inputs):
@@ -52,14 +56,53 @@ class FModule(abc.ABC):
     def __call__(self, inputs):
         return self.functions[type(inputs)](inputs)
 
+    @property
+    @abc.abstractmethod
+    def inv(self) -> "FModule":
+        ...
+
 
 @dtc.dataclass
-class FileToSignal:
+class FileToSignal(FModule):
 
     sr: int = SR
 
-    def __call__(self, path):
+    def np_func(self, path):
         return librosa.load(path, sr=self.sr, mono=True, res_type='soxr_vhq')[0]
+
+    def torch_func(self, path):
+        return torch.from_numpy(self.np_func(path))
+
+    def __call__(self, path):
+        return self.np_func(path)
+
+    @property
+    def inv(self):
+        pass
+
+
+@dtc.dataclass
+class Compose(FModule):
+    functionals: Tuple[FModule, ...]
+
+    def __init__(self, *functionals: FModule):
+        self.functionals = functionals
+
+    def np_func(self, inputs):
+        raise NotImplementedError
+
+    def torch_func(self, inputs):
+        raise NotImplementedError
+
+    def __call__(self, inputs):
+        x = inputs
+        for f in self.functionals:
+            x = f(x)
+        return x
+
+    @property
+    def inv(self):
+        return Compose(*(f.inv for f in reversed(self.functionals)))
 
 
 @dtc.dataclass
@@ -72,6 +115,10 @@ class Normalize(FModule):
 
     def torch_func(self, inputs):
         return torch.nn.functional.normalize(inputs, p=self.p, dim=self.dim)
+
+    @property
+    def inv(self):
+        pass
 
 
 @dtc.dataclass
@@ -86,6 +133,10 @@ class Emphasis(FModule):
                          torch.tensor([1, 0]).to(inputs),  # a0, a1
                          torch.tensor([1, -self.emphasis]).to(inputs))  # b0, b1
 
+    @property
+    def inv(self):
+        pass
+
 
 @dtc.dataclass
 class Deemphasis(FModule):
@@ -99,6 +150,10 @@ class Deemphasis(FModule):
                          torch.tensor([1, - self.emphasis]).to(inputs),  # a0, a1
                          torch.tensor([1 - self.emphasis, 0]).to(inputs))  # b0, b1
 
+    @property
+    def inv(self):
+        pass
+
 
 @dtc.dataclass
 class Resample(FModule):
@@ -111,6 +166,10 @@ class Resample(FModule):
 
     def torch_func(self, inputs):
         return F.resample(inputs, self.orig_sr, self.target_sr)
+
+    @property
+    def inv(self):
+        pass
 
 
 @dtc.dataclass
@@ -129,6 +188,10 @@ class MuLawCompress(FModule):
         # return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
         return F.mu_law_encoding(inputs, self.q_levels)
 
+    @property
+    def inv(self):
+        pass
+
 
 @dtc.dataclass
 class MuLawExpand(FModule):
@@ -141,6 +204,10 @@ class MuLawExpand(FModule):
         # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
         # return torch.from_numpy(np_func(inputs.detach().cpu().numpy())).to(inputs.device)
         return F.mu_law_decoding(inputs, self.q_levels)
+
+    @property
+    def inv(self):
+        pass
 
 
 def _quantize_np(x_comp, q):
@@ -187,6 +254,10 @@ class ALawCompress(FModule):
         # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
         return torch.from_numpy(self.np_func(inputs.detach().cpu().numpy())).to(inputs.device)
 
+    @property
+    def inv(self):
+        pass
+
 
 @dtc.dataclass
 class ALawExpand(FModule):
@@ -199,6 +270,10 @@ class ALawExpand(FModule):
     def torch_func(self, inputs):
         # there are inconsistencies between librosa and torchaudio for MuLaw Stuff...
         return torch.from_numpy(self.np_func(inputs.detach().cpu().numpy())).to(inputs.device)
+
+    @property
+    def inv(self):
+        pass
 
 
 @dtc.dataclass
@@ -235,6 +310,10 @@ class STFT(FModule):
             S = torch.stack((S.real, S.imag), dim=-1)
         return S
 
+    @property
+    def inv(self):
+        pass
+
 
 @dtc.dataclass
 class ISTFT(FModule):
@@ -264,6 +343,10 @@ class ISTFT(FModule):
                         # center=self.center,
                         window=torch.hann_window(self.n_fft, device=inputs.device))
         return y
+
+    @property
+    def inv(self):
+        pass
 
 
 @dtc.dataclass
@@ -298,6 +381,10 @@ class GLA(FModule):
         # inputs is of shape (time x freq)
         return gla(inputs.transpose(-1, -2).contiguous())
 
+    @property
+    def inv(self):
+        pass
+
 
 def up_sample_interp(x, rep):
     xp = np.arange(x.shape[0])
@@ -307,9 +394,14 @@ def up_sample_interp(x, rep):
 
 @dtc.dataclass
 class Envelop(FModule):
-    fft: MagSpec
+    n_fft: int = N_FFT
+    hop_length: int = HOP_LENGTH
     normalize: bool = True
     up_sample_to_time_domain: bool = True
+
+    def __post_init__(self):
+        self.fft = MagSpec(self.n_fft, self.hop_length, 'mag', center=True,
+                           window="hann", pad_mode="reflect")
 
     def np_func(self, inputs):
         S = self.fft(inputs)
@@ -323,6 +415,10 @@ class Envelop(FModule):
     def torch_func(self, inputs):
         return torch.from_numpy(self.np_func(inputs.detach().cpu().numpy()))
 
+    @property
+    def inv(self):
+        pass
+
 
 @dtc.dataclass
 class EnvelopBank(FModule):
@@ -334,3 +430,6 @@ class EnvelopBank(FModule):
     def torch_func(self, inputs):
         return torch.from_numpy(self.np_func(inputs.detach().cpu().numpy()))
 
+    @property
+    def inv(self):
+        pass

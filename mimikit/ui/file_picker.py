@@ -7,7 +7,8 @@ from h5mapper import Sound
 __all__ = [
     "FilePicker",
     "SoundFilePicker",
-    "CheckpointPicker"
+    "CheckpointPicker",
+    "DatasetPicker"
 ]
 
 
@@ -62,8 +63,8 @@ class FilePicker:
         for button in self.widget.children[1].children:
             button.add_class("picker-button")
             #             print(button.description, self.selected)
-            if button.tooltip is not None and os.path.join(
-                    self.root, button.tooltip) in self.selected:
+            if button.tooltip is not None and self.selected is not None and \
+                    os.path.join(self.root, button.tooltip) in self.selected:
                 button.add_class("selected-button")
             button.on_click(self.click_path)
 
@@ -101,11 +102,13 @@ class FilePicker:
                     button.remove_class("selected-button")
                     self.selected = None
                 else:
-                    button.remove_class("selected-button")
+                    print("SELECT")
+                    button.add_class("selected-button")
                     self.selected = desc
-        self.widget.children[-1].value = os.path.split(self.selected)[-1] \
-            if not self.multiple else ", ".join([os.path.split(p)[-1] for p in self.selected])
+            self.widget.children[-1].value = os.path.split(self.selected)[-1] \
+                if not self.multiple else ", ".join([os.path.split(p)[-1] for p in self.selected])
 
 
 SoundFilePicker = partial(FilePicker, pattern=Sound.__re__)
 CheckpointPicker = partial(FilePicker, pattern=r".*\.h5$")
+DatasetPicker = partial(FilePicker, pattern=r".*\.h5$", multiple=False)

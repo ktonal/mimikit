@@ -10,7 +10,7 @@ __all__ = [
 def wavenet_view(cfg: WaveNet.Config):
     label_layout = W.Layout(min_width="max-content", margin="0 0 0 auto")
     param_layout = W.Layout(width="100%", margin="8px 0 8px 0")
-    return UI.ConfigView(
+    view = UI.ConfigView(
         cfg,
         UI.Param(name='kernel_sizes',
                  widget=UI.Labeled(
@@ -67,4 +67,6 @@ def wavenet_view(cfg: WaveNet.Config):
                  compute=lambda conf, ev: conf.dims_dilated[0] if ev else None
                  ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                titles=("WaveNet Config",), selected_index=0, layout=W.Layout(margin="0 auto 0 0", width="500px"))
+                selected_index=0, layout=W.Layout(margin="0 auto 0 0", width="100%"))
+    view.set_title(0, "WaveNet Config")
+    return view

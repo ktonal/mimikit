@@ -39,6 +39,10 @@ MMK_STYLE_SHEET = W.HTML(
     top: 2px !important;
     left: 8px !important;
 }
+
+.jupyter-widgets.widget-tab > .p-TabBar .p-TabBar-tab {
+    flex: 0 1 auto
+}
 </style>
 """
 )

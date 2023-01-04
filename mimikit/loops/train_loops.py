@@ -101,13 +101,13 @@ class TrainLoop(LoggingHooks,
         else:
             loader_kwargs = dict(batch_size=cfg.batch_size, shuffle=True)
         n_workers = max(os.cpu_count(), min(cfg.batch_size, os.cpu_count()))
-        prefetch = (cfg.batch_size // n_workers) // 2
+        prefetch = (cfg.batch_size // n_workers)
         with_cuda = torch.cuda.is_available()
         return soundbank.serve(batch,
-                               num_workers=n_workers if with_cuda else 0,
-                               prefetch_factor=max(prefetch, 1) if with_cuda else 2,
+                               num_workers=n_workers,
+                               prefetch_factor=max(prefetch, 2),
                                pin_memory=with_cuda,
-                               persistent_workers=with_cuda,
+                               persistent_workers=True,
                                **loader_kwargs
                                )
 
