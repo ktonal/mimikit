@@ -21,18 +21,18 @@ class MLP(nn.Module):
             bias: bool = True,
             dropout: float = 0.,
             dropout1d: float = 0.,
-            learn_temperature: bool = True,
+            min_temperature: Optional[float] = 1e-4,
     ):
         super(MLP, self).__init__()
         self.in_dim = in_dim
         self.hidden_dim = hidden_dim
-        self.out_dim = out_dim + int(learn_temperature)
+        self.out_dim = out_dim + int(min_temperature)
         self.n_hidden_layers = n_hidden_layers
         self.activation = activation
         self.bias = bias
         self.dropout = dropout
         self.dropout1d = dropout1d
-        self.learn_temperature = learn_temperature
+        self.learn_temperature = min_temperature is not None
 
         dp = []
         if dropout > 0.:
@@ -53,9 +53,11 @@ class MLP(nn.Module):
         )
         if self.learn_temperature:
             self.sigmoid = nn.Sigmoid()
+            self.register_buffer("min_temp", torch.tensor(min_temperature))
 
     def forward(self, x: torch.Tensor):
         logits = self.fc(x)
         if self.learn_temperature:
-            logits = logits[..., :-1] / self.sigmoid(logits[..., -1:])
+            temp = self.sigmoid(logits[..., -1:])
+            logits = logits[..., :-1] / torch.maximum(temp, self.min_temp)
         return logits

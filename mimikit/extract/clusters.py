@@ -130,10 +130,10 @@ class HCluster:
         Da = pwd(x, x, self.metric)
         xa = x.copy()
         Da[Da == 0] = np.inf
-        LBS = np.zeros((x.shape[0], self.max_iter), dtype=np.int)
+        LBS = np.zeros((x.shape[0], self.max_iter), dtype=int)
 
         for i in range(self.max_iter):
-            Adj_nearest = np.zeros_like(Da, dtype=np.bool)
+            Adj_nearest = np.zeros_like(Da, dtype=bool)
             nearest = Da.argmin(axis=1)
             Adj_nearest[np.arange(Da.shape[0]), nearest] = True
 

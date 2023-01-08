@@ -96,9 +96,8 @@ class MMKCheckpoint(Callback):
 
     def save_checkpoint(self, pl_module, epoch):
         root_dir, training_id = os.path.split(self.root_dir)
-        Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir).create(
-            self.config, pl_module.net, optimizer=None
-        )
+        Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir)\
+            .create(pl_module.net, self.config, optimizer=None)
 
 
 class GenerateCallback(pl.callbacks.Callback):

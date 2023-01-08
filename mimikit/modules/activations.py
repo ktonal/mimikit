@@ -38,7 +38,7 @@ class ActivationEnum(AutoStrEnum):
 
 
 @dtc.dataclass
-class ActivationConfig(Config):
+class ActivationConfig(Config, type_field=False):
     act: ActivationEnum = "Identity"
     scaled: bool = False
     static: bool = False

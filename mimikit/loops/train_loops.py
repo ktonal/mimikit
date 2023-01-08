@@ -12,8 +12,9 @@ from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint
 from .samplers import TBPTTSampler
 from .generate import GenerateLoopV2
 from ..dataset import DatasetConfig
-from ..networks.arm import ARM, ARMConfig
-from ..config import Config
+from ..features.item_spec import ItemSpec, Step
+from ..networks.arm import ARM
+from ..config import Config, TrainingConfig, NetworkConfig
 
 __all__ = [
     "TrainARMConfig",
@@ -57,7 +58,7 @@ class TrainARMConfig(Config):
 @dtc.dataclass
 class ARMHP(Config):
     data: DatasetConfig
-    network: ARMConfig
+    network: NetworkConfig
     training: TrainARMConfig
 
 
@@ -81,8 +82,9 @@ class TrainLoop(LoggingHooks,
                        soundbank,
                        net: ARM,
                        cfg: TrainARMConfig):
-
-        batch = net.train_batch(cfg.batch_length, "step", cfg.downsampling)
+        user_spec = ItemSpec(shift=0, length=cfg.batch_length,
+                             stride=cfg.downsampling, unit=Step())
+        batch = net.train_batch(user_spec)
 
         if cfg.tbptt_chunk_length is not None:
             # feature MUST be in time domain
@@ -101,11 +103,10 @@ class TrainLoop(LoggingHooks,
         else:
             loader_kwargs = dict(batch_size=cfg.batch_size, shuffle=True)
         n_workers = max(os.cpu_count(), min(cfg.batch_size, os.cpu_count()))
-        prefetch = (cfg.batch_size // n_workers)
         with_cuda = torch.cuda.is_available()
         return soundbank.serve(batch,
                                num_workers=n_workers,
-                               prefetch_factor=max(prefetch, 2),
+                               prefetch_factor=2,
                                pin_memory=with_cuda,
                                persistent_workers=True,
                                **loader_kwargs
@@ -165,34 +166,35 @@ class TrainLoop(LoggingHooks,
         return callbacks
 
     @classmethod
-    def from_config(cls, config: ARMHP, soundbank, network: ARM):
-        train_cfg = config.training
+    def from_config(cls, train_cfg: TrainARMConfig, soundbank, network: ARM):
         dataloader = cls.get_dataloader(soundbank, network, train_cfg)
-        optim = cls.get_optimizer(network, dataloader, train_cfg)
-        return cls(config, soundbank, dataloader, network,
-                   network.config.io_spec.loss_fn, optim)
+        ds_cfg = DatasetConfig(
+            destination=soundbank.filename,
+            sources=tuple(soundbank.index.keys())
+        )
+        hp = ARMHP(training=train_cfg, network=network.config, data=ds_cfg)
+        return cls(hp, soundbank, dataloader, network,
+                   network.config.io_spec.loss_fn)
 
     @property
     def config(self):
         return self._config
 
     def __init__(self,
-                 config: ARMHP,
+                 hp: ARMHP,
                  soundbank: h5m.SoundBank,
                  loader: torch.utils.data.DataLoader,
                  net: ARM,
                  loss_fn,
-                 optim,
                  ):
         super().__init__()
-        self._config = config
-        self.train_cfg = config.training
-        self.root_dir, self.hash_, self.output_template = self.get_os_paths(config)
+        self._config = hp
+        self.train_cfg = hp.training
+        self.root_dir, self.hash_, self.output_template = self.get_os_paths(hp)
         self.soundbank = soundbank
         self.loader = loader
         self.net = net
         self.loss_fn = loss_fn
-        self.optim = optim
         self.tbptt_len = self.train_cfg.tbptt_chunk_length
         if self.tbptt_len is not None:
             self.tbptt_len //= self.train_cfg.batch_length
@@ -202,7 +204,7 @@ class TrainLoop(LoggingHooks,
         )
 
     def configure_optimizers(self):
-        return self.optim
+        return self.get_optimizer(self.net, self.loader, self.config.training)
 
     def train_dataloader(self):
         return self.loader

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch
 from pprint import pprint
 
-from ..features import Resample, MuLawSignal
+from ..features import Resample
 from ..loops import GenerateLoop
 from ..checkpoint import Checkpoint
 from .nnn import NearestNextNeighbor
@@ -131,8 +131,9 @@ class Ensemble(nn.Module):
 
     @staticmethod
     def seconds_to_n_steps(seconds, net, feature):
-        return int(seconds * feature.sr) if isinstance(feature, MuLawSignal) \
-            else int(seconds * (feature.sr // feature.hop_length)) // getattr(net, "hop", 1)
+        # return int(seconds * feature.sr) if isinstance(feature, MuLawSignal) \
+        #     else int(seconds * (feature.sr // feature.hop_length)) // getattr(net, "hop", 1)
+        return seconds
 
     @staticmethod
     def get_params(event):

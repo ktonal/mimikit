@@ -1,77 +1,47 @@
-from dataclasses import dataclass
-from scipy.interpolate import interp1d
+import dataclasses as dtc
 import numpy as np
-import mimikit as mmk
 import librosa
 import matplotlib.pyplot as plt
 
+from ..features.functionals import Derivative, Envelop, Interpolate, Functional, Identity
 
-def stft(y, n_fft, hop):
-    # centered with reflection padding
-    r = n_fft // 2
-    y_padded = np.pad(y, (r, r), mode='reflect')
-    fft = mmk.Spectrogram(n_fft=n_fft, hop_length=hop, center=False, coordinate='mag')
-    S = fft.t(y_padded)
-    return S
+__all__ = [
+    "Samplifyer"
+]
 
 
-def upsample_interp(x, rep):
-    xp = np.arange(x.shape[0])
-    f = interp1d(xp, x, "quadratic", assume_sorted=True, )
-    return f(np.linspace(0, x.shape[0] - 1, x.shape[0] * rep))
-
-
-def gradients_bank(S, delays, T, hop):
-    grads = np.zeros((len(delays), T), dtype=float)
-    for n, delay in enumerate(delays):
-        offs = (delay * hop) // 2
-        a, b = S[:-delay], S[delay:]
-        g = b.sum(axis=1) - a.sum(axis=1)
-        e = upsample_interp(g, hop)
-        grads[n, offs:offs + e.shape[0]] = e[:T - offs]
-    return grads
-
-
-@dataclass
-class Definition:
+@dtc.dataclass
+class _EnvelopAndGrad:
+    """ compute an envelop and its grad"""
     n_fft: int
     overlap: int
-    delays_start: int
-    delays_stop: int
-    delays_step: int
+    grad_max_lag: int
 
     def __post_init__(self):
-        self.hop_length = self.n_fft // self.overlap
-        self.ms = librosa.samples_to_time(self.n_fft, sr=44100)
-
-
-class Envelop:
-    """ compute an envelop and its grad from a `Definition`"""
-
-    def __init__(self, definition: Definition):
-        self.definition: Definition = definition
-        self.bank: np.ndarray = None
+        self.env_ex = Envelop(self.n_fft, self.n_fft//self.overlap,
+                              # we need the grad before we interp to time dom
+                              normalize=True, interp_to_time_domain=False)
+        self.interp = Interpolate(axis=-1, mode="quadratic")
+        self.dx = Derivative(self.grad_max_lag, normalize=True)
         self.grad: np.ndarray = None
         self.env: np.ndarray = None
         self.T = 0
         self.y = None
 
     def fit(self, y):
-        self.T = y.shape[-1]
+        self.interp.length = self.T = y.shape[-1]
         self.y = y
-        d = self.definition
-
-        S = stft(y, d.n_fft, d.hop_length)
-        self.bank = gradients_bank(
-            S, range(d.delays_start, d.delays_stop, d.delays_step), self.T, d.hop_length
-        )
-        self.grad = self.bank.mean(axis=0)
-        self.env = upsample_interp(S.sum(axis=1), d.hop_length)[:y.shape[0]]
+        self.env = self.env_ex(y)
+        self.grad = self.dx(self.env[None, :])[0]
+        self.env, self.grad = self.interp(self.env), self.interp(self.grad)
         return self
 
 
 class Periods:
-    """compute indices (attack begin & peak) and metrics from a gradient/oscillating signal"""
+    """
+    compute indices (attack begin & peak)
+    and metrics from a gradient/oscillating signal
+    """
 
     def __init__(self):
         self.y = None
@@ -120,43 +90,26 @@ class Periods:
         return self
 
 
-class Samplifyer:
+@dtc.dataclass
+class Samplifyer(Functional):
+    filter_level: int = 0
+    sensitivity: float = .5
 
-    def __init__(
-            self,
-            filter_level=0,
-            sensitivity=.5,
-            sr=44100,
-    ):
-        self.sensitivity = sensitivity
-        self.filter_level = filter_level
+    def __post_init__(self):
         self.y = None
         self.T = None
-        if filter_level > 4 or filter_level < 0:
+        if self.filter_level > 4 or self.filter_level < 0:
             raise ValueError("filter_level must be between 0 and 4")
 
-        self.envelops = \
+        self.levels = \
             [
-                Envelop(
-                    Definition(n_fft=8192, overlap=32, delays_start=1, delays_stop=9, delays_step=1)
-                ),
-                Envelop(
-                    Definition(n_fft=4096, overlap=64, delays_start=1, delays_stop=33, delays_step=1)
-                ),
-                Envelop(
-                    Definition(n_fft=2048, overlap=32, delays_start=1, delays_stop=17, delays_step=1)
-                ),
-                Envelop(
-                    Definition(n_fft=1024, overlap=16, delays_start=1, delays_stop=9, delays_step=1)
-                ),
-                Envelop(
-                    Definition(n_fft=512, overlap=8, delays_start=1, delays_stop=9, delays_step=1)
-                ),
-                Envelop(
-                    Definition(n_fft=256, overlap=8, delays_start=1, delays_stop=9, delays_step=1)
-                )
-            ][filter_level:]
-        self.sr = sr
+                _EnvelopAndGrad(n_fft=8192, overlap=32, grad_max_lag=9),
+                _EnvelopAndGrad(n_fft=4096, overlap=64, grad_max_lag=33),
+                _EnvelopAndGrad(n_fft=2048, overlap=32, grad_max_lag=17),
+                _EnvelopAndGrad(n_fft=1024, overlap=16, grad_max_lag=9),
+                _EnvelopAndGrad(n_fft=512, overlap=8, grad_max_lag=9),
+                _EnvelopAndGrad(n_fft=256, overlap=8, grad_max_lag=9)
+            ][self.filter_level:]
         self.coarse_env, self.coarse_grad = None, None
         self.coarse_cuts = None
         self.scores = None
@@ -165,16 +118,25 @@ class Samplifyer:
         self.fine_envs = None
         self.windows = None
 
+    def np_func(self, y):
+        return self.label(y)
+
+    def label(self, y):
+        cuts = self.fit(y).cuts
+        labels = np.zeros_like(y, dtype=int)
+        labels[cuts] = 1
+        return np.cumsum(labels)
+
     def fit(self, y):
         self.y = y
         self.T = y.shape[0]
 
         # I. build the different envelops
-        for d in self.envelops:
+        for d in self.levels:
             d.fit(y)
-        coarse_level = self.envelops[0]
-        self.coarse_env = coarse_level.env / coarse_level.env.max()
-        self.coarse_grad = coarse_level.grad / coarse_level.grad.max()
+        coarse_level = self.levels[0]
+        self.coarse_env = coarse_level.env
+        self.coarse_grad = coarse_level.grad
 
         # II. filter attacks at the coarse level:
         # ratio (coarse_env[peak] - coarse_env[attack_begin]) / coarse_env[attack_begin]
@@ -194,8 +156,8 @@ class Samplifyer:
         self.maxs_rank[(1 - self.coarse_env[self.coarse_peaks]).argsort()] = np.arange(len(self.coarse_peaks))
 
         # III. refine he cuts
-        fine_grads = [level.grad / level.grad.max() for level in self.envelops[1:]]
-        self.fine_envs = fine_envs = [level.env / level.env.max() for level in self.envelops[1:]]
+        fine_grads = [level.grad for level in self.levels[1:]]
+        self.fine_envs = fine_envs = [level.env for level in self.levels[1:]]
 
         # a) TODO: find out if we need to refine left or right of the coarse cuts
         # (we pick the side that maximizes coarse_env - finer_envs)
@@ -260,13 +222,19 @@ class Samplifyer:
                         marker='X', color='green', s=200, label=f"fine cut ({['left', 'right'][side]})")
             plt.legend(loc='upper left')
 
-    def export_with_silence(self, insert_sec=1.):
+    def export_with_silence(self, insert_sec=1., sr=44100):
         return np.concatenate(
-            [np.r_[x, np.zeros(int(self.sr * insert_sec))] for x in self.export_as_list()]
+            [np.r_[x, np.zeros(int(sr * insert_sec))] for x in self.export_as_list()]
         )
 
     def export_as_list(self):
         return np.split(self.y, self.cuts)
+
+    def torch_func(self, inputs):
+        raise NotImplementedError
+
+    def inv(self) -> "Functional":
+        return Identity()
 
 
 def samplify(audio):
@@ -277,12 +245,9 @@ def samplify(audio):
 
     fig = plt.figure(figsize=(50, 6))
 
-    plt.plot(y,
-             alpha=.666, label='signal')
+    plt.plot(y, alpha=.666, label='signal')
 
     plt.plot(samplifyer.coarse_env / samplifyer.coarse_env.max(),
              label='coarse envelop', c='violet', alpha=.85)
 
     plt.show()
-
-

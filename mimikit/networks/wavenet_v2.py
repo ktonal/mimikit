@@ -7,11 +7,14 @@ from typing import Optional, Tuple, Dict, List, Iterable, Set
 from itertools import accumulate, chain
 import operator as opr
 
-from .arm import ARM, ARMConfig
+from .arm import ARM
+from ..config import NetworkConfig
 from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
+from ..extractor import Extractor
+from ..features.item_spec import ItemSpec, Step
+from ..features.functionals import *
 from ..modules.io import IOFactory, MLPParams, ChunkedLinearParams
 from ..utils import AutoStrEnum
-from ..features.audio import Spectrogram, MuLawSignal
 from ..modules.misc import Chunk, CausalPad, Transpose
 from ..modules.activations import GatingUnit, ActivationConfig
 
@@ -169,7 +172,7 @@ class WNLayer(nn.Module):
 
 class WaveNet(ARM, nn.Module):
     @dtc.dataclass
-    class Config(ARMConfig):
+    class Config(NetworkConfig):
         io_spec: IOSpec = None
         kernel_sizes: Tuple[int, ...] = (2,)
         blocks: Tuple[int, ...] = (4,)
@@ -249,7 +252,7 @@ class WaveNet(ARM, nn.Module):
         dilated, in_1x1, skips = inputs[0], inputs[1:], None
         for layer in self.layers:
             dilated, skips = layer.forward(
-                inputs_dilated=(dilated, ), inputs_1x1=in_1x1, skips=skips
+                inputs_dilated=(dilated,), inputs_1x1=in_1x1, skips=skips
             )
             if not layer.needs_padding:
                 in_1x1 = tuple(layer.trim_cause(x) for x in in_1x1)
@@ -314,15 +317,21 @@ class WaveNet(ARM, nn.Module):
     def use_fast_generate(self):
         return self._config.use_fast_generate
 
-    def train_batch(self, length=1, unit="step", downsampling=1):
-        return tuple(spec.feature.copy()
-                     .batch_item(length, unit, downsampling)
-                     for spec in self.config.io_spec.inputs), \
-               tuple(spec.feature.copy()
-                     .add_shift(self.shift, "step")
-                     .add_length(self.output_length(0), "step")
-                     .batch_item(length, unit, downsampling)
-                     for spec in self.config.io_spec.targets)
+    def train_batch(self, item_spec: ItemSpec):
+        return tuple(
+            spec.to_batch_item(
+                item_spec
+            )
+            for spec in self.config.io_spec.inputs
+        ), tuple(
+            spec.to_batch_item(
+                item_spec + ItemSpec(self.shift, self.output_length(0), unit=Step())
+            )
+            for spec in self.config.io_spec.targets
+        )
+
+    def test_batch(self, item_spec: ItemSpec):
+        return self.train_batch(item_spec)
 
     @property
     def generate_params(self) -> Set[str]:
@@ -431,34 +440,54 @@ class WaveNet(ARM, nn.Module):
             layer._fast_mode = False
         self._gen_context = {}
 
-    qx_io = IOSpec(
-        inputs=(InputSpec(
-            feature=MuLawSignal(),
-            module=IOFactory(module_type="embedding")
-        ),),
-        targets=(TargetSpec(
-            feature=MuLawSignal(),
-            module=IOFactory(
-                module_type="mlp",
-                params=MLPParams()
-            ),
-            objective=Objective("categorical_dist")
-        ),))
-
-    fft_io = IOSpec(
-        inputs=(InputSpec(
-            feature=Spectrogram(coordinate="mag", center=False),
-            module=IOFactory(
-                module_type="chunked_linear",
-                params=ChunkedLinearParams(n_heads=1)
-            )),),
-        targets=(TargetSpec(
-            feature=Spectrogram(coordinate="mag", center=False),
-            module=IOFactory(
-                module_type="chunked_linear",
-                params=ChunkedLinearParams(n_heads=1),
-                activation=ActivationConfig(
-                    act="Abs",
+    @staticmethod
+    def qx_io(
+            # todo extractor=None,
+    ):
+        return IOSpec(
+            inputs=(InputSpec(
+                extractor=Extractor("snd", Compose(
+                    FileToSignal(16000), Normalize(), RemoveDC()
                 )),
-            objective=Objective("reconstruction")
-        ),))
+                transform=MuLawCompress(256),
+                module=IOFactory(module_type="embedding")
+            ),),
+            targets=(TargetSpec(
+                extractor=Extractor("snd", Compose(
+                    FileToSignal(16000), Normalize(), RemoveDC()
+                )),
+                transform=MuLawCompress(256),
+                module=IOFactory(
+                    module_type="mlp",
+                    params=MLPParams()
+                ),
+                objective=Objective("categorical_dist")
+            ),))
+
+    @staticmethod
+    def fft_io(
+            # todo extractor=None,
+    ):
+        return IOSpec(
+            inputs=(InputSpec(
+                extractor=Extractor("snd", Compose(
+                    FileToSignal(22050), Normalize(), RemoveDC()
+                )),
+                transform=MagSpec(2048, 512, center=False, window='hann'),
+                module=IOFactory(
+                    module_type="chunked_linear",
+                    params=ChunkedLinearParams(n_heads=1)
+                )),),
+            targets=(TargetSpec(
+                extractor=Extractor("snd", Compose(
+                    FileToSignal(22050), Normalize(), RemoveDC()
+                )),
+                transform=MagSpec(2048, 512, center=False, window='hann'),
+                module=IOFactory(
+                    module_type="chunked_linear",
+                    params=ChunkedLinearParams(n_heads=1),
+                    activation=ActivationConfig(
+                        act="Abs",
+                    )),
+                objective=Objective("reconstruction")
+            ),))

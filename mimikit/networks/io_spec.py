@@ -4,12 +4,14 @@ import torch.nn as nn
 import dataclasses as dtc
 import h5mapper as h5m
 
-from ..modules.targets import CategoricalSampler, MoLSampler, MoLLoss
 from ..utils import AutoStrEnum
 from ..config import Config
-from ..features.ifeature import Feature, DiscreteFeature, RealFeature, TimeUnit
+from ..extractor import Extractor
+from ..features.item_spec import Unit, Sample, Frame, ItemSpec
+from ..features.functionals import Continuous, Discrete, Functional
+from ..modules.targets import CategoricalSampler, MoLSampler, MoLLoss
 from ..modules.io import IOFactory
-from ..modules.loss_functions import MeanL1Prop, AngularDistance
+from ..modules.loss_functions import MeanL1Prop
 
 __all__ = [
     "InputSpec",
@@ -21,16 +23,63 @@ __all__ = [
 
 
 @dtc.dataclass
-class InputSpec(Config):
-    feature: Feature
+class _FeatureSpec(Config, type_field=False):
+    extractor: Extractor
+    transform: Functional
     module: IOFactory
+    # logger: None = None
+
+    @property
+    def units(self):
+        return [f.unit for f in [self.extractor.functional, self.transform] if f.unit is not None]
+
+    @property
+    def unit(self):
+        return self.units[-1]
+
+    @property
+    def elem_type(self):
+        el = tuple(f.elem_type for f in [self.extractor.functional, self.transform] if f.elem_type is not None)
+        return el[-1]
+
+    @property
+    def sr(self):
+        sr = [f.unit.sr for f in [self.extractor.functional, self.transform]
+              if isinstance(f.unit, Sample) and f.unit.sr is not None]
+        return sr[-1] if any(sr) else None
+
+    @property
+    def hop_length(self):
+        hops = [f.unit.hop_length for f in [self.extractor.functional, self.transform]
+                if isinstance(f.unit, Frame)]
+        return hops[-1] if any(hops) else None
+
+    def to_batch_item(self, item_spec: ItemSpec):
+        item_spec = item_spec.to(self.extractor.functional.unit)
+        return h5m.Input(
+            data=self.extractor.name,
+            getter=h5m.AsSlice(
+                dim=0, shift=item_spec.shift,
+                length=item_spec.length,
+                downsampling=item_spec.stride
+            ),
+            transform=self.transform
+        )
+
+    @property
+    def inv(self):
+        return self.transform.inv
+
+
+@dtc.dataclass
+class InputSpec(_FeatureSpec, type_field=False):
 
     def __post_init__(self):
         # wire feature -> module
-        if isinstance(self.feature, DiscreteFeature):
-            self.module.set(class_size=self.feature.class_size)
-        elif isinstance(self.feature, RealFeature):
-            self.module.set(in_dim=self.feature.out_dim)
+        if isinstance(self.elem_type, Discrete):
+            self.module.set(class_size=self.elem_type.class_size)
+        elif isinstance(self.elem_type, Continuous):
+            self.module.set(in_dim=self.elem_type.vector_size)
 
 
 class ObjectiveType(AutoStrEnum):
@@ -45,29 +94,40 @@ class ObjectiveType(AutoStrEnum):
 
 
 @dtc.dataclass
-class Objective(Config):
+class Objective(Config, type_field=False):
     objective_type: ObjectiveType
     n_components: Optional[int] = None
     n_params: int = dtc.field(
         init=False, repr=False, default=1
     )
 
+    def get_criterion(self):
+        if self.objective_type == "reconstruction":
+            return MeanL1Prop()
+        elif self.objective_type == "categorical_dist":
+            return self.cross_entropy
+        elif self.objective_type == "logistic_dist":
+            return MoLLoss(self.n_components, "mean")
+
+    @staticmethod
+    def cross_entropy(output, target):
+        criterion = nn.CrossEntropyLoss(reduction="mean")
+        return criterion(output.view(-1, output.size(-1)), target.view(-1))
+
 
 @dtc.dataclass
-class TargetSpec(Config):
-    feature: Feature
-    module: IOFactory
+class TargetSpec(_FeatureSpec, type_field=False):
     objective: Objective
 
     def __post_init__(self):
         # wire feature, objective, module
         if self.objective.objective_type == "reconstruction":
-            assert isinstance(self.feature, RealFeature)
-            self.module.set(out_dim=self.feature.out_dim)
+            assert isinstance(self.elem_type, Continuous)
+            self.module.set(out_dim=self.elem_type.vector_size)
             self._loss_fn = self.mean_l1_prop
         elif self.objective.objective_type == "categorical_dist":
-            assert isinstance(self.feature, DiscreteFeature)
-            self.module.set(out_dim=self.feature.class_size, sampler=CategoricalSampler())
+            assert isinstance(self.elem_type, Discrete)
+            self.module.set(out_dim=self.elem_type.class_size, sampler=CategoricalSampler())
             self._loss_fn = self.cross_entropy
         elif self.objective.objective_type == 'logistic_dist':
             self.module.set(out_dim=1, sampler=MoLSampler(self.objective.n_components),
@@ -91,13 +151,13 @@ class TargetSpec(Config):
 
 
 @dtc.dataclass
-class IOSpec(Config):
+class IOSpec(Config, type_field=False):
     inputs: Tuple[InputSpec, ...]
     targets: Tuple[TargetSpec, ...]
 
     @property
     def sr(self):
-        srs = {i.feature.sr for i in [*self.inputs, *self.targets]}
+        srs = {i.sr for i in [*self.inputs, *self.targets]}
         if len(srs) > 1:
             # it is the responsibility of the user to have consistent sr
             raise RuntimeError(f"Expected to find a single sample_rate "
@@ -106,7 +166,7 @@ class IOSpec(Config):
 
     @property
     def hop_length(self):
-        hops = {i.feature.hop_length for i in [*self.inputs, *self.targets]}
+        hops = {i.hop_length for i in [*self.inputs, *self.targets]}
         if len(hops) > 1:
             # it is the responsibility of the user to have consistent sr
             raise RuntimeError(f"Expected to find a single hop_length "
@@ -114,8 +174,8 @@ class IOSpec(Config):
         return hops.pop()
 
     @property
-    def unit(self) -> TimeUnit:
-        units = {i.feature.time_unit for i in [*self.inputs, *self.targets]}
+    def unit(self) -> Unit:
+        units = {i.unit for i in [*self.inputs, *self.targets]}
         if len(units) > 1:
             # it is the responsibility of the user to have consistent unit
             raise RuntimeError(f"Expected to find a single time unit "
@@ -127,33 +187,17 @@ class IOSpec(Config):
         def func(output, target):
             out = {}
             L = 0.
-            for spec, o, t in zip(self.targets, output, target):
+            for i, (spec, o, t) in enumerate(zip(self.targets, output, target)):
                 d = spec.loss_fn(o, t)
                 L += d["loss"]
-                out[str(type(spec.feature))] = d["loss"]
+                out[f"output_{i}_{spec.objective.objective_type}"] = d["loss"]
             out["loss"] = L
             return out
         return func
 
-    def dataset_class(self):
-        feats = [*self.input_features, *self.target_features]
-        attrs = {}
-        for i, f in enumerate(feats):
-            extractor = f.h5m_type
-            attr = f.dataset_attr
-            attrs[attr] = extractor
-        return type("Dataset", (h5m.TypedFile, ), attrs)
-
-    @property
-    def input_features(self) -> List[Feature]:
-        return [i.feature for i in self.inputs]
-
-    @property
-    def target_features(self) -> List[Feature]:
-        return [t.feature for t in self.targets]
-
     @property
     def matching_io(self) -> Tuple[List[Optional[int]], List[Optional[int]]]:
+        # TODO: broken...
         inputs = [None] * len(self.inputs)
         targets = [None] * len(self.targets)
         trg_feats = self.target_features

@@ -71,7 +71,7 @@ class MLPParams(ModuleParams):
     bias: bool = True
     dropout: float = 0.
     dropout1d: float = 0.
-    learn_temperature: bool = True
+    min_temperature: Optional[float] = 1e-4
 
 
 @dtc.dataclass
@@ -89,7 +89,7 @@ class LearnableMelSpec(ModuleParams):
 
 
 @dtc.dataclass
-class IOFactory(Config):
+class IOFactory(Config, type_field=False):
     module_type: ModuleType
     params: Optional[ModuleParams] = None
     activation: Optional[ActivationConfig] = None
@@ -195,7 +195,7 @@ class IOFactory(Config):
                 in_dim=in_dim, out_dim=out_dim, hidden_dim=params.hidden_dim,
                 n_hidden_layers=params.n_hidden_layers, activation=params.activation.get(),
                 bias=params.bias, dropout=params.dropout, dropout1d=params.dropout1d,
-                learn_temperature=params.learn_temperature
+                min_temperature=params.min_temperature
             )
         else:
             raise NotImplementedError(f"module_type '{self.module_type}' not implemented")

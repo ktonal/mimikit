@@ -17,6 +17,7 @@ __all__ = [
 from .logger import AudioLogger
 
 from ..config import Config
+from ..features.item_spec import ItemSpec, Second, Frame
 from ..networks.arm import ARM
 from .samplers import IndicesSampler
 
@@ -39,7 +40,7 @@ def prepare_prompt(device, prompt, n_blanks, at_least_nd=2):
 
 def generate_tqdm(rng):
     return tqdm(rng, desc="Generate", dynamic_ncols=True,
-                leave=False, unit="step", mininterval=0.25)
+                leave=False, unit="step", mininterval=1.)
 
 
 FillType = Union[Literal["blank", "data"], torch.Tensor]
@@ -85,13 +86,14 @@ class GenerateLoopV2:
     class Config(Config):
         output_duration_sec: float = 1.
         prompts_length_sec: float = 1.
-        prompts_position_sec: Tuple[Optional[float]] = (None,)  # random if None
+        prompts_position_sec: Tuple[Optional[float], ...] = (None,)  # random if None
         parameters: Optional[Dict[str, Any]] = None
         batch_size: int = 1
 
         output_name_template: Optional[str] = None
         display_waveform: bool = True
         write_waveform: bool = False
+        yield_inversed_outputs: bool = True
         callback: Optional[Callable[[Tuple[torch.Tensor, ...]], None]] = None
 
     @classmethod
@@ -101,17 +103,16 @@ class GenerateLoopV2:
         unit = io_spec.unit
         output_n_samples = int(sr * config.output_duration_sec)
         prompt_n_samples = int(sr * config.prompts_length_sec)
-        if unit.name == "frame":
-            hop_length = io_spec.hop_length
+        if isinstance(unit, Frame):
+            hop_length = unit.hop_length
             n_steps = output_n_samples // hop_length
-            prior_t = prompt_n_samples // hop_length
         else:
             n_steps = output_n_samples
-            prior_t = prompt_n_samples
         max_len = prompt_n_samples
         max_i = soundbank.snd.shape[0] - max_len
         # todo: fixture get n_prior + n_steps
-        prompt_batch, _ = network.train_batch(config.prompts_length_sec, "second")
+        prompt_spec = ItemSpec(0, length=config.prompts_length_sec, unit=Second(sr))
+        prompt_batch, _ = network.test_batch(prompt_spec)
         prompt_batch = (
             PromptIndices(n=max_i), *prompt_batch
         )
@@ -132,20 +133,18 @@ class GenerateLoopV2:
             file_template=config.output_name_template if config.write_waveform else None,
             title_template=config.output_name_template if config.display_waveform else None)
 
-        return cls(config, network, prior_t, n_steps, dataloader, logger)
+        return cls(config, network, n_steps, dataloader, logger)
 
     def __init__(
             self,
             config: "GenerateLoopV2.Config",
             network: ARM,
-            prior_t: int,
             n_steps: int,
             dataloader: torch.utils.data.DataLoader,
             logger: AudioLogger,
     ):
         self.config = config
         self.network = network
-        self.prior_t = prior_t
         self.n_steps = n_steps
         self.dataloader = dataloader
         self.logger = logger
@@ -179,7 +178,7 @@ class GenerateLoopV2:
                           for x in batch)
             self.network.before_generate(batch, prompt_idx)
 
-            rf, prior_t, n_steps = self.network.rf, self.prior_t, self.n_steps
+            rf, prior_t, n_steps = self.network.rf, batch[0].size(1), self.n_steps
 
             tensors = h5m.process_batch(
                 batch, lambda x: isinstance(x, torch.Tensor),
@@ -209,7 +208,7 @@ class GenerateLoopV2:
             final_outputs = tuple(x.data for x in tensors)
             self.network.after_generate(final_outputs, prompt_idx)
 
-            self.process_outputs(final_outputs, prompt_idx, **self.template_vars)
+            final_outputs = self.process_outputs(final_outputs, prompt_idx, **self.template_vars)
             yield final_outputs
             if self.config.callback is not None:
                 self.config.callback(final_outputs)
@@ -223,7 +222,7 @@ class GenerateLoopV2:
     ):
         if self.config.output_name_template is None and not self.config.display_waveform:
             return
-        features = self.network.config.io_spec.target_features
+        features = self.network.config.io_spec.targets
         outputs = tuple(feature.inv(out) for feature, out in zip(features, final_outputs))
         for output in outputs:
             for example, idx in zip(output, prompt_idx):
@@ -231,6 +230,7 @@ class GenerateLoopV2:
                     self.logger.write(example, prompt_idx=idx.item(), **template_vars)
                 if self.config.display_waveform:
                     self.logger.display(example, prompt_idx=idx.item(), **template_vars)
+        return outputs if self.config.yield_inversed_outputs else final_outputs
 
 
 class GenerateLoop:

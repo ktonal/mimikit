@@ -1,27 +1,15 @@
 import abc
-from typing import Tuple, Dict, Callable, Set
+from typing import Tuple, Dict, Set
 import torch
 import h5mapper as h5m
-import dataclasses as dtc
 
-from ..features.ifeature import TimeUnit
-from ..config import Configurable, Config
-from .io_spec import IOSpec
+from ..features.item_spec import ItemSpec
+from ..config import Configurable, NetworkConfig
 
 __all__ = [
-    "ARMConfig",
     "ARM",
     "ARMWithHidden"
 ]
-
-
-@dtc.dataclass
-class ARMConfig(Config, abc.ABC):
-
-    @property
-    @abc.abstractmethod
-    def io_spec(self) -> IOSpec:
-        ...
 
 
 class ARM(Configurable, torch.nn.Module):
@@ -33,7 +21,7 @@ class ARM(Configurable, torch.nn.Module):
 
     @property
     @abc.abstractmethod
-    def config(self) -> ARMConfig:
+    def config(self) -> NetworkConfig:
         ...
 
     @property
@@ -42,7 +30,12 @@ class ARM(Configurable, torch.nn.Module):
         ...
 
     @abc.abstractmethod
-    def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1)\
+    def train_batch(self, item_spec: ItemSpec)\
+            -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
+        ...
+
+    @abc.abstractmethod
+    def test_batch(self, item_spec: ItemSpec)\
             -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
         ...
 

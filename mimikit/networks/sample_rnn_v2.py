@@ -4,10 +4,12 @@ import dataclasses as dtc
 import torch
 import torch.nn as nn
 
-from .arm import ARMWithHidden, ARMConfig
+from .arm import ARMWithHidden
+from ..extractor import Extractor
+from ..config import NetworkConfig
 from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
-from ..features.audio import MuLawSignal
-from ..features.ifeature import DiscreteFeature, TimeUnit
+from ..features.functionals import *
+from ..features.item_spec import ItemSpec
 from ..modules.io import IOFactory, ZipReduceVariables, ZipMode, MLPParams, LinearParams
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
@@ -36,6 +38,7 @@ class SampleRNNTier(nn.Module):
             n_rnn: int = 1,
             rnn_dropout: float = 0.,
             rnn_bias: bool = True,
+            weight_norm: bool = False,
             up_sampling: Optional[int] = None,
     ):
         super(SampleRNNTier, self).__init__()
@@ -45,6 +48,7 @@ class SampleRNNTier(nn.Module):
         self.n_rnn = n_rnn
         self.rnn_dropout = rnn_dropout
         self.rnn_bias = rnn_bias
+        self.weight_norm = weight_norm
         self.up_sampling = up_sampling
 
         self.hidden = None
@@ -54,8 +58,21 @@ class SampleRNNTier(nn.Module):
             module = getattr(nn, rnn_class.upper())
             self.rnn = module(hidden_dim, hidden_dim, num_layers=n_rnn,
                               batch_first=True, dropout=rnn_dropout, bias=rnn_bias)
+            if weight_norm:
+                for name in dict(self.rnn.named_parameters()):
+                    nn.utils.weight_norm(self.rnn, name)
         if self.has_up_sampling:
             self.up_sampler = LinearResampler(hidden_dim, t_factor=up_sampling, d_factor=1)
+            if weight_norm:
+                for module in self.up_sampler.children():
+                    for name in dict(module.named_parameters()):
+                        nn.utils.weight_norm(module, name)
+        if weight_norm:
+            for module in self.input_module.modules():
+                if isinstance(module, nn.ModuleList) or list(module.children()) != []:
+                    continue
+                for name in dict(module.named_parameters()):
+                    nn.utils.weight_norm(module, name)
 
     def forward(
             self,
@@ -65,10 +82,10 @@ class SampleRNNTier(nn.Module):
         x, x_upper = inputs
         x = self.input_module(x)
         if x_upper is not None:
-            # print("IN", x.size(), x_upper.size())
             x += x_upper
         if self.has_rnn:
             self.hidden = self._reset_hidden(x, self.hidden)
+            self.rnn.flatten_parameters()
             x, self.hidden = self.rnn(x, self.hidden)
         if self.has_up_sampling:
             x = self.up_sampler(x)
@@ -95,15 +112,16 @@ class SampleRNNTier(nn.Module):
 
 class SampleRNN(ARMWithHidden, nn.Module):
     @dtc.dataclass
-    class Config(ARMConfig):
-        io_spec: IOSpec = None
+    class Config(NetworkConfig):
         frame_sizes: Tuple[int, ...] = (16, 8, 8)
         hidden_dim: int = 256
         rnn_class: RNNType = "lstm"
         n_rnn: int = 1
         rnn_dropout: float = 0.
         rnn_bias: bool = True
+        weight_norm: bool = False
         inputs_mode: ZipMode = "sum"
+        io_spec: IOSpec = None
 
     @classmethod
     def from_config(cls, config: "SampleRNN.Config") -> "SampleRNN":
@@ -122,6 +140,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                     n_rnn=config.n_rnn,
                     rnn_dropout=config.rnn_dropout,
                     rnn_bias=config.rnn_bias,
+                    weight_norm=config.weight_norm,
                     up_sampling=fs // (
                         config.frame_sizes[i + 1]
                         if i < len(config.frame_sizes) - 2
@@ -131,12 +150,12 @@ class SampleRNN(ARMWithHidden, nn.Module):
         for in_spec in config.io_spec.inputs:
             if "framed" in in_spec.module.module_type:
                 modules += [IOFactory(module_type="framed_conv1d")
-                                .set(class_size=in_spec.feature.class_size,
+                                .set(class_size=in_spec.elem_type.class_size,
                                      frame_size=config.frame_sizes[-1],
                                      hop_length=1, out_dim=h_dim).get()]
             else:
                 modules += [IOFactory(module_type="embedding_conv1d")
-                                .set(class_size=in_spec.feature.class_size,
+                                .set(class_size=in_spec.elem_type.class_size,
                                      frame_size=config.frame_sizes[-1],
                                      hop_length=1, out_dim=h_dim).get()]
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
@@ -164,6 +183,13 @@ class SampleRNN(ARMWithHidden, nn.Module):
         self.tiers: List[SampleRNNTier] = nn.ModuleList(tiers)
         self.output_modules = nn.ModuleList(output_module)
 
+        if config.weight_norm:
+            for module in self.output_modules.modules():
+                if isinstance(module, nn.ModuleList) or list(module.children()) != []:
+                    continue
+                for name in dict(module.named_parameters()):
+                    nn.utils.weight_norm(module, name)
+
         # caches for inference
         self.outputs = []
         self.prompt_length = 0
@@ -185,12 +211,12 @@ class SampleRNN(ARMWithHidden, nn.Module):
 
     def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         self.outputs = [None] * (len(self.frame_sizes) - 1)
-        _batch = tuple(p[:, p.size(1) % self.rf:] for p in prompts)
         self.reset_hidden()
-        self.prompt_length = len(_batch[0])
-        # warm-up
-        for t in range(self.rf, self.prompt_length):
-            self.generate_step(tuple(b[:, t - self.rf:t] for b in _batch), t=t)
+        prompt_length = prompts[0].size(1)
+        offset = prompt_length % self.rf
+        # warm-up: TODO: make one forward pass (cache outputs and hidden)
+        for t in range(self.rf + offset, prompt_length):
+            self.generate_step(tuple(p[:, t - self.rf:t] for p in prompts), t=t)
 
     def generate_step(
             self,
@@ -234,38 +260,80 @@ class SampleRNN(ARMWithHidden, nn.Module):
     def rf(self):
         return self.frame_sizes[0]
 
-    def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1):
-        return tuple(spec.feature.copy()
-                     .batch_item(length + self.frame_sizes[0], unit, downsampling)
-                     for spec in self.config.io_spec.inputs
-                     ), \
-               tuple(spec.feature.copy()
-                     .add_shift(self.frame_sizes[0], TimeUnit.sample)
-                     .batch_item(length, unit, downsampling)
-                     for spec in self.config.io_spec.targets
-                     )
+    def train_batch(self, item_spec: ItemSpec):
+        # fit lengths to target -> input gets extra
+        return tuple(
+            spec.to_batch_item(
+                ItemSpec(shift=0, length=self.frame_sizes[0],
+                         unit=spec.unit) + item_spec
+            )
+            for spec in self.config.io_spec.inputs
+        ), tuple(
+            spec.to_batch_item(
+                ItemSpec(shift=self.frame_sizes[0], unit=spec.unit) + item_spec
+            )
+            for spec in self.config.io_spec.targets
+        )
 
-    qx_io = IOSpec(
-        inputs=(InputSpec(
-            feature=MuLawSignal(),
-            module=IOFactory(
-                module_type="framed_linear",
-                params=LinearParams()
-            )),),
-        targets=(TargetSpec(
-            feature=MuLawSignal(),
-            module=IOFactory(
-                module_type="mlp",
-                params=MLPParams(hidden_dim=128, n_hidden_layers=0)
-            ),
-            objective=Objective("categorical_dist")
-        ),))
+    def test_batch(self, item_spec: ItemSpec):
+        # fit lengths to input -> target looses extra
+        return tuple(
+            spec.to_batch_item(
+                item_spec.to(spec.unit)
+            )
+            for spec in self.config.io_spec.inputs
+        ), tuple(
+            spec.to_batch_item(
+                ItemSpec(shift=self.frame_sizes[0],
+                         length=-self.frame_sizes[0],
+                         unit=spec.unit) + item_spec
+            )
+            for spec in self.config.io_spec.targets
+        )
+
+    @staticmethod
+    def qx_io(
+            # todo extractor=None,
+            sr=16000,
+            q_levels=256,
+            compression=1.,
+            mlp_dim=128,
+            n_mlp_layers=0,
+            min_temperature=1e-4
+    ):
+        extractor = Extractor(
+            "snd", Compose(
+                FileToSignal(sr), Normalize(), RemoveDC()
+            )
+        )
+        mu_law = MuLawCompress(q_levels, compression)
+        return IOSpec(
+            inputs=(InputSpec(
+                extractor=extractor,
+                transform=mu_law,
+                module=IOFactory(
+                    module_type="framed_linear",
+                    params=LinearParams()
+                )),),
+            targets=(TargetSpec(
+                extractor=extractor,
+                transform=mu_law,
+                module=IOFactory(
+                    module_type="mlp",
+                    params=MLPParams(
+                        hidden_dim=mlp_dim, n_hidden_layers=n_mlp_layers,
+                        min_temperature=min_temperature
+                    )
+                ),
+                objective=Objective("categorical_dist")
+            ),))
 
     @property
     def generate_params(self) -> Set[str]:
-        return getattr(self.output_modules, "sampling_params", {})
+        return {p for m in self.output_modules for p in getattr(m, "sampling_params", {})}
 
     # TODO?
     #  - per tier feature (diff q_levels, ...)
     #  - per tier config (hidden_dim, rnn,...)
-    #  - chunk_length schedule
+    #  - time & dim resampling (tier_0.hidden_dim = 512, tier_1.hidden_dim = 256, ...)
+    #  - chunk_length / batch_length schedule

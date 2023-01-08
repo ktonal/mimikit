@@ -82,30 +82,18 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] New Features API:
     - [ ] unary callables
         - [ ] class ClusterLabel(Feature):
-        - [x] class Envelope(Feature):
-        - [ ] Gradient
         - [ ] class SegmentLabel(Feature):
             - [ ] from rec mat
-            - [ ] from env bank
         - [ ] KMer (seqPrior)
         - [ ] BitVector
         - [ ] MelSpec
         - [ ] MFCC
-        - [x] Compose
-        - [ ] Stack(*functionals, ...)
+        - [ ] TimeIndex
+        - [ ] Frame
         - [ ] Cast
-        - [ ] UpSample1d / UpSampleResultOf(SomeFFTFunc(...))
         - [ ] SignalToFile
         - [ ] PlotSeries
         - [ ] PlotSpectrogram
-    - [ ] Everybody gets an inverse
-    - [ ] Extractor
-    - [ ] Getters
-        - [ ] TimeIndex
-        - [ ] Slice
-        - [ ] Frame
-    - [ ] class Feature(extractor, getter, transform)
-    - [ ] IOSpec integration
     - [ ] UI
     - [ ] Nice to have:
         - [ ] Scaler
@@ -117,13 +105,6 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] (Learnable) MFCC
         - [ ] Mixed Batch (fft + signal + clusters)
         - [ ] Parametrized (one class, several params, e.g. q_levels=(2, 4, 8, ...))
-- [ ] Mu/A Law
-    - [ ] fix librosa mulaw
-    - [ ] compression param for MuLaw
-    - [x] FFT window
-- [ ] class DataBank
-    - [ ] Definition, Creation
-    - [ ] integration with Features, IOSpec
 - [ ] Multiple IO
     - [ ] tuple or not tuple
     - [ ] AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
@@ -151,6 +132,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [x] Mixture of Logistics
         - [x] Mixture of Gaussian 
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
+        - [ ] WaveRNN style SoftMax
     - [ ] Layers can contribute to loss (e.g. ELBO)
 - [ ] New Networks
     - [ ] SampleGan (WaveGan with labeled segments?)

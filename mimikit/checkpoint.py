@@ -1,14 +1,24 @@
+import abc
 import dataclasses as dtc
+from typing import Optional
+from functools import cached_property
+import torch.nn as nn
+
 import h5mapper as h5m
 import os
 
-from .config import Config
+from .config import Config, Configurable, TrainingConfig, NetworkConfig
+from .dataset import DatasetConfig
 
 
 __all__ = [
     'Checkpoint',
     'CheckpointBank'
 ]
+
+
+class ConfigurableModule(Configurable, nn.Module, abc.ABC):
+    pass
 
 
 class CheckpointBank(h5m.TypedFile):
@@ -18,21 +28,27 @@ class CheckpointBank(h5m.TypedFile):
     @classmethod
     def save(cls,
              filename: str,
-             model_config: Config,
-             network,
-             optimizer
+             network: ConfigurableModule,
+             training_config: TrainingConfig,
+             optimizer: Optional[nn.Module] = None
              ) -> "CheckpointBank":
+
         net_dict = network.state_dict()
         opt_dict = optimizer.state_dict() if optimizer is not None else {}
         cls.network.set_ds_kwargs(net_dict)
         if optimizer is not None:
             cls.optimizer.set_ds_kwargs(opt_dict)
         os.makedirs(os.path.split(filename)[0], exist_ok=True)
+
         bank = cls(filename, mode="w")
-        bank.attrs["config"] = model_config.serialize()
+        bank.network.attrs["config"] = network.config.serialize()
         bank.network.add("state_dict", h5m.TensorDict.format(net_dict))
+
         if optimizer is not None:
             bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
+
+        bank.attrs["data"] = training_config.data.serialize()
+        bank.attrs["training"] = training_config.training.serialize()
         bank.flush()
         bank.close()
         return bank
@@ -44,8 +60,11 @@ class Checkpoint:
     epoch: int
     root_dir: str = "models/"
 
-    def create(self, model_config: Config, network, optimizer=None):
-        CheckpointBank.save(self.os_path, model_config, network, optimizer)
+    def create(self,
+               network: ConfigurableModule,
+               training_config: TrainingConfig,
+               optimizer: Optional[nn.Module] = None):
+        CheckpointBank.save(self.os_path, network, training_config, optimizer)
         return self
 
     @staticmethod
@@ -65,28 +84,37 @@ class Checkpoint:
     def delete(self):
         os.remove(self.os_path)
 
-    @property
-    def network(self):
+    @cached_property
+    def bank(self) -> CheckpointBank:
+        return CheckpointBank(self.os_path, 'r')
+
+    @cached_property
+    def network_config(self) -> NetworkConfig:
+        return Config.deserialize(self.bank.network.attrs["config"])
+
+    @cached_property
+    def training_config(self) -> TrainingConfig:
         bank = CheckpointBank(self.os_path, 'r')
-        hp: Config = Config.deserialize(bank.attrs["config"])
-        cls = hp.owner_class
-        state_dict = bank.network.get("state_dict")
-        net = cls.from_config(hp)
+        return Config.deserialize(bank.attrs["training"])
+
+    @cached_property
+    def data_config(self) -> DatasetConfig:
+        return Config.deserialize(self.bank.attrs["data"])
+
+    @cached_property
+    def network(self) -> ConfigurableModule:
+        cfg: NetworkConfig = self.network_config
+        cls = cfg.owner_class
+        state_dict = self.bank.network.get("state_dict")
+        net = cls.from_config(cfg)
         net.load_state_dict(state_dict, strict=True)
         return net
 
-    @property
-    def feature(self):
-        """
-        b = Batch(inputs=[...], outputs=[...])
-        bank.attrs["batch"] = b.serialize()  # export a ListConfig
-        ...
-        b = Batch.deserialize(bank.attrs["batch"])  # must be overriden by the class!
-        """
-        return
-
-    @property
-    def train_hp(self):
-        return None
+    @cached_property
+    def dataset(self):
+        dataset: DatasetConfig = self.data_config
+        if os.path.exists(dataset.filename):
+            return dataset.get(mode="r")
+        return dataset.create(mode="w")
 
     # Todo: method to add state_dict mul by weights -> def average(self, *others)

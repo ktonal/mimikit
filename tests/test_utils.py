@@ -9,14 +9,16 @@ import numpy as np
 import h5mapper as h5m
 from torch import nn
 
-from mimikit import ARMConfig, ARM, TimeUnit, IOSpec
-
+from mimikit import ARM, IOSpec
+from mimikit.config import NetworkConfig
 
 __all__ = [
     "TestDB",
     "tmp_db",
     "TestARM",
 ]
+
+from mimikit.features.item_spec import ItemSpec
 
 
 class RandSignal(h5m.Feature):
@@ -28,7 +30,7 @@ class RandSignal(h5m.Feature):
 class RandLabel(h5m.Feature):
 
     def load(self, source):
-        return np.random.randint(0, 256, (32000, ))
+        return np.random.randint(0, 256, (32000,))
 
 
 class TestDB(h5m.TypedFile):
@@ -61,29 +63,30 @@ def test_fixture_db(tmp_db):
 
 class TestARM(ARM, nn.Module):
     @dtc.dataclass
-    class Config(ARMConfig):
+    class Config(NetworkConfig):
         io_spec: IOSpec = None
 
     @property
-    def config(self) -> ARMConfig:
+    def config(self) -> NetworkConfig:
         return self._config
 
     @property
     def rf(self):
         return 8
 
-    def train_batch(self, length=1, unit=TimeUnit.step, downsampling=1) -> \
+    def train_batch(self, item_spec: ItemSpec) -> \
             Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
         return tuple(
-            feat.feature.copy()
-                .batch_item(length, unit)
+            feat.to_batch_item(item_spec)
             for feat in self.config.io_spec.inputs
-        ), \
-            tuple(
-                feat.feature.copy()
-                    .batch_item(length, unit)
-                for feat in self.config.io_spec.targets
-            )
+        ), tuple(
+            feat.to_batch_item(item_spec)
+            for feat in self.config.io_spec.targets
+        )
+
+    def test_batch(self, item_spec: ItemSpec) ->\
+            Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
+        return self.train_batch(item_spec)
 
     @property
     def generate_params(self) -> Set[str]:
@@ -93,17 +96,17 @@ class TestARM(ARM, nn.Module):
         return
 
     def generate_step(self, inputs: Tuple[torch.Tensor, ...], *, t: int = 0, **parameters: Dict[str, torch.Tensor]) -> \
-    Tuple[torch.Tensor, ...]:
+            Tuple[torch.Tensor, ...]:
         return tuple(self.forward(i) for i in inputs)
 
     def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         return
 
     @classmethod
-    def from_config(cls, config: ARMConfig):
+    def from_config(cls, config: NetworkConfig):
         return cls(config)
 
-    def __init__(self, config: ARMConfig):
+    def __init__(self, config: NetworkConfig):
         super(TestARM, self).__init__()
         self._config = config
         self.fc = nn.Linear(1, 1)

@@ -2,15 +2,16 @@ import abc
 import sys
 from copy import deepcopy
 from omegaconf import OmegaConf, ListConfig, DictConfig
-from typing import List, Tuple, Union, Dict, Any
+from typing import List, Tuple, Union, Dict, Any, Protocol
 import dataclasses as dtc
-from functools import reduce
-
+from functools import reduce, partial
 
 __all__ = [
     "private_runtime_field",
     "Config",
     "Configurable",
+    "NetworkConfig",
+    "TrainingConfig",
 ]
 
 
@@ -20,7 +21,10 @@ def private_runtime_field(default):
 
 # noinspection PyTypeChecker
 def _get_type_object(type_) -> type:
-    module, qualname = type_.split(":")
+    if ":" in type_:
+        module, qualname = type_.split(":")
+    else:
+        module, qualname = "mimikit", type_
     try:
         m = sys.modules[module]
         return reduce(lambda o, a: getattr(o, a), qualname.split("."), m)
@@ -28,29 +32,39 @@ def _get_type_object(type_) -> type:
         raise ImportError(f"could not find class '{qualname}' from module {module} in current environment")
 
 
+STATIC_TYPED_KEYS = {
+    "data": "DatasetConfig",
+    "io_spec": "IOSpec",
+    "inputs": "InputSpec",
+    "targets": "TargetSpec",
+    "objective": "Objective",
+    "feature": "Feature",
+    "extractor": "Extractor",
+    "module": "IOFactory",
+    "activation": "ActivationConfig"
+}
+
+
 @dtc.dataclass
 class Config:
-    type: str = dtc.field(init=False, repr=False, default="mimikit.config:Config")
+    ## type: str = dtc.field(init=False, repr=False, default="mimikit.config:Config")
 
     @classmethod
-    def __init_subclass__(cls, **kwargs):
+    def __init_subclass__(cls, type_field=True, **kwargs):
         """add type info to subclass"""
-        default = f"{cls.__module__}:{cls.__qualname__}"
-        setattr(cls, "type", dtc.field(init=False, default=default, repr=False))
-        if "__annotations__" in cls.__dict__:
-            # put the type first for nicer serialization...
-            ann = cls.__dict__["__annotations__"].copy()
-            for k in ann:
-                cls.__dict__["__annotations__"].pop(k)
-            cls.__dict__["__annotations__"].update({"type": str, **ann})
-        else:
-            setattr(cls, "__annotations__", {"type": str})
-        # a la pydantic.BaseModel! but breaks Pycharm type-hints for __init__...
-        # if "__dataclass_fields__" not in cls.__dict__:
-        #     _dtc = dtc.dataclass(cls)
-        #     attrs = ["__init__", "__eq__", "__dataclass_params__", "__dataclass_fields__", "__repr__"]
-        #     for attr in attrs:
-        #         setattr(cls, attr, getattr(_dtc, attr))
+        if type_field:
+            default = f"{cls.__qualname__}"
+            if not cls.__module__.startswith("mimikit"):
+                default = f"{cls.__module__}:{default}"
+            setattr(cls, "type", dtc.field(init=False, default=default, repr=False))
+            if "__annotations__" in cls.__dict__:
+                # put the type first for nicer serialization...
+                ann = cls.__dict__["__annotations__"].copy()
+                for k in ann:
+                    cls.__dict__["__annotations__"].pop(k)
+                cls.__dict__["__annotations__"].update({"type": str, **ann})
+            else:
+                setattr(cls, "__annotations__", {"type": str})
 
     @staticmethod
     def validate_class(cls: type):
@@ -61,7 +75,7 @@ class Config:
 
     @property
     def owner_class(self):
-        module, type_ = self.type.split(":")
+        module, type_ = type(self).__module__, type(self).__qualname__
         type_ = ".".join(type_.split(".")[:-1]) if "." in type_ else type_
         type_ = f"{module}:{type_}"
         return _get_type_object(type_)
@@ -72,27 +86,33 @@ class Config:
         return OmegaConf.to_yaml(cfg)
 
     @staticmethod
-    def deserialize(raw_yaml):
+    def deserialize(raw_yaml, as_type=None):
         cfg = OmegaConf.create(raw_yaml)
-        return Config.object(cfg)
+        return Config.object(cfg, as_type)
 
     @staticmethod
-    def object(cfg: Union[ListConfig, DictConfig, Dict, List, Tuple, Any]):
+    def object(cfg: Union[ListConfig, DictConfig, Dict, List, Tuple, Any], as_type=None):
         if isinstance(cfg, (DictConfig, Dict)):
             for k, v in cfg.items():
+                if k in STATIC_TYPED_KEYS:
+                    cls = _get_type_object(STATIC_TYPED_KEYS[k])
+                    setattr(cfg, k, Config.object(v, as_type=cls))
                 if isinstance(v, (ListConfig, DictConfig, Dict, List, Tuple)):
                     setattr(cfg, k, Config.object(v))
-            if "type" in cfg:
+            if as_type is not None:
+                cls = as_type
+            elif "type" in cfg:
                 cls = _get_type_object(cfg.type)
-                if isinstance(cfg, DictConfig):
-                    cfg._metadata.object_type = cls
-                    return OmegaConf.to_object(cfg)
-                else:
-                    return cls(**cfg)
             else:  # untyped raw dict
                 return cfg
+            if isinstance(cfg, DictConfig):
+                cfg._metadata.object_type = cls
+                return OmegaConf.to_object(cfg)
+            else:
+                return cls(**cfg)
+
         elif isinstance(cfg, (ListConfig, List, Tuple)):
-            return OmegaConf.to_object(OmegaConf.structured([*map(Config.object, cfg)]))
+            return OmegaConf.to_object(OmegaConf.structured([*map(partial(Config.object, as_type=as_type), cfg)]))
         # any other kind of value
         return cfg
 
@@ -117,4 +137,27 @@ class Configurable(abc.ABC):
     @property
     @abc.abstractmethod
     def config(self) -> Config:
+        ...
+
+
+@dtc.dataclass
+class NetworkConfig(Config, abc.ABC):
+
+    @property
+    @abc.abstractmethod
+    def io_spec(self) -> "IOSpec":
+        ...
+
+
+class TrainingConfig(Protocol):
+    @property
+    def data(self) -> "DatasetConfig":
+        ...
+
+    @property
+    def network(self) -> NetworkConfig:
+        ...
+
+    @property
+    def training(self) -> Config:
         ...

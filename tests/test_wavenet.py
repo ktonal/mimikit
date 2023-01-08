@@ -6,7 +6,9 @@ from assertpy import assert_that
 import torch
 from torch.nn import Sigmoid
 
-from mimikit import IOSpec, InputSpec, TargetSpec, AudioSignal, IOFactory, LinearParams, Objective
+from mimikit import IOSpec, InputSpec, TargetSpec, IOFactory, LinearParams, Objective, \
+    FileToSignal, Normalize
+from mimikit.extractor import Extractor
 from mimikit.checkpoint import Checkpoint
 from mimikit.networks.wavenet_v2 import WNLayer, WaveNet
 
@@ -48,7 +50,7 @@ def inputs_(b=8, t=32, d=16):
     [(16,), (32,), (8,)]
 )
 def test_layer_should_support_various_graphs(
-    given_dil: Tuple[int], given_1x1: Tuple[int], given_skips, given_residuals,
+        given_dil: Tuple[int], given_1x1: Tuple[int], given_skips, given_residuals,
         given_pad, given_input_dim, feed_skips, with_gate
 ):
     # if given_residuals is not None and given_input_dim is not None
@@ -74,7 +76,7 @@ def test_layer_should_support_various_graphs(
     skips = None if not feed_skips or given_skips is None else inputs_(B, T, given_skips)
 
     given_inputs = (
-        (inputs_(B, T, input_dim), ), tuple(inputs_(B, T, d) for d in given_1x1), skips
+        (inputs_(B, T, input_dim),), tuple(inputs_(B, T, d) for d in given_1x1), skips
     )
     # HOW OUTPUT DIM WORKS:
     if given_residuals is not None:
@@ -108,7 +110,7 @@ def test_layer_should_support_various_graphs(
 
 
 def test_should_instantiate_from_default_config():
-    given_config = WaveNet.Config(io_spec=WaveNet.qx_io)
+    given_config = WaveNet.Config(io_spec=WaveNet.qx_io())
 
     under_test = WaveNet.from_config(given_config)
 
@@ -117,12 +119,12 @@ def test_should_instantiate_from_default_config():
 
 
 def test_should_load_when_saved(tmp_path_factory):
-    given_config = WaveNet.Config(io_spec=WaveNet.qx_io)
+    given_config = WaveNet.Config(io_spec=WaveNet.qx_io())
     root = str(tmp_path_factory.mktemp("ckpt"))
     wn = WaveNet.from_config(given_config)
     ckpt = Checkpoint(id="123", epoch=1, root_dir=root)
 
-    ckpt.create(model_config=wn.config, network=wn)
+    ckpt.create(network=wn, training_config=wn.config)
     loaded = ckpt.network
 
     assert_that(type(loaded)).is_equal_to(WaveNet)
@@ -135,16 +137,16 @@ def test_should_load_when_saved(tmp_path_factory):
 def test_generate(
         given_temp
 ):
-    given_config = WaveNet.Config(io_spec=WaveNet.qx_io)
-    q_levels = given_config.io_spec.inputs[0].feature.q_levels
+    given_config = WaveNet.Config(io_spec=WaveNet.qx_io())
+    q_levels = given_config.io_spec.inputs[0].elem_type.class_size
     wn = WaveNet.from_config(given_config)
 
     given_prompt = torch.randint(0, q_levels, (1, 128,))
     wn.eval()
     # For now, prompts are just Tuple[T] (--> Tuple[Tuple[T, ...]] for multi inputs!)
-    wn.before_generate((given_prompt, ), batch_index=0)
+    wn.before_generate((given_prompt,), batch_index=0)
     output = wn.generate_step(
-        (given_prompt[:, -wn.rf:], ),
+        (given_prompt[:, -wn.rf:],),
         t=given_prompt.size(1),
         temperature=given_temp)
     wn.after_generate(output, batch_index=0)
@@ -155,17 +157,20 @@ def test_generate(
 
 
 def test_should_support_multiple_io():
+    extractor = Extractor("snd", FileToSignal(16000))
     given_io = IOSpec(
         inputs=(
             InputSpec(
-                feature=AudioSignal(sr=16000),
+                extractor=extractor,
+                transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams()
                 )
             ),
             InputSpec(
-                feature=AudioSignal(sr=16000),
+                extractor=extractor,
+                transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams()
@@ -174,7 +179,8 @@ def test_should_support_multiple_io():
         ),
         targets=(
             TargetSpec(
-                feature=AudioSignal(sr=16000),
+                extractor=extractor,
+                transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams()
@@ -182,13 +188,14 @@ def test_should_support_multiple_io():
                 objective=Objective("reconstruction")
             ),
             TargetSpec(
-                feature=AudioSignal(sr=16000),
+                extractor=extractor,
+                transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams(),
                 ),
                 objective=Objective("reconstruction")
-            )),)
+            )), )
     wn = WaveNet.from_config(WaveNet.Config(
         io_spec=given_io,
         dims_dilated=(128,),

@@ -3,9 +3,9 @@ import torch.nn as nn
 from typing import Optional
 import dataclasses as dtc
 
-from ..config import Config
+from ..config import Config, NetworkConfig
 from ..modules.activations import Abs
-from ..networks.arm import ARMConfig, ARMWithHidden
+from ..networks.arm import ARMWithHidden
 from .io_spec import IOSpec
 from ..networks.parametrized_gaussian import ParametrizedGaussian
 
@@ -148,7 +148,7 @@ def tile(a, dim, n_tile):
 
 
 class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
-    class Config(ARMConfig):
+    class Config(NetworkConfig):
         io_spec: IOSpec = None
         input_dim: int = 513
         model_dim: int = 1024
