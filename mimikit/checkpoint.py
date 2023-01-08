@@ -1,7 +1,11 @@
 import abc
 import dataclasses as dtc
 from typing import Optional
-from functools import cached_property
+try:
+    from functools import cached_property
+except ImportError:  # python<3.8
+    def cached_property(f): return f
+
 import torch.nn as nn
 
 import h5mapper as h5m

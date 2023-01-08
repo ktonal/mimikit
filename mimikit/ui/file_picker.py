@@ -2,7 +2,9 @@ import os
 import re
 from ipywidgets import widgets as W
 from functools import partial
-from h5mapper import Sound
+
+from ..utils import SOUND_FILE_REGEX
+
 
 __all__ = [
     "FilePicker",
@@ -22,7 +24,7 @@ class FilePicker:
         self.root = root
         self.n_columns = n_columns
         self.show_hidden = show_hidden
-        self.pattern = re.compile(pattern)
+        self.pattern = pattern if not isinstance(pattern, str) else re.compile(pattern)
         self.multiple = multiple
         self.widget = W.VBox([
             W.Text(value=self.root,
@@ -109,6 +111,6 @@ class FilePicker:
                 if not self.multiple else ", ".join([os.path.split(p)[-1] for p in self.selected])
 
 
-SoundFilePicker = partial(FilePicker, pattern=Sound.__re__)
-CheckpointPicker = partial(FilePicker, pattern=r".*\.h5$")
-DatasetPicker = partial(FilePicker, pattern=r".*\.h5$", multiple=False)
+SoundFilePicker = partial(FilePicker, pattern=SOUND_FILE_REGEX)
+CheckpointPicker = partial(FilePicker, pattern=re.compile(r".*\.h5$"))
+DatasetPicker = partial(FilePicker, pattern=re.compile(r".*\.h5$"), multiple=False)

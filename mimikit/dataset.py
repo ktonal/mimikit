@@ -1,4 +1,4 @@
-from typing import Tuple, Type, TypeVar
+from typing import Tuple
 import dataclasses as dtc
 import h5mapper as h5m
 
