@@ -8,7 +8,7 @@ from torch.nn import Sigmoid
 
 from mimikit import IOSpec, InputSpec, TargetSpec, IOFactory, LinearParams, Objective, \
     FileToSignal, Normalize
-from mimikit.extractor import Extractor
+from mimikit.features.extractor import Extractor
 from mimikit.checkpoint import Checkpoint
 from mimikit.networks.wavenet_v2 import WNLayer, WaveNet
 

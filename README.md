@@ -37,7 +37,6 @@ You can explore the outputs of different trainings done with `mimikit` at this d
             - [x] no HOM
             - [x] from_config()
             - [ ] IOSpec
-        - [ ] update Checkpoint methods
     - [ ] Cleanup GenerateLoop
         - [x] Prompt Index
         - [x] **parameters

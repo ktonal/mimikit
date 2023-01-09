@@ -8,7 +8,6 @@ import numpy as np
 from scipy.signal import lfilter
 from scipy.interpolate import interp1d
 from numba import njit, prange, float32, intp
-from numba.extending import overload
 import dataclasses as dtc
 import abc
 

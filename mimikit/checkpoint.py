@@ -12,7 +12,7 @@ import h5mapper as h5m
 import os
 
 from .config import Config, Configurable, TrainingConfig, NetworkConfig
-from .dataset import DatasetConfig
+from .features.dataset import DatasetConfig
 
 
 __all__ = [

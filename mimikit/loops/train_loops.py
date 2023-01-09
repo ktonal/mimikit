@@ -11,10 +11,10 @@ from .logger import LoggingHooks
 from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint
 from .samplers import TBPTTSampler
 from .generate import GenerateLoopV2
-from ..dataset import DatasetConfig
+from ..features.dataset import DatasetConfig
 from ..features.item_spec import ItemSpec, Step
 from ..networks.arm import ARM
-from ..config import Config, TrainingConfig, NetworkConfig
+from ..config import Config, NetworkConfig
 
 __all__ = [
     "TrainARMConfig",
@@ -182,7 +182,7 @@ class TrainLoop(LoggingHooks,
 
     def __init__(self,
                  hp: ARMHP,
-                 soundbank: h5m.SoundBank,
+                 soundbank: h5m.TypedFile,
                  loader: torch.utils.data.DataLoader,
                  net: ARM,
                  loss_fn,

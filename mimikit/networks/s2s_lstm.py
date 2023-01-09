@@ -1,12 +1,10 @@
 import torch
 import torch.nn as nn
 from typing import Optional
-import dataclasses as dtc
 
-from ..config import Config, NetworkConfig
-from ..modules.activations import Abs
+from ..config import NetworkConfig
 from ..networks.arm import ARMWithHidden
-from .io_spec import IOSpec
+from ..io_spec import IOSpec
 from ..networks.parametrized_gaussian import ParametrizedGaussian
 
 __all__ = [

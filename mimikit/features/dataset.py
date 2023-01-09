@@ -2,7 +2,7 @@ from typing import Tuple
 import dataclasses as dtc
 import h5mapper as h5m
 
-from .config import Config
+from ..config import Config
 from .extractor import Extractor
 
 __all__ = [

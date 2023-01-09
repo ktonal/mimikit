@@ -4,14 +4,14 @@ import torch.nn as nn
 import dataclasses as dtc
 import h5mapper as h5m
 
-from ..utils import AutoStrEnum
-from ..config import Config
-from ..extractor import Extractor
-from ..features.item_spec import Unit, Sample, Frame, ItemSpec
-from ..features.functionals import Continuous, Discrete, Functional
-from ..modules.targets import CategoricalSampler, MoLSampler, MoLLoss
-from ..modules.io import IOFactory
-from ..modules.loss_functions import MeanL1Prop
+from .utils import AutoStrEnum
+from .config import Config
+from .features.extractor import Extractor
+from .features.item_spec import Unit, Sample, Frame, ItemSpec
+from .features.functionals import Continuous, Discrete, Functional
+from .modules.targets import CategoricalSampler, MoLSampler, MoLLoss
+from .modules.io import IOFactory
+from .modules.loss_functions import MeanL1Prop
 
 __all__ = [
     "InputSpec",

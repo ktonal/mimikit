@@ -9,8 +9,8 @@ import operator as opr
 
 from .arm import ARM
 from ..config import NetworkConfig
-from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
-from ..extractor import Extractor
+from ..io_spec import IOSpec, InputSpec, TargetSpec, Objective
+from ..features.extractor import Extractor
 from ..features.item_spec import ItemSpec, Step
 from ..features.functionals import *
 from ..modules.io import IOFactory, MLPParams, ChunkedLinearParams

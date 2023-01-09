@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 
 from .arm import ARMWithHidden
-from ..extractor import Extractor
+from ..features.extractor import Extractor
 from ..config import NetworkConfig
-from .io_spec import IOSpec, InputSpec, TargetSpec, Objective
+from ..io_spec import IOSpec, InputSpec, TargetSpec, Objective
 from ..features.functionals import *
 from ..features.item_spec import ItemSpec
 from ..modules.io import IOFactory, ZipReduceVariables, ZipMode, MLPParams, LinearParams

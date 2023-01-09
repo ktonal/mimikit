@@ -4,15 +4,14 @@ import numpy as np
 
 from . import IndicesSampler, GenerateLoop
 from ..checkpoint import Checkpoint
-from ..extract.from_neighbors import nearest_neighbor, cum_entropy
-from ..utils import audio
+from ..extract import nearest_neighbor, cum_entropy
 
 __all__ = [
     "eval_checkpoint"
 ]
 
 
-def eval_checkpoint(ckpt: Checkpoint, soundbank: h5m.SoundBank):
+def eval_checkpoint(ckpt: Checkpoint, soundbank: h5m.TypedFile):
     net = ckpt.network
     feature = ckpt.feature
     saved = {}

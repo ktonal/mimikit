@@ -9,7 +9,7 @@ import sklearn.cluster as C
 import torch
 import torch.nn as nn
 
-from ..modules.loss_functions import AngularDistance
+from mimikit.modules.loss_functions import AngularDistance
 
 
 class QCluster:

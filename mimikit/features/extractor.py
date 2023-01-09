@@ -4,8 +4,8 @@ from typing import Optional
 import numpy as np
 import h5mapper as h5m
 
-from .config import Config
-from .features.functionals import Functional, Discrete
+from ..config import Config
+from .functionals import *
 
 __all__ = [
     "Extractor"
@@ -48,3 +48,12 @@ class Extractor(Config, h5m.Feature, type_field=False):
     def class_size(self):
         """available once the dataset has been extracted"""
         return self.attrs["class_size"]
+
+    @staticmethod
+    def signal(sr=16000) -> "Extractor":
+        return Extractor(
+            name="signal",
+            functional=Compose(
+                FileToSignal(sr=sr), Normalize(), RemoveDC()
+            )
+        )

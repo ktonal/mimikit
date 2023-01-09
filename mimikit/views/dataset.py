@@ -1,6 +1,6 @@
 from ipywidgets import widgets as W
 from .. import ui as UI
-from ..dataset import DatasetConfig
+from ..features.dataset import DatasetConfig
 
 __all__ = [
     "dataset_view"

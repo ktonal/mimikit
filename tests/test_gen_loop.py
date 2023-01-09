@@ -1,15 +1,14 @@
-import pytest
 import torch
 from assertpy import assert_that
 
-import mimikit.extractor
-from .test_utils import TestARM, TestDB, tmp_db
+import mimikit.features.extractor
+from .test_utils import TestARM, TestDB
 import mimikit as mmk
 
 
 def test_should_run(tmp_db):
     db: TestDB = tmp_db("gen-test.h5")
-    extractor = mimikit.extractor.Extractor("snd", mmk.FileToSignal(16000))
+    extractor = mimikit.features.extractor.Extractor("snd", mmk.FileToSignal(16000))
     net = TestARM(
         TestARM.Config(io_spec=mmk.IOSpec(
             inputs=(
