@@ -33,7 +33,7 @@ def _get_type_object(type_) -> type:
 
 
 STATIC_TYPED_KEYS = {
-    "data": "DatasetConfig",
+    "dataset": "DatasetConfig",
     "io_spec": "IOSpec",
     "inputs": "InputSpec",
     "targets": "TargetSpec",
@@ -97,7 +97,9 @@ class Config:
                 if k in STATIC_TYPED_KEYS:
                     cls = _get_type_object(STATIC_TYPED_KEYS[k])
                     setattr(cfg, k, Config.object(v, as_type=cls))
-                if isinstance(v, (ListConfig, DictConfig, Dict, List, Tuple)):
+                elif k == "extractors":
+                    setattr(cfg, k, tuple(map(partial(Config.object, as_type=_get_type_object("Extractor")), v)))
+                elif isinstance(v, (ListConfig, DictConfig, Dict, List, Tuple)):
                     setattr(cfg, k, Config.object(v))
             if as_type is not None:
                 cls = as_type
@@ -151,7 +153,7 @@ class NetworkConfig(Config, abc.ABC):
 
 class TrainingConfig(Protocol):
     @property
-    def data(self) -> "DatasetConfig":
+    def dataset(self) -> "DatasetConfig":
         ...
 
     @property

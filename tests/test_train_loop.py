@@ -9,23 +9,23 @@ import mimikit as mmk
 
 def test_should_run(tmp_db, tmp_path):
     db = tmp_db("train-loop.h5")
-    extractor = mmk.Extractor("snd", mmk.FileToSignal(16000))
+    extractor = mmk.Extractor("signal", mmk.FileToSignal(16000))
     net = TestARM(
         TestARM.Config(io_spec=mmk.IOSpec(
             inputs=(
                 mmk.InputSpec(
-                    extractor=extractor,
+                    extractor_name=extractor.name,
                     transform=mmk.Normalize(),
                     module=mmk.IOFactory("linear")
-                ),
+                ).bind_to(extractor),
             ),
             targets=(
                 mmk.TargetSpec(
-                    extractor=extractor,
+                    extractor_name=extractor.name,
                     transform=mmk.Normalize(),
                     module=mmk.IOFactory("linear"),
                     objective=mmk.Objective("reconstruction")
-                ),
+                ).bind_to(extractor),
             )
         ))
     )
@@ -39,8 +39,8 @@ def test_should_run(tmp_db, tmp_path):
         OUTPUT_TRAINING=True,
     )
 
-    loop = mmk.TrainLoop.from_config(
-        config, soundbank=db, network=net
+    loop = mmk.TrainARMLoop.from_config(
+        config, dataset=db, network=net
     )
 
     loop.run()

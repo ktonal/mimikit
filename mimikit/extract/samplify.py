@@ -3,7 +3,7 @@ import numpy as np
 import librosa
 import matplotlib.pyplot as plt
 
-from mimikit.features.functionals import Derivative, Envelop, Interpolate, Functional, Identity
+from ..features.functionals import Derivative, Envelop, Interpolate, Functional, Identity
 
 __all__ = [
     "Samplifyer"

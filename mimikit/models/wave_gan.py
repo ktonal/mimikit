@@ -98,7 +98,7 @@ class WaveGANGenerator(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.ConvTranspose1d) or isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight.data)
+                nn.init.kaiming_normal_(m.weight.dataset)
 
     def forward(self, x):
         x = self.fc1(x).view(-1, self.dim_mul * self.model_size, self.t0)
@@ -263,7 +263,7 @@ class WaveGANDiscriminator(nn.Module):
 
         for m in self.modules():
             if isinstance(m, nn.Conv1d) or isinstance(m, nn.Linear):
-                nn.init.kaiming_normal_(m.weight.data)
+                nn.init.kaiming_normal_(m.weight.dataset)
 
     def forward(self, x):
         for conv in self.conv_layers:

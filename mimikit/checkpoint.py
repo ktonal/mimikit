@@ -1,10 +1,12 @@
 import abc
 import dataclasses as dtc
 from typing import Optional
+
 try:
     from functools import cached_property
 except ImportError:  # python<3.8
-    def cached_property(f): return f
+    def cached_property(f):
+        return property(f)
 
 import torch.nn as nn
 
@@ -14,7 +16,6 @@ import os
 from .config import Config, Configurable, TrainingConfig, NetworkConfig
 from .features.dataset import DatasetConfig
 
-
 __all__ = [
     'Checkpoint',
     'CheckpointBank'
@@ -22,7 +23,10 @@ __all__ = [
 
 
 class ConfigurableModule(Configurable, nn.Module, abc.ABC):
-    pass
+    @property
+    @abc.abstractmethod
+    def config(self) -> NetworkConfig:
+        ...
 
 
 class CheckpointBank(h5m.TypedFile):
@@ -33,7 +37,7 @@ class CheckpointBank(h5m.TypedFile):
     def save(cls,
              filename: str,
              network: ConfigurableModule,
-             training_config: TrainingConfig,
+             training_config: Optional[TrainingConfig] = None,
              optimizer: Optional[nn.Module] = None
              ) -> "CheckpointBank":
 
@@ -50,9 +54,16 @@ class CheckpointBank(h5m.TypedFile):
 
         if optimizer is not None:
             bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
+        if training_config is not None:
+            bank.attrs["dataset"] = training_config.dataset.serialize()
+            bank.attrs["training"] = training_config.training.serialize()
+        else:
+            # make a dataset config for being able to at least load the network later
+            features = [*network.config.io_spec.inputs, *network.config.io_spec.targets]
+            schema = {f.extractor_name: f.extractor for f in features}
+            bank.attrs["dataset"] = DatasetConfig(filename="unknown", sources=(),
+                                                  extractors=tuple(schema.values())).serialize()
 
-        bank.attrs["data"] = training_config.data.serialize()
-        bank.attrs["training"] = training_config.training.serialize()
         bank.flush()
         bank.close()
         return bank
@@ -62,11 +73,11 @@ class CheckpointBank(h5m.TypedFile):
 class Checkpoint:
     id: str
     epoch: int
-    root_dir: str = "models/"
+    root_dir: str = "./"
 
     def create(self,
                network: ConfigurableModule,
-               training_config: TrainingConfig,
+               training_config: Optional[TrainingConfig] = None,
                optimizer: Optional[nn.Module] = None):
         CheckpointBank.save(self.os_path, network, training_config, optimizer)
         return self
@@ -93,6 +104,10 @@ class Checkpoint:
         return CheckpointBank(self.os_path, 'r')
 
     @cached_property
+    def dataset_config(self) -> DatasetConfig:
+        return Config.deserialize(self.bank.attrs["data"])
+
+    @cached_property
     def network_config(self) -> NetworkConfig:
         return Config.deserialize(self.bank.network.attrs["config"])
 
@@ -102,12 +117,9 @@ class Checkpoint:
         return Config.deserialize(bank.attrs["training"])
 
     @cached_property
-    def data_config(self) -> DatasetConfig:
-        return Config.deserialize(self.bank.attrs["data"])
-
-    @cached_property
     def network(self) -> ConfigurableModule:
         cfg: NetworkConfig = self.network_config
+        cfg.io_spec.bind_to(self.dataset_config)
         cls = cfg.owner_class
         state_dict = self.bank.network.get("state_dict")
         net = cls.from_config(cfg)
@@ -116,7 +128,7 @@ class Checkpoint:
 
     @cached_property
     def dataset(self):
-        dataset: DatasetConfig = self.data_config
+        dataset: DatasetConfig = self.dataset_config
         if os.path.exists(dataset.filename):
             return dataset.get(mode="r")
         return dataset.create(mode="w")

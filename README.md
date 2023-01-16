@@ -32,17 +32,14 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 #### v0.4.0
  
 - [ ] code cleanup
+    - [ ] Training Scripts
+    - [ ] package tree and imports
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
         - [ ] S2S
             - [x] no HOM
             - [x] from_config()
             - [ ] IOSpec
     - [ ] Cleanup GenerateLoop
-        - [x] Prompt Index
-        - [x] **parameters
-        - [x] getters/setters
-        - [x] move AudioLogger from Callback to Loop
-        - [x] migrate train loop 
         - [ ] migrate ensemble
 - [ ] Views / UI
     - [ ] File / Data View
@@ -85,8 +82,9 @@ You can explore the outputs of different trainings done with `mimikit` at this d
             - [ ] from rec mat
         - [ ] KMer (seqPrior)
         - [ ] BitVector
-        - [ ] MelSpec
-        - [ ] MFCC
+        - [ ] Quantize / Digitize / Linearize
+        - [/] MelSpec
+        - [/] MFCC
         - [ ] TimeIndex
         - [ ] Frame
         - [ ] Cast
@@ -123,13 +121,14 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] Multiple Domains
     - [ ] Same Variable, different repr (e.g. x_0 -> Raw, MuLaw --> ?)
     - [ ] Models support
-    - [ ] TrainLoop Support
+    - [ ] TrainARMLoop Support
     - [ ] GenLoop Support
     - [ ] Logger/Display Support
 - [ ] Target Distributions
     - Scalar and Vector
         - [x] Mixture of Logistics
         - [x] Mixture of Gaussian 
+        - [x] Mixture of Laplace
         - [ ] Continuous Bernoulli (??) (--> correct VAE!!)
         - [ ] WaveRNN style SoftMax
     - [ ] Layers can contribute to loss (e.g. ELBO)
@@ -160,5 +159,9 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Upgrade python 3.9 ? (colab is 3.7.15...)
 - [ ] stacking of models in Ensemble
 - [ ] M1 Support
-
+- [ ] h5py
+    - [ ] TypedFile.__setattr__
+    - [ ] TypedFile.features
+    - [ ] TypedFile.proxies
+    - [ ] TypedFile.__len__
  

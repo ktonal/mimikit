@@ -97,7 +97,7 @@ class GenerateLoopV2:
         callback: Optional[Callable[[Tuple[torch.Tensor, ...]], None]] = None
 
     @classmethod
-    def from_config(cls, config: Config, soundbank, network: ARM):
+    def from_config(cls, config: Config, dataset: h5m.TypedFile, network: ARM):
         io_spec = network.config.io_spec
         sr = io_spec.sr
         unit = io_spec.unit
@@ -109,7 +109,8 @@ class GenerateLoopV2:
         else:
             n_steps = output_n_samples
         max_len = prompt_n_samples
-        max_i = soundbank.snd.shape[0] - max_len
+        # TODO: get rid of '.signal' assumption
+        max_i = dataset.signal.shape[0] - max_len
         # todo: fixture get n_prior + n_steps
         prompt_spec = ItemSpec(0, length=config.prompts_length_sec, unit=Second(sr))
         prompt_batch, _ = network.test_batch(prompt_spec)
@@ -118,7 +119,7 @@ class GenerateLoopV2:
         )
         indices = tuple(int(x * sr) if x is not None else x
                         for x in config.prompts_position_sec)
-        dataloader = soundbank.serve(
+        dataloader = dataset.serve(
             prompt_batch,
             sampler=IndicesSampler(N=len(indices),
                                    indices=indices,
@@ -325,7 +326,7 @@ class GenerateLoop:
                         until = interface.set(t + prior_t, out) + t
 
             # wrap up
-            final_outputs = tuple(x.data for x in inputs_itf[:len(outputs_itf)])
+            final_outputs = tuple(x.dataset for x in inputs_itf[:len(outputs_itf)])
             self.net.after_generate(final_outputs, batch_idx)
 
             self.process_outputs(final_outputs, batch_idx)

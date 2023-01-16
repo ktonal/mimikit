@@ -3,12 +3,12 @@ import hashlib
 from typing import Optional, Tuple
 
 import torch
-from pytorch_lightning import LightningModule, Trainer, callbacks as pl_callbacks
+from pytorch_lightning import LightningModule, Trainer
 import os
 import h5mapper as h5m
 
 from .logger import LoggingHooks
-from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint
+from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint, TrainingProgressBar, is_notebook
 from .samplers import TBPTTSampler
 from .generate import GenerateLoopV2
 from ..features.dataset import DatasetConfig
@@ -19,7 +19,7 @@ from ..config import Config, NetworkConfig
 __all__ = [
     "TrainARMConfig",
     "ARMHP",
-    "TrainLoop"
+    "TrainARMLoop"
 ]
 
 
@@ -32,7 +32,6 @@ class TrainARMConfig(Config):
     oversampling: int = 1
     shift_error: int = 0
     tbptt_chunk_length: Optional[int] = None
-    in_mem_data: bool = True
 
     max_epochs: int = 2
     limit_train_batches: Optional[int] = None
@@ -55,16 +54,17 @@ class TrainARMConfig(Config):
     temperature: Optional[Tuple[float]] = None
 
 
+# implements TrainingConfig structurally
 @dtc.dataclass
 class ARMHP(Config):
-    data: DatasetConfig
+    dataset: DatasetConfig
     network: NetworkConfig
     training: TrainARMConfig
 
 
 # noinspection PyCallByClass
-class TrainLoop(LoggingHooks,
-                LightningModule):
+class TrainARMLoop(LoggingHooks,
+                   LightningModule):
 
     @classmethod
     def get_os_paths(cls,
@@ -79,7 +79,7 @@ class TrainLoop(LoggingHooks,
 
     @classmethod
     def get_dataloader(cls,
-                       soundbank,
+                       dataset: h5m.TypedFile,
                        net: ARM,
                        cfg: TrainARMConfig):
         user_spec = ItemSpec(shift=0, length=cfg.batch_length,
@@ -90,7 +90,8 @@ class TrainLoop(LoggingHooks,
             # feature MUST be in time domain
             seq_len = cfg.batch_length
             chunk_length = cfg.tbptt_chunk_length
-            N = soundbank.snd.shape[0]
+            # TODO: get rid of '.signal' assumption
+            N = dataset.signal.shape[0]
             loader_kwargs = dict(
                 batch_sampler=TBPTTSampler(
                     N,
@@ -104,13 +105,13 @@ class TrainLoop(LoggingHooks,
             loader_kwargs = dict(batch_size=cfg.batch_size, shuffle=True)
         n_workers = max(os.cpu_count(), min(cfg.batch_size, os.cpu_count()))
         with_cuda = torch.cuda.is_available()
-        return soundbank.serve(batch,
-                               num_workers=n_workers,
-                               prefetch_factor=2,
-                               pin_memory=with_cuda,
-                               persistent_workers=True,
-                               **loader_kwargs
-                               )
+        return dataset.serve(batch,
+                             num_workers=n_workers,
+                             prefetch_factor=2,
+                             pin_memory=with_cuda,
+                             persistent_workers=True,
+                             **loader_kwargs
+                             )
 
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
@@ -130,7 +131,7 @@ class TrainLoop(LoggingHooks,
     @classmethod
     def get_callbacks(cls,
                       net,
-                      soundbank,
+                      dataset,
                       root_dir,
                       filename_template,
                       cfg: TrainARMConfig):
@@ -139,14 +140,14 @@ class TrainLoop(LoggingHooks,
             GenerateLoopV2.Config(
                 output_duration_sec=cfg.outputs_duration_sec,
                 prompts_length_sec=cfg.prompt_length_sec,
-                prompts_position_sec=(None,)*cfg.n_examples,
+                prompts_position_sec=(None,) * cfg.n_examples,
                 parameters=dict(temperature=cfg.temperature),
                 batch_size=cfg.n_examples,
                 output_name_template=filename_template,
                 display_waveform=cfg.MONITOR_TRAINING,
                 write_waveform=cfg.OUTPUT_TRAINING
             ),
-            network=net, soundbank=soundbank
+            network=net, dataset=dataset
         )
         callbacks = []
 
@@ -166,23 +167,26 @@ class TrainLoop(LoggingHooks,
         return callbacks
 
     @classmethod
-    def from_config(cls, train_cfg: TrainARMConfig, soundbank, network: ARM):
-        dataloader = cls.get_dataloader(soundbank, network, train_cfg)
-        ds_cfg = DatasetConfig(
-            destination=soundbank.filename,
-            sources=tuple(soundbank.index.keys())
-        )
-        hp = ARMHP(training=train_cfg, network=network.config, data=ds_cfg)
-        return cls(hp, soundbank, dataloader, network,
+    def from_config(cls, train_cfg: TrainARMConfig, dataset, network: ARM):
+        dataloader = cls.get_dataloader(dataset, network, train_cfg)
+        if not hasattr(dataset, "config"):
+            ds_cfg = DatasetConfig(
+                filename=dataset.filename,
+                sources=tuple(dataset.index.keys())
+            )
+        else:
+            ds_cfg = dataset.config
+        hp = ARMHP(training=train_cfg, network=network.config, dataset=ds_cfg)
+        return cls(hp, dataset, dataloader, network,
                    network.config.io_spec.loss_fn)
 
     @property
-    def config(self):
+    def config(self) -> ARMHP:
         return self._config
 
     def __init__(self,
                  hp: ARMHP,
-                 soundbank: h5m.TypedFile,
+                 dataset: h5m.TypedFile,
                  loader: torch.utils.data.DataLoader,
                  net: ARM,
                  loss_fn,
@@ -191,7 +195,7 @@ class TrainLoop(LoggingHooks,
         self._config = hp
         self.train_cfg = hp.training
         self.root_dir, self.hash_, self.output_template = self.get_os_paths(hp)
-        self.soundbank = soundbank
+        self.dataset = dataset
         self.loader = loader
         self.net = net
         self.loss_fn = loss_fn
@@ -199,7 +203,7 @@ class TrainLoop(LoggingHooks,
         if self.tbptt_len is not None:
             self.tbptt_len //= self.train_cfg.batch_length
         self.callbacks = self.get_callbacks(
-            self.net, self.soundbank, self.root_dir, self.output_template,
+            self.net, self.dataset, self.root_dir, self.output_template,
             self.train_cfg
         )
 
@@ -227,14 +231,14 @@ class TrainLoop(LoggingHooks,
         print("*" * 64)
         print("training's id is:", self.hash_)
         print("*" * 64)
-
+        epochs_bar = [EpochProgressBarCallback()] if is_notebook() else ()
         self.trainer = Trainer(
             default_root_dir=self.root_dir,
             max_epochs=self.train_cfg.max_epochs,
             limit_train_batches=self.train_cfg.limit_train_batches,
             callbacks=[
-                EpochProgressBarCallback(),
-                pl_callbacks.TQDMProgressBar(refresh_rate=20, process_position=1),
+                *epochs_bar,
+                TrainingProgressBar(),
                 *self.callbacks],
             logger=None,
             enable_checkpointing=False,
@@ -246,7 +250,7 @@ class TrainLoop(LoggingHooks,
             self.loader._iterator._shutdown_workers()
         except:
             pass
-        self.soundbank.close()
+        self.dataset.close()
         return self
 
     def save_hp(self):

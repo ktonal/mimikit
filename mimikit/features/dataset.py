@@ -11,8 +11,8 @@ __all__ = [
 
 
 @dtc.dataclass
-class DatasetConfig(Config):
-    sources: Tuple[str] = tuple()
+class DatasetConfig(Config, type_field=False):
+    sources: Tuple[str, ...] = tuple()
     filename: str = "dataset.h5"
     extractors: Tuple[Extractor, ...] = tuple()
 
@@ -21,9 +21,20 @@ class DatasetConfig(Config):
         return {e.name: e for e in self.extractors}
 
     def create(self, **kwargs):
-        cls = type("Dataset", (h5m.TypedFile, ), self.schema)
+        cls = self._typed_file_class()
         return cls.create(self.filename, self.sources, **kwargs)
 
     def get(self, **kwargs):
-        return h5m.TypedFile(self.filename, kwargs)
+        cls = type("Dataset", (h5m.TypedFile,), {"config": self, **self.schema})
+        return cls(self.filename, **kwargs)
 
+    def _typed_file_class(self):
+        def reduce(self):
+            return h5m.TypedFile, (self.filename,), {}
+
+        return type("Dataset", (h5m.TypedFile,),
+                    {
+                        "config": self,
+                        **self.schema,
+                        "__reduce__": reduce
+                    })

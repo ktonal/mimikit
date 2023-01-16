@@ -45,7 +45,7 @@ def test_should_load_when_saved(tmp_path_factory):
     srnn = SampleRNN.from_config(given_config)
     ckpt = Checkpoint(id="123", epoch=1, root_dir=root)
 
-    ckpt.create(network=srnn, training_config=srnn.config)
+    ckpt.create(network=srnn)
     loaded = ckpt.network
 
     assert_that(type(loaded)).is_equal_to(SampleRNN)

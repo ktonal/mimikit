@@ -442,46 +442,46 @@ class WaveNet(ARM, nn.Module):
 
     @staticmethod
     def qx_io(
-            # todo extractor=None,
+            extractor=None,
     ):
+        if extractor is None:
+            extractor = Extractor("signal", Compose(
+                FileToSignal(16000), Normalize(), RemoveDC()
+            ))
         return IOSpec(
             inputs=(InputSpec(
-                extractor=Extractor("snd", Compose(
-                    FileToSignal(16000), Normalize(), RemoveDC()
-                )),
+                extractor_name=extractor.name,
                 transform=MuLawCompress(256),
                 module=IOFactory(module_type="embedding")
-            ),),
+            ).bind_to(extractor),),
             targets=(TargetSpec(
-                extractor=Extractor("snd", Compose(
-                    FileToSignal(16000), Normalize(), RemoveDC()
-                )),
+                extractor_name=extractor.name,
                 transform=MuLawCompress(256),
                 module=IOFactory(
                     module_type="mlp",
                     params=MLPParams()
                 ),
                 objective=Objective("categorical_dist")
-            ),))
+            ).bind_to(extractor),))
 
     @staticmethod
     def fft_io(
-            # todo extractor=None,
+            extractor=None,
     ):
+        if extractor is None:
+            extractor = Extractor("signal", Compose(
+                FileToSignal(22050), Normalize(), RemoveDC()
+            ))
         return IOSpec(
             inputs=(InputSpec(
-                extractor=Extractor("snd", Compose(
-                    FileToSignal(22050), Normalize(), RemoveDC()
-                )),
+                extractor_name=extractor.name,
                 transform=MagSpec(2048, 512, center=False, window='hann'),
                 module=IOFactory(
                     module_type="chunked_linear",
                     params=ChunkedLinearParams(n_heads=1)
-                )),),
+                )).bind_to(extractor),),
             targets=(TargetSpec(
-                extractor=Extractor("snd", Compose(
-                    FileToSignal(22050), Normalize(), RemoveDC()
-                )),
+                extractor_name=extractor.name,
                 transform=MagSpec(2048, 512, center=False, window='hann'),
                 module=IOFactory(
                     module_type="chunked_linear",
@@ -490,4 +490,4 @@ class WaveNet(ARM, nn.Module):
                         act="Abs",
                     )),
                 objective=Objective("reconstruction")
-            ),))
+            ).bind_to(extractor),))

@@ -28,6 +28,12 @@ class RNNType(AutoStrEnum):
     none = auto()
 
 
+class H0Init(AutoStrEnum):
+    zeros = auto()
+    ones = auto()
+    randn = auto()
+
+
 class SampleRNNTier(nn.Module):
 
     def __init__(
@@ -38,6 +44,7 @@ class SampleRNNTier(nn.Module):
             n_rnn: int = 1,
             rnn_dropout: float = 0.,
             rnn_bias: bool = True,
+            h0_init: H0Init = 'zeros',
             weight_norm: bool = False,
             up_sampling: Optional[int] = None,
     ):
@@ -48,6 +55,7 @@ class SampleRNNTier(nn.Module):
         self.n_rnn = n_rnn
         self.rnn_dropout = rnn_dropout
         self.rnn_bias = rnn_bias
+        self.h0_init = h0_init
         self.weight_norm = weight_norm
         self.up_sampling = up_sampling
 
@@ -96,18 +104,21 @@ class SampleRNNTier(nn.Module):
         if self.rnn_class == "lstm":
             if hidden is None or x.size(0) != hidden[0].size(1):
                 B = x.size(0)
-                h0 = nn.Parameter(torch.randn(self.n_rnn, B, self.hidden_dim).to(x.device))
-                c0 = nn.Parameter(torch.randn(self.n_rnn, B, self.hidden_dim).to(x.device))
+                h0 = nn.Parameter(self._init_h0(self.n_rnn, B, self.hidden_dim).to(x.device))
+                c0 = nn.Parameter(self._init_h0(self.n_rnn, B, self.hidden_dim).to(x.device))
                 return h0, c0
             else:
                 return hidden[0].detach(), hidden[1].detach()
         else:
             if hidden is None or x.size(0) != hidden.size(1):
                 B = x.size(0)
-                h0 = torch.randn(self.n_rnn, B, self.hidden_dim).to(x.device)
+                h0 = self._init_h0(self.n_rnn, B, self.hidden_dim).to(x.device)
                 return h0
             else:
                 return hidden.detach()
+
+    def _init_h0(self, *dims):
+        return getattr(torch, self.h0_init)(*dims)
 
 
 class SampleRNN(ARMWithHidden, nn.Module):
@@ -119,6 +130,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         n_rnn: int = 1
         rnn_dropout: float = 0.
         rnn_bias: bool = True
+        h0_init: H0Init = "zeros"
         weight_norm: bool = False
         inputs_mode: ZipMode = "sum"
         io_spec: IOSpec = None
@@ -140,6 +152,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                     n_rnn=config.n_rnn,
                     rnn_dropout=config.rnn_dropout,
                     rnn_bias=config.rnn_bias,
+                    h0_init=config.h0_init,
                     weight_norm=config.weight_norm,
                     up_sampling=fs // (
                         config.frame_sizes[i + 1]
@@ -148,16 +161,19 @@ class SampleRNN(ARMWithHidden, nn.Module):
                 )]
         modules = []
         for in_spec in config.io_spec.inputs:
-            if "framed" in in_spec.module.module_type:
-                modules += [IOFactory(module_type="framed_conv1d")
-                                .set(class_size=in_spec.elem_type.class_size,
-                                     frame_size=config.frame_sizes[-1],
-                                     hop_length=1, out_dim=h_dim).get()]
+            if isinstance(in_spec.elem_type, Discrete):
+                params = dict(class_size=in_spec.elem_type.class_size)
+                if "framed" in in_spec.module.module_type:
+                    module_type = "framed_conv1d"
+                else:
+                    module_type = "embedding_conv1d"
             else:
-                modules += [IOFactory(module_type="embedding_conv1d")
-                                .set(class_size=in_spec.elem_type.class_size,
-                                     frame_size=config.frame_sizes[-1],
-                                     hop_length=1, out_dim=h_dim).get()]
+                params = dict()
+                module_type = "framed_conv1d"
+            modules += [IOFactory(module_type=module_type)
+                            .set(**params,
+                                 frame_size=config.frame_sizes[-1],
+                                 hop_length=1, out_dim=h_dim).get()]
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
         tiers += [
             SampleRNNTier(
@@ -196,7 +212,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
 
     def forward(self, inputs: Tuple):
         # TODO: _forward_one_for_all, _forward_one_for_each
-        #  or add transforms before input modules...
+        #  or add transforms WITHIN input modules...
         prev_output = None
         fs0 = self.frame_sizes[0]
         for tier, fs in zip(self.tiers[:-1], self.frame_sizes[:-1]):
@@ -214,9 +230,10 @@ class SampleRNN(ARMWithHidden, nn.Module):
         self.reset_hidden()
         prompt_length = prompts[0].size(1)
         offset = prompt_length % self.rf
+        self.prompt_length = prompt_length - offset
         # warm-up: TODO: make one forward pass (cache outputs and hidden)
-        for t in range(self.rf + offset, prompt_length):
-            self.generate_step(tuple(p[:, t - self.rf:t] for p in prompts), t=t)
+        for t in range(self.rf, self.prompt_length):
+            self.generate_step(tuple(p[:, t + offset - self.rf:t + offset] for p in prompts), t=t)
 
     def generate_step(
             self,
@@ -293,7 +310,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
 
     @staticmethod
     def qx_io(
-            # todo extractor=None,
+            extractor: Extractor = None,
             sr=16000,
             q_levels=256,
             compression=1.,
@@ -301,22 +318,23 @@ class SampleRNN(ARMWithHidden, nn.Module):
             n_mlp_layers=0,
             min_temperature=1e-4
     ):
-        extractor = Extractor(
-            "snd", Compose(
-                FileToSignal(sr), Normalize(), RemoveDC()
+        if extractor is None:
+            extractor = Extractor(
+                "signal", Compose(
+                    FileToSignal(sr), Normalize(), RemoveDC()
+                )
             )
-        )
         mu_law = MuLawCompress(q_levels, compression)
         return IOSpec(
             inputs=(InputSpec(
-                extractor=extractor,
+                extractor_name=extractor.name,
                 transform=mu_law,
                 module=IOFactory(
                     module_type="framed_linear",
                     params=LinearParams()
-                )),),
+                )).bind_to(extractor),),
             targets=(TargetSpec(
-                extractor=extractor,
+                extractor_name=extractor.name,
                 transform=mu_law,
                 module=IOFactory(
                     module_type="mlp",
@@ -326,7 +344,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                     )
                 ),
                 objective=Objective("categorical_dist")
-            ),))
+            ).bind_to(extractor),))
 
     @property
     def generate_params(self) -> Set[str]:

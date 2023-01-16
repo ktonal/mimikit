@@ -1,4 +1,5 @@
 import os
+from time import time
 from typing import Iterable
 import pytorch_lightning as pl
 from pytorch_lightning.trainer.states import TrainerState
@@ -11,6 +12,7 @@ from ..checkpoint import Checkpoint
 __all__ = [
     'is_notebook',
     'EpochProgressBarCallback',
+    'TrainingProgressBar',
     'GradNormCallback',
     'MMKCheckpoint',
     'GenerateCallback',
@@ -32,7 +34,7 @@ def is_notebook():
 if is_notebook():
     from tqdm.notebook import tqdm
 else:
-    from tqdm import tqdm
+    from tqdm.auto import tqdm
 
 
 class EpochProgressBarCallback(Callback):
@@ -48,6 +50,46 @@ class EpochProgressBarCallback(Callback):
 
     def on_validation_epoch_end(self, *args):
         self.epoch_bar.update()
+
+
+class TrainingProgressBar(pl.callbacks.TQDMProgressBar):
+    def init_train_tqdm(self):
+        """Override this to customize the tqdm bar for training."""
+        bar = tqdm(
+            desc=self.train_description,
+            initial=self.train_batch_idx,
+            position=int(is_notebook())*2,
+            disable=self.is_disabled,
+            leave=True,
+            dynamic_ncols=True,
+            # file=sys.stdout,
+            smoothing=0,
+            mininterval=1.
+        )
+        return bar
+
+    def _should_update(self, current: int, total: int) -> bool:
+        if getattr(self, "_last_update", None) is None:
+            self._last_update = time()
+            self._last_current = 0
+            return True
+        now = time()
+        should = (now - self._last_update) > 1. or current == total
+        if should:
+            self._last_update = now
+        return should
+
+    def on_train_epoch_start(self, trainer: "pl.Trainer", *_):
+        super(TrainingProgressBar, self).on_train_epoch_start(trainer)
+        self._last_current = 0
+
+    def on_train_batch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", *_):
+        current = self.train_batch_idx + self._val_processed
+        if self._should_update(current, self.main_progress_bar.total):
+            self.main_progress_bar.update(current - self._last_current)
+            self.main_progress_bar.refresh()
+            self.main_progress_bar.set_postfix(self.get_metrics(trainer, pl_module))
+            self._last_current = current
 
 
 class GradNormCallback(Callback):
@@ -71,7 +113,7 @@ class MMKCheckpoint(Callback):
         self.root_dir = root_dir
         self.config = None
 
-    def on_fit_start(self, trainer, pl_module: "TrainLoop") -> None:
+    def on_fit_start(self, trainer, pl_module: "TrainARMLoop") -> None:
         config = pl_module.config
         # make sure that we can (de)serialize
         _class = type(config)

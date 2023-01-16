@@ -1,4 +1,6 @@
 from functools import partial
+import dataclasses as dtc
+from typing import Optional, Tuple
 
 import numpy as np
 from scipy.sparse.csgraph import connected_components
@@ -9,20 +11,32 @@ import sklearn.cluster as C
 import torch
 import torch.nn as nn
 
-from mimikit.modules.loss_functions import AngularDistance
+from ..modules.loss_functions import AngularDistance
+from ..features.functionals import Functional, Identity
 
 
-class QCluster:
+__all__ = [
+    "QCluster",
+    "GCluster",
+    "HCluster",
+    "ArgMax",
+    "KMeans",
+    "SpectralClustering"
+]
 
-    def __init__(self,
-                 cores_prop=.5,
-                 n_neighbors=None,
-                 core_neighborhood_size=None,
-                 metric="euclidean"):
-        self.qe = 1 - cores_prop
-        self.n_neighbs = n_neighbors
-        self.k = core_neighborhood_size
-        self.metric = metric
+
+@dtc.dataclass
+class QCluster(Functional):
+
+    cores_prop: float = .5
+    n_neighbors: Optional[int] = None
+    core_neighborhood_size: Optional[int] = None
+    metric: str = "euclidean"
+
+    def __post_init__(self):
+        self.qe = 1 - self.cores_prop
+        self.n_neighbs = self.n_neighbors
+        self.k = self.core_neighborhood_size
         self.is_core_ = None
         self.labels_ = None
         self.K_ = None
@@ -71,22 +85,31 @@ class QCluster:
         self.K_, self.labels_, self.is_core_ = K, labels, is_core
         return self
 
+    def np_func(self, inputs):
+        self.fit(inputs)
+        return self.labels_
 
-class GCluster:
-    def __init__(self,
-                 n_means,
-                 n_iter=128,
-                 lr=0.025,
-                 betas=(0.05, 0.05),
-                 metric="cosine",
-                 eps=1e-6):
-        self.n_means = n_means
-        self.n_iter = n_iter
-        self.lr = lr
-        self.betas = betas
-        self.metric = metric
+    def torch_func(self, inputs):
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        # todo: here we could implement some kind of inverse_transform()?
+        return Identity
+
+
+@dtc.dataclass
+class GCluster(Functional):
+    n_means: int
+    n_iter: int = 128
+    lr: float = 0.025
+    betas: Tuple[float, float] = (0.05, 0.05)
+    metric: str = "cosine"
+    eps: float = 1e-6
+
+    def __post_init__(self):
         self.d_func = dict(euclidean=torch.cdist,
-                           cosine=AngularDistance(eps=eps))[metric]
+                           cosine=AngularDistance(eps=self.eps))[self.metric]
         self.K_ = None
         self.labels_ = None
         self.losses_ = None
@@ -118,11 +141,25 @@ class GCluster:
         self.labels_ = labels
         return self
 
+    def np_func(self, inputs):
+        self.fit(inputs)
+        return self.labels_
 
-class HCluster:
-    def __init__(self, max_iter=32, metric="cosine"):
-        self.max_iter = max_iter
-        self.metric = metric
+    def torch_func(self, inputs):
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        # todo: here we could implement some kind of inverse_transform()?
+        return Identity
+
+
+@dtc.dataclass
+class HCluster(Functional):
+    max_iter: int = 32
+    metric: str = "cosine"
+
+    def __post_init__(self):
         self.K_ = None
         self.labels_ = None
 
@@ -154,18 +191,23 @@ class HCluster:
         self.labels_ = LBS
         return self
 
+    def np_func(self, inputs):
+        self.fit(inputs)
+        return self.labels_
 
-def distance_matrices(X, metric="euclidean", n_neighbors=1, radius=1e-3):
-    Dx = pwd(X, X, metric=metric)
-    NN = NearestNeighbors(n_neighbors=n_neighbors, radius=radius, metric="precomputed")
-    NN.fit(Dx)
-    Kx = NN.kneighbors_graph(n_neighbors=n_neighbors, mode='connectivity')
-    Rx = NN.radius_neighbors_graph(radius=radius, mode='connectivity')
-    return Dx, Kx, Rx
+    def torch_func(self, inputs):
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        # todo: here we could implement some kind of inverse_transform()?
+        return Identity
 
 
-class ArgMax(object):
-    def __init__(self):
+@dtc.dataclass
+class ArgMax(Functional):
+
+    def __post_init__(self):
         self.labels_ = None
         self.K_ = None
 
@@ -174,6 +216,95 @@ class ArgMax(object):
         uniques, self.labels_ = np.unique(maxes, return_inverse=True)
         self.K_ = len(uniques)
         return self
+
+    def np_func(self, inputs):
+        self.fit(inputs)
+        return self.labels_
+
+    def torch_func(self, inputs):
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        # todo: here we could implement some kind of inverse_transform()?
+        return Identity
+
+
+@dtc.dataclass
+class KMeans(Functional):
+    n_clusters: int = 16
+    n_init: int = 2
+    max_iter: int = 100
+    random_seed: int = 42
+
+    def __post_init__(self):
+        self.est = C.KMeans(
+            n_clusters=self.n_clusters,
+            n_init=self.n_init,
+            max_iter=self.max_iter,
+            random_state=self.random_seed,
+            copy_x=False
+        )
+
+    def fit(self, X):
+        self.est.fit(np.ascontiguousarray(X))
+        return self
+
+    def np_func(self, inputs):
+        self.fit(inputs)
+        return self.est.labels_
+
+    def torch_func(self, inputs):
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        # todo: here we could implement some kind of inverse_transform()?
+        return Identity
+
+
+@dtc.dataclass
+class SpectralClustering(Functional):
+    n_clusters: int
+    n_init: int
+    n_neighbors: int
+    random_seed: int
+
+    def __post_init__(self):
+        self.est = C.SpectralClustering(
+            n_clusters=self.n_clusters,
+            n_init=self.n_init,
+            n_neighbors=self.n_neighbors,
+            random_state=self.random_seed,
+            affinity="nearest_neighbors",
+            eigen_solver="amg",
+            assign_labels="discretize",
+        )
+
+    def fit(self, X):
+        self.est.fit(X)
+        return self
+
+    def np_func(self, inputs):
+        self.fit(inputs)
+        return self.est.labels_
+
+    def torch_func(self, inputs):
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        # todo: here we could implement some kind of inverse_transform()?
+        return Identity
+
+
+def distance_matrices(X, metric="euclidean", n_neighbors=1, radius=1e-3):
+    Dx = pwd(X, X, metric=metric)
+    NN = NearestNeighbors(n_neighbors=n_neighbors, radius=radius, metric="precomputed")
+    NN.fit(Dx)
+    Kx = NN.kneighbors_graph(n_neighbors=n_neighbors, mode='connectivity')
+    Rx = NN.radius_neighbors_graph(radius=radius, mode='connectivity')
+    return Dx, Kx, Rx
 
 
 def cluster(X, estimator="argmax", **parameters):

@@ -1,21 +1,17 @@
 from typing import Literal, Tuple
-
+from numpy import pi
 import torch
 from torch import distributions as D, nn as nn
-
 
 __all__ = [
     "OutputWrapper",
     "CategoricalSampler",
-    "MoLBase",
-    "MoLSampler",
-    "MoLLoss",
-    "MoLVectorBase",
-    "MoLVectorLoss",
-    "MoLVectorSampler",
-    "MoGBase",
-    "MoGLoss",
-    "MoGSampler"
+    "MixOfLogisticsSampler",
+    "MixOfLogisticsLoss",
+    "MixOfGaussianLoss",
+    "MixOfGaussianSampler",
+    "MixOfLaplaceLoss",
+    "MixOfLaplaceSampler"
 ]
 
 
@@ -36,6 +32,16 @@ class OutputWrapper(nn.Module):
         return getattr(self.sampler, "sampling_params", {})
 
 
+def as_tensor(temperature, tensor):
+    if not isinstance(temperature, torch.Tensor):
+        if isinstance(temperature, (int, float)):
+            temperature = [temperature]
+        temperature = torch.tensor(temperature)
+    if temperature.ndim != tensor.ndim:
+        temperature = temperature.view(*temperature.shape, *([1] * (tensor.ndim - temperature.ndim)))
+    return temperature.to(tensor.device)
+
+
 class CategoricalSampler(nn.Module):
     sampling_params = {"temperature"}
 
@@ -44,212 +50,212 @@ class CategoricalSampler(nn.Module):
             return logits
         if temperature is None:
             return logits.argmax(dim=-1)
-        if not isinstance(temperature, torch.Tensor):
-            if isinstance(temperature, (int, float)):
-                temperature = [temperature]
-            temperature = torch.tensor(temperature)
-        if temperature.ndim != logits.ndim:
-            temperature = temperature.view(*temperature.shape, *([1] * (logits.ndim - temperature.ndim)))
-        logits = logits / temperature.to(logits.device)
+        temperature = as_tensor(temperature, logits)
+        logits = logits / temperature
         logits = logits - logits.logsumexp(-1, keepdim=True)
         if logits.dim() > 2:
             o_shape = logits.shape
             logits = logits.view(-1, o_shape[-1])
             return torch.multinomial(logits.exp_(), 1).reshape(*o_shape[:-1])
         return torch.multinomial(logits.exp_(), 1)
-    
-
-def Logistic(loc, scale) -> D.TransformedDistribution:
-    """credits to https://github.com/pytorch/pytorch/issues/7857"""
-    return D.TransformedDistribution(
-        D.Uniform(0, 1),
-        [D.SigmoidTransform().inv, D.AffineTransform(loc, scale)]
-    )
 
 
-class MoLBase(nn.Module):
+class _MixOfRealScalarBase(nn.Module):
+    mixture_class = None
+    # Would also work with D.Gumbel, D.Cauchy
+
     def __init__(
             self,
-            n_components: int,
+            n_components: int = 1,
+            reduction: Literal["sum", "mean", "none"] = "mean",
+            max_scale: float = .5,
+            beta: float = 1 / 15,
+            weight_variance: float = .5,
+            weight_l1: float = 0.,
+            clamp_samples: Tuple[float, float] = (-1., 1.)
     ):
-        super(MoLBase, self).__init__()
+        super(_MixOfRealScalarBase, self).__init__()
+        self.reduction = reduction
         self.n_components = n_components
+        self.max_scale = max_scale
+        self.beta = beta
+        self.weight_variance = weight_variance
+        self.weight_l1 = weight_l1
+        self.clamp_samples = clamp_samples
 
     def mixture(self,
                 params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+                temperature=None
                 ):
         weight, loc, scale = params
-        o_shape, K = loc.shape, self.n_components
-        assert weight.size(-1) == loc.size(-1) == scale.size(-1) == K
-        # weight, loc, scale = weight.view(-1, K), loc.view(-1, K), scale.view(-1, K)
+        # loc = torch.tanh(loc)  # this performs poorly!
+        scale = torch.sigmoid(scale * self.beta) * self.max_scale
+        if temperature is not None:
+            scale = scale * as_tensor(temperature, scale)
         return D.MixtureSameFamily(
-            D.Categorical(logits=weight), Logistic(loc, scale)
+            # todo:
+            #  - logits could also be scaled by temperature when sampling
+            #  - scale could have different activations (SoftPlus, exp, ...)
+            #  - weights and/or scale can be made constants (works fine, tend to freezes...)
+            D.Categorical(logits=weight),
+            self.mixture_class(loc, scale)
         )
-    
 
-class MoLLoss(MoLBase):
-    def __init__(
-            self,
-            n_components: int,
-            reduction: Literal["sum", "mean", "none"],
-    ):
-        super(MoLLoss, self).__init__(n_components=n_components)
-        self.reduction = reduction
-        
+
+class _MixOfRealScalarLoss(_MixOfRealScalarBase):
     def forward(self,
                 params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
                 targets: torch.Tensor
                 ):
         mixture = self.mixture(params)
         probs = mixture.log_prob(targets)
+        if self.weight_variance > 0.:
+            var_term = mixture.variance.mean() * self.weight_variance
+        else:
+            var_term = 0.
+        if self.weight_l1 > 0.:
+            l1_term = nn.L1Loss(reduction='mean')(mixture.mean, targets) * self.weight_l1
+        else:
+            l1_term = 0.
         if self.reduction != "none":
-            return - getattr(torch, self.reduction)(probs)
+            return - getattr(torch, self.reduction)(probs) + var_term + l1_term
         return probs
 
 
-class MoLSampler(MoLBase):
-    def __init__(
-            self,
-            n_components: int,
-            clamp_samples: Tuple[float, float] = (-1., 1.)
-    ):
-        super(MoLSampler, self).__init__(n_components=n_components)
-        self.clamp = clamp_samples
-        
+class _MixOfRealScalarSampler(_MixOfRealScalarBase):
+    sampling_params = {"temperature"}
+
     def forward(
             self,
             params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
+            *, temperature=None,
     ):
         if self.training:
             return params
-        mixture = self.mixture(params)
-        return mixture.sample((1,)).clamp(*self.clamp).squeeze(0)
+        mixture = self.mixture(params, temperature)
+        # TODO : sample() might be a bottleneck, maybe good to do it ourselves?...
+        return mixture.sample((1,)).clamp(*self.clamp_samples).squeeze(0)
 
 
-def LogisticVector(loc, scale, dim) -> D.TransformedDistribution:
-    """credits to https://github.com/pytorch/pytorch/issues/7857"""
-    return D.TransformedDistribution(
-        D.Independent(D.Uniform(0, 1).expand((dim,)), 1),
-        [D.SigmoidTransform().inv, D.AffineTransform(loc, scale)]
-    )
+# noinspection PyAbstractClass
+class LogisticDistribution(D.TransformedDistribution):
+    def __init__(self, loc, scale):
+        super(LogisticDistribution, self).__init__(
+            D.Uniform(torch.tensor(0., device=loc.device), torch.tensor(1., device=loc.device)),
+            [D.SigmoidTransform().inv, D.AffineTransform(loc, scale)]
+        )
+        self._loc = loc
+        self._scale = scale
+
+    @property
+    def variance(self):
+        return self._scale.pow(2)*(pi**2)/3
+
+    @property
+    def mean(self):
+        return self._loc
 
 
-class MoLVectorBase(nn.Module):
+class MixOfLogisticsBase(_MixOfRealScalarBase):
+    mixture_class = LogisticDistribution
+
+
+class MixOfLogisticsLoss(MixOfLogisticsBase, _MixOfRealScalarLoss):
+    pass
+
+
+class MixOfLogisticsSampler(MixOfLogisticsBase, _MixOfRealScalarSampler):
+    pass
+
+
+class MixOfGaussianBase(_MixOfRealScalarBase):
+    mixture_class = D.Normal
+
+
+class MixOfGaussianLoss(MixOfGaussianBase, _MixOfRealScalarLoss):
+    pass
+
+
+class MixOfGaussianSampler(MixOfGaussianBase, _MixOfRealScalarSampler):
+    pass
+
+
+class MixOfLaplaceBase(_MixOfRealScalarBase):
+    mixture_class = D.Laplace
+
+
+class MixOfLaplaceLoss(MixOfLaplaceBase, _MixOfRealScalarLoss):
+    pass
+
+
+class MixOfLaplaceSampler(MixOfLaplaceBase, _MixOfRealScalarSampler):
+    pass
+
+
+class _MixOfRealVectorBase(nn.Module):
+    mixture_class = None
+
     def __init__(
             self,
-            n_components: int,
-            vector_dim: int,
+            vector_dim: int = 1,
+            n_components: int = 1,
+            reduction: Literal["sum", "mean", "none"] = "mean",
+            max_scale: float = .5,
+            beta: float = 1 / 15,
+            weight_variance: float = .5,
+            weight_l1: float = 0.,
+            clamp_samples: Tuple[float, float] = (-1., 1.)
     ):
-        super(MoLVectorBase, self).__init__()
-        self.n_components = n_components
+        super(_MixOfRealVectorBase, self).__init__()
         self.vector_dim = vector_dim
+        self.reduction = reduction
+        self.n_components = n_components
+        self.max_scale = max_scale
+        self.beta = beta
+        self.weight_variance = weight_variance
+        self.weight_l1 = weight_l1
+        self.clamp_samples = clamp_samples
 
     def mixture(self,
                 fused_params: torch.Tensor,
                 ):
         weight, params = fused_params[..., 0], fused_params[..., 1:]
         loc, scale = params.chunk(2, -1)
-        dim, K = self.vector_dim, self.n_components
-        # assert weight.size(-1) == loc.size(-2) == scale.size(-2) == K
-        # weight, loc, scale = weight.view(-1, K), loc.view(-1, K, dim), scale.view(-1, K, dim)
+
         return D.MixtureSameFamily(
-            D.Categorical(logits=weight), LogisticVector(loc, scale, self.vector_dim)
+            D.Categorical(logits=weight), self.mixture_class(loc, scale, self.vector_dim)
         )
 
 
-class MoLVectorLoss(MoLVectorBase):
-    def __init__(
-            self,
-            n_components: int,
-            vector_dim: int,
-            reduction: Literal["sum", "mean", "none"],
-    ):
-        super(MoLVectorLoss, self).__init__(n_components=n_components, vector_dim=vector_dim)
-        self.reduction = reduction
-
-    def forward(self,
-                fused_params: torch.Tensor,
-                targets: torch.Tensor
-                ):
-        mixture = self.mixture(fused_params)
-        probs = mixture.log_prob(targets)
-        if self.reduction != "none":
-            return - getattr(torch, self.reduction)(probs)
-        return probs
-
-
-class MoLVectorSampler(MoLVectorBase):
-    def __init__(
-            self,
-            n_components: int,
-            vector_dim: int,
-            clamp_samples: Tuple[float, float] = (-1., 1.)
-    ):
-        super(MoLVectorSampler, self).__init__(n_components=n_components, vector_dim=vector_dim)
-        self.clamp = clamp_samples
-
-    def forward(
-            self,
-            fused_params: torch.Tensor,
-    ):
-        if self.training:
-            return fused_params
-        mixture = self.mixture(fused_params)
-        return mixture.sample((1,)).clamp(*self.clamp).squeeze(0)
-
-
-class MoGBase(nn.Module):
-    def __init__(
-            self,
-            n_components: int
-    ):
-        super(MoGBase, self).__init__()
-        self.n_components = n_components
-
-    def mixture(
-            self,
-            params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-    ):
-        weight, loc, scale = params
-        return D.MixtureSameFamily(
-            D.Categorical(logits=weight), D.Normal(loc, scale.abs())
+# noinspection PyAbstractClass
+class LogisticVectorDistribution(D.TransformedDistribution):
+    def __init__(self, loc, scale, dim):
+        super(LogisticVectorDistribution, self).__init__(
+            D.Independent(D.Uniform(
+                torch.tensor(0., device=loc.device), torch.tensor(1., device=loc.device)
+            ).expand((dim,)), 1),
+            [D.SigmoidTransform().inv, D.AffineTransform(loc, scale)]
         )
+        self._loc = loc
+        self._scale = scale
+
+    @property
+    def variance(self):
+        return self._scale.pow(2)*(pi**2)/3
+
+    @property
+    def mean(self):
+        return self._loc
 
 
-class MoGLoss(MoGBase):
-    def __init__(
-            self,
-            n_components: int,
-            reduction: Literal["sum", "mean", "none"],
-    ):
-        super(MoGLoss, self).__init__(n_components=n_components)
-        self.reduction = reduction
+# noinspection PyAbstractClass
+class GaussianVectorDistribution(D.Independent):
 
-    def forward(self,
-                params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-                targets: torch.Tensor
-                ):
-        mixture = self.mixture(params)
-        probs = mixture.log_prob(targets)
-        if self.reduction != "none":
-            return - getattr(torch, self.reduction)(probs)
-        return probs
+    def __init__(self, loc, scale, dim):
+        super(GaussianVectorDistribution, self).__init__(D.Normal(loc, scale).expand((dim,)), 1)
 
 
-class MoGSampler(MoGBase):
-    def __init__(
-            self,
-            n_components: int,
-            clamp_samples: Tuple[float, float] = (-1., 1.)
-    ):
-        super(MoGSampler, self).__init__(n_components)
-        self.clamp = clamp_samples
-
-    def forward(
-            self,
-            params: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
-    ):
-        if self.training:
-            return params
-        mixture = self.mixture(params)
-        return mixture.sample((1,)).clamp(*self.clamp).squeeze(0)
+# noinspection PyAbstractClass
+class LaplaceVectorDistribution(D.Independent):
+    def __init__(self, loc, scale, dim):
+        super(LaplaceVectorDistribution, self).__init__(D.Laplace(loc, scale).expand((dim,)), 1)

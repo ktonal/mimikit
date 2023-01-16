@@ -2,40 +2,40 @@ import torch
 from assertpy import assert_that
 
 import mimikit.features.extractor
-from .test_utils import TestARM, TestDB
+from .test_utils import TestARM, TestDB, tmp_db
 import mimikit as mmk
 
 
 def test_should_run(tmp_db):
     db: TestDB = tmp_db("gen-test.h5")
-    extractor = mimikit.features.extractor.Extractor("snd", mmk.FileToSignal(16000))
+    extractor = mimikit.features.extractor.Extractor("signal", mmk.FileToSignal(16000))
     net = TestARM(
         TestARM.Config(io_spec=mmk.IOSpec(
             inputs=(
                 mmk.InputSpec(
-                    extractor=extractor,
+                    extractor_name=extractor.name,
                     transform=mmk.Normalize(),
                     module=mmk.IOFactory("linear")
-                ),
+                ).bind_to(extractor),
                 mmk.InputSpec(
-                    extractor=extractor,
+                    extractor_name=extractor.name,
                     transform=mmk.MuLawCompress(256),
                     module=mmk.IOFactory("linear")
-                ),
+                ).bind_to(extractor),
             ),
             targets=(
                 mmk.TargetSpec(
-                    extractor=extractor,
+                    extractor_name=extractor.name,
                     transform=mmk.Normalize(),
                     module=mmk.IOFactory("linear"),
                     objective=mmk.Objective("none")
-                ),
+                ).bind_to(extractor),
                 mmk.TargetSpec(
-                    extractor=extractor,
+                    extractor_name=extractor.name,
                     transform=mmk.MuLawCompress(256),
                     module=mmk.IOFactory("linear"),
                     objective=mmk.Objective("none")
-                ),
+                ).bind_to(extractor),
             )
         ))
     )

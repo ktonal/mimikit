@@ -26,7 +26,7 @@ class MLP(nn.Module):
         super(MLP, self).__init__()
         self.in_dim = in_dim
         self.hidden_dim = hidden_dim
-        self.out_dim = out_dim + int(min_temperature)
+        self.out_dim = out_dim + int(min_temperature is not None)
         self.n_hidden_layers = n_hidden_layers
         self.activation = activation
         self.bias = bias

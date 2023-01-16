@@ -11,14 +11,29 @@ import mimikit.config
 
 class MyCustom(mimikit.config.Configurable, nn.Module):
     @dtc.dataclass
-    class CustomConfig(mmk.Config):
+    class CustomConfig(mmk.NetworkConfig):
+        io_spec: mmk.IOSpec = mmk.IOSpec(
+            inputs=(mmk.InputSpec(
+                extractor_name="signal",
+                transform=mmk.Normalize(),
+                module=mmk.IOFactory(module_type="linear",
+                                     params=mmk.LinearParams())
+            ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),),
+            targets=(mmk.TargetSpec(
+                extractor_name="signal",
+                transform=mmk.Normalize(),
+                module=mmk.IOFactory(module_type="linear",
+                                     params=mmk.LinearParams()),
+                objective=mmk.Objective(objective_type="reconstruction")
+            ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),)
+        )
         x: int = 1
 
     @classmethod
     def from_config(cls, config: "MyCustom.CustomConfig"):
         return cls(config, nn.Linear(config.x, config.x))
 
-    def __init__(self, config: "MyCustom.CustomConfig",  module: nn.Module):
+    def __init__(self, config: "MyCustom.CustomConfig", module: nn.Module):
         super().__init__()
         self._config = config
         self.mod = module
@@ -40,7 +55,7 @@ def test_should_save_and_load_class_defined_outside_mmk(tmp_path_factory):
     root = str(tmp_path_factory.mktemp("ckpt"))
     ckpt = mmk.Checkpoint(id="123", epoch=1, root_dir=root)
 
-    ckpt.create(network=model, training_config=model.config)
+    ckpt.create(network=model)
     loaded = ckpt.network
 
     assert_that(type(loaded)).is_equal_to(MyCustom)

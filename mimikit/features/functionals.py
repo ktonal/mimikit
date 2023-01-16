@@ -7,6 +7,9 @@ import torchaudio.transforms as T
 import numpy as np
 from scipy.signal import lfilter
 from scipy.interpolate import interp1d
+from sklearn.decomposition import PCA as skPCA,\
+    FactorAnalysis as skFactorAnalysis, NMF as skNMF
+from sklearn.preprocessing import StandardScaler
 from numba import njit, prange, float32, intp
 import dataclasses as dtc
 import abc
@@ -18,6 +21,7 @@ __all__ = [
     'Continuous',
     'Discrete',
     'Functional',
+    'Identity',
     'get_metadata',
     'Compose',
     'FileToSignal',
@@ -34,12 +38,23 @@ __all__ = [
     'ISTFT',
     'MagSpec',
     'GLA',
+    "MelSpec",
+    "MFCC",
+    "Chroma",
+    "HarmonicSource",
+    "PercussiveSource",
     'Envelop',
     'EnvelopBank',
     'Interpolate',
     'derivative_np',
     'derivative_torch',
-    'Derivative'
+    'Derivative',
+    "AutoConvolve",
+    "F0Filter",
+    "NearestNeighborFilter",
+    "PCA",
+    "NMF",
+    "FactorAnalysis",
 ]
 
 N_FFT = 2048
@@ -136,6 +151,8 @@ def get_metadata(x, key: str, default=None):
 @dtc.dataclass
 class FileToSignal(Functional):
     sr: int = SR
+    offset: float = 0.
+    duration: Optional[float] = None
 
     @property
     def unit(self) -> Optional[Unit]:
@@ -146,7 +163,10 @@ class FileToSignal(Functional):
         return Continuous(-float("inf"), float("inf"), 1)
 
     def np_func(self, path):
-        y = librosa.load(path, sr=self.sr, mono=True, res_type='soxr_vhq')[0]
+        y = librosa.load(path, sr=self.sr,
+                         offset=self.offset,
+                         duration=self.duration,
+                         mono=True, res_type='soxr_vhq')[0]
         return _add_metadata(y, sr=self.sr)
 
     def torch_func(self, path):
@@ -202,7 +222,7 @@ class RemoveDC(Functional):
         return None
 
     def np_func(self, inputs):
-        return lfilter([1.0, -1.0], [1.0, -0.99], inputs, axis=-1).view(inputs.dtype)
+        return lfilter([1.0, -1.0], [1.0, -0.99], inputs, axis=-1).astype(inputs.dtype)
 
     def torch_func(self, inputs):
         return F.lfilter(torch.tensor([1.0, -0.99]).to(inputs),
@@ -224,7 +244,7 @@ class Normalize(Functional):
         return Continuous(-1., 1., 1)
 
     def np_func(self, inputs):
-        return librosa.util.normalize(inputs, norm=self.p, axis=self.dim).view(inputs.dtype)
+        return librosa.util.normalize(inputs, norm=self.p, axis=self.dim).astype(inputs.dtype)
 
     def torch_func(self, inputs):
         return torch.nn.functional.normalize(inputs, p=self.p, dim=self.dim)
@@ -239,7 +259,7 @@ class Emphasis(Functional):
     emphasis: float = 0.
 
     def np_func(self, inputs):
-        return lfilter([1, -self.emphasis], [1], inputs).view(inputs.dtype)
+        return lfilter([1, -self.emphasis], [1], inputs).astype(inputs.dtype)
 
     def torch_func(self, inputs):
         return F.lfilter(inputs,
@@ -257,7 +277,7 @@ class Deemphasis(Functional):
     emphasis: float = 0.
 
     def np_func(self, inputs):
-        return lfilter([1 - self.emphasis], [1, -self.emphasis], inputs).view(inputs.dtype)
+        return lfilter([1 - self.emphasis], [1, -self.emphasis], inputs).astype(inputs.dtype)
 
     def torch_func(self, inputs):
         return F.lfilter(inputs,
@@ -434,7 +454,7 @@ class STFT(Functional):
     hop_length: int = HOP_LENGTH
     coordinate: str = 'pol'
     center: bool = True
-    window: Optional[str] = None
+    window: Optional[str] = "hann"
     pad_mode: str = "constant"
 
     @property
@@ -532,7 +552,7 @@ class MagSpec(Functional):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     center: bool = True
-    window: Optional[str] = None
+    window: Optional[str] = "hann"
     pad_mode: str = "constant"
 
     @property
@@ -617,6 +637,7 @@ class MelSpec(Functional):
         ).T
 
     def torch_func(self, inputs):
+        # TODO
         pass
 
     @property
@@ -647,6 +668,91 @@ class MFCC(Functional):
         ).T
 
     def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class Chroma(Functional):
+    n_chroma: int = 12
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return Continuous(0., float("inf"), self.n_chroma)
+
+    def np_func(self, inputs):
+        return librosa.feature.chroma_stft(
+            S=inputs.T, n_chroma=self.n_chroma
+        ).T
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class HarmonicSource(Functional):
+    kernel_size: int = 31
+    power: float = 1.
+    margin: float = 1.
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        return librosa.decompose.hpss(
+            S=inputs.T, kernel_size=self.kernel_size,
+            power=self.power, margin=self.margin
+        )[0].T
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class PercussiveSource(Functional):
+    kernel_size: int = 31
+    power: float = 1.
+    margin: float = 1.
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        return librosa.decompose.hpss(
+            S=inputs.T, kernel_size=self.kernel_size,
+            power=self.power, margin=self.margin
+        )[1].T
+
+    def torch_func(self, inputs):
+        # TODO
         pass
 
     @property
@@ -776,45 +882,60 @@ class Interpolate(Functional):
                                                N, mode="linear").squeeze()
 
 
-# TODO: -> 1d with nd wrapper...
-
-@njit(float32[:, :](float32[:, :], intp), fastmath=True, cache=True)
-def odd_reflect_pad(x, k):
+@njit(float32[:](float32[:], intp), fastmath=True, cache=True)
+def odd_reflect_pad_1d(x, k):
     """1d version of calling np.pad with **{mode='reflect', reflect_type='odd'}"""
-    k_half = k//2
-    y = np.zeros((*x.shape[:-1], x.shape[-1]+k_half*2),
+    k_half = k // 2
+    y = np.zeros((*x.shape[:-1], x.shape[-1] + k_half * 2),
                  dtype=np.float32)
-    y[..., k_half:-k_half] = x
-    y[..., :k_half] = x[..., 0] + (x[..., 0] - x[..., 1:1+k_half])[..., ::-1]
-    y[..., -k_half:] = x[..., -1] + (x[..., -1] - x[..., -k_half-1:-1])[..., ::-1]
+    y[k_half:-k_half] = x
+    y[:k_half] = x[0] + (x[0] - x[1:1 + k_half])[::-1]
+    y[-k_half:] = x[-1] + (x[-1] - x[-k_half - 1:-1])[::-1]
     return y
 
 
-@njit(float32[:, :](float32[:, :], intp), fastmath=True, cache=True, parallel=False)
-def derivative_np(y, max_lag):
+@njit(float32[:](float32[:], intp), fastmath=True, cache=True, parallel=False)
+def derivative_np_1d(y, max_lag):
     grads = np.zeros(y.shape, dtype=np.float32)
     for lag in prange(1, max_lag + 1):
         k = lag * 2 + 1
-        y_p = odd_reflect_pad(y, k)
-        a, b = y_p[..., :-k+1], y_p[..., k-1:]
-        g = (1/lag)*((b-y) + (y-a)) / 2
+        y_p = odd_reflect_pad_1d(y, k)
+        a, b = y_p[:-k + 1], y_p[k - 1:]
+        g = (1 / lag) * ((b - y) + (y - a)) / 2
         grads += g / max_lag
     return grads
 
 
+@njit(float32[:, :](float32[:, :], intp), fastmath=True, cache=True, parallel=True)
+def derivative_np_2d(y, max_lag):
+    grads = np.zeros(y.shape, dtype=np.float32)
+    for i in prange(y.shape[0]):
+        grads[i] = derivative_np_1d(y[i], max_lag)
+    return grads
+
+
+def derivative_np(y: np.ndarray, max_lag: int):
+    if y.ndim == 1:
+        return derivative_np_1d(y, max_lag)
+    elif y.ndim == 2:
+        return derivative_np_2d(y, max_lag)
+    else:
+        raise ValueError(f"Expected input array to have 1 or 2 dimensions. Got {y.ndim}")
+
+
 def derivative_torch(y, max_lag):
     grads = torch.zeros(*y.shape, dtype=torch.float32, device=y.device)
-    for n, delay in enumerate(range(1, max_lag+1)):
+    for n, delay in enumerate(range(1, max_lag + 1)):
         k = delay * 2 + 1
         # odd reflect pad:
-        k_half = k//2
-        y_p = torch.zeros(*y.shape[:-1], y.shape[-1]+k-1, dtype=y.dtype, device=y.device)
+        k_half = k // 2
+        y_p = torch.zeros(*y.shape[:-1], y.shape[-1] + k - 1, dtype=y.dtype, device=y.device)
         y_p[..., k_half:-k_half] = y
-        y_p[..., :k_half] = y[..., 0] + (y[..., 0] - y[..., 1:1+k_half]).flip(-1)
-        y_p[..., -k_half:] = y[..., -1] + (y[..., -1] - y[..., -k_half-1:-1]).flip(-1)
+        y_p[..., :k_half] = y[..., 0] + (y[..., 0] - y[..., 1:1 + k_half]).flip(-1)
+        y_p[..., -k_half:] = y[..., -1] + (y[..., -1] - y[..., -k_half - 1:-1]).flip(-1)
         ##
-        a, b = y_p[..., :-k+1], y_p[..., k-1:]
-        g = (1/delay)*((b-y) + (y-a)) / 2
+        a, b = y_p[..., :-k + 1], y_p[..., k - 1:]
+        g = (1 / delay) * ((b - y) + (y - a)) / 2
         grads += g / max_lag
     return grads
 
@@ -843,6 +964,205 @@ class Derivative(Functional):
         if self.normalize:
             g /= abs(g).max(dim=-1, keepdims=True)
         return g
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class AutoConvolve(Functional):
+    window_size: int = 3
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        S = inputs
+        k = self.window_size
+        x_padded = np.pad(S.T, ((0, 0), (k // 2, 0)), constant_values=1)
+        x_win = librosa.feature.stack_memory(
+            x_padded, n_steps=k, delay=-1, constant_values=1
+        )[:, :-(k // 2)].reshape(k, *S.shape[::-1])
+        z = np.log(1 + np.prod(x_win.astype(np.float64), axis=0)).T
+        z = z / (z.sum(axis=1, keepdims=True) + 1e-8)
+        return z * S
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class F0Filter(Functional):
+    n_overtone: int = 4
+    n_undertone: int = 4
+    soft: bool = True
+    normalize: bool = True
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        z = inputs.T
+        # sum of overtones above bi
+        sl = librosa.interp_harmonics(z, librosa.fft_frequencies(),
+                                      list(range(1, self.n_overtone))
+                                      ).sum(axis=0)
+        # sum of undertones under bi
+        sl2 = librosa.interp_harmonics(z, librosa.fft_frequencies(),
+                                       [1 / x for x in list(range(2, self.n_undertone))]
+                                       ).sum(axis=0)
+        y = (sl - sl2)
+        if self.soft:
+            y = y * (y > 0)
+        else:
+            y = y > 0
+
+        if self.normalize:
+            y = y / (y.sum(axis=0) + 1e-8)
+        return inputs * y.T
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class NearestNeighborFilter(Functional):
+    n_neighbors: int = 16
+    metric: str = "cosine"
+    aggregate: str = "median"
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        return librosa.decompose.nn_filter(
+            inputs,
+            aggregate=getattr(np, self.aggregate),
+            metric=self.metric, sym=True, sparse=True,
+            k=self.n_neighbors, axis=0
+        )
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class PCA(Functional):
+    n_components: int = 16
+    random_seed: int = 42
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        x_h = StandardScaler().fit_transform(inputs)
+        return skPCA(n_components=self.n_components, random_state=self.random_seed, copy=False
+                     ).fit_transform(x_h)
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class NMF(Functional):
+    n_components: int = 16
+    tol: float = 1e-4
+    max_iter: int = 200
+    random_seed: int = 42
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        return skNMF(
+            n_components=self.n_components,
+            tol=self.tol,
+            max_iter=self.max_iter,
+            random_state=self.random_seed
+        ).fit_transform(inputs)
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class FactorAnalysis(Functional):
+    n_components: int = 16
+    tol: float = 1e-2
+    max_iter: int = 1000
+    random_seed: int = 42
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        return skFactorAnalysis(
+            n_components=self.n_components,
+            tol=self.tol,
+            max_iter=self.max_iter,
+            random_state=self.random_seed,
+            copy=False
+        ).fit_transform(inputs)
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
 
     @property
     def inv(self) -> "Functional":

@@ -34,7 +34,7 @@ class CausalPad(nn.Module):
     def int_to_lr(i):
         return (i, 0) if i >= 0 else (0, abs(i))
 
-    def __init__(self, pad, **kwargs):  # TODO: learn=True
+    def __init__(self, pad, **kwargs):
         super().__init__()
         # for whatever reason torch decided dimensions should be in the reversed order...
         self.pad = tuple(i for p in reversed(pad) for i in self.int_to_lr(p))

@@ -35,7 +35,7 @@ def inputs_(b=8, t=32, d=16):
 )
 @pytest.mark.parametrize(
     "given_residuals",
-    [None, 5, 7]  # TODO: broken if not None
+    [None, 5, 7]
 )
 @pytest.mark.parametrize(
     "given_skips",
@@ -124,7 +124,7 @@ def test_should_load_when_saved(tmp_path_factory):
     wn = WaveNet.from_config(given_config)
     ckpt = Checkpoint(id="123", epoch=1, root_dir=root)
 
-    ckpt.create(network=wn, training_config=wn.config)
+    ckpt.create(network=wn)
     loaded = ckpt.network
 
     assert_that(type(loaded)).is_equal_to(WaveNet)
@@ -157,45 +157,45 @@ def test_generate(
 
 
 def test_should_support_multiple_io():
-    extractor = Extractor("snd", FileToSignal(16000))
+    extractor = Extractor("signal", FileToSignal(16000))
     given_io = IOSpec(
         inputs=(
             InputSpec(
-                extractor=extractor,
+                extractor_name=extractor.name,
                 transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams()
                 )
-            ),
+            ).bind_to(extractor),
             InputSpec(
-                extractor=extractor,
+                extractor_name=extractor.name,
                 transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams()
                 )
-            ),
+            ).bind_to(extractor),
         ),
         targets=(
             TargetSpec(
-                extractor=extractor,
+                extractor_name=extractor.name,
                 transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams()
                 ),
                 objective=Objective("reconstruction")
-            ),
+            ).bind_to(extractor),
             TargetSpec(
-                extractor=extractor,
+                extractor_name=extractor.name,
                 transform=Normalize(),
                 module=IOFactory(
                     module_type='linear',
                     params=LinearParams(),
                 ),
                 objective=Objective("reconstruction")
-            )), )
+            ).bind_to(extractor)), )
     wn = WaveNet.from_config(WaveNet.Config(
         io_spec=given_io,
         dims_dilated=(128,),

@@ -93,3 +93,30 @@ def demo():
     )
 
     """----------------------------"""
+
+
+if __name__ == '__main__':
+
+    import mimikit as mmk
+    import librosa
+
+    ds = mmk.DatasetConfig(
+        sources=(librosa.example("trumpet"),),
+        filename="test-run.h5",
+        extractors=(mmk.Extractor("signal", mmk.FileToSignal(16000)),)
+    )
+    ds.create(mode="w")
+    dataset = ds.get(mode="r", keep_open=True)
+
+    net = mmk.SampleRNN.from_config(
+        mmk.SampleRNN.Config(
+            io_spec=mmk.SampleRNN.qx_io(extractor=ds.extractors[0])
+        )
+    )
+
+    loop = mmk.TrainARMLoop.from_config(
+        train_cfg=mmk.TrainARMConfig(),
+        dataset=dataset, network=net
+    )
+
+    loop.run()

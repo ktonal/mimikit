@@ -1,15 +1,18 @@
 from enum import auto
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 import torch.nn as nn
 import dataclasses as dtc
 import h5mapper as h5m
 
 from .utils import AutoStrEnum
 from .config import Config
+from .features.dataset import DatasetConfig
 from .features.extractor import Extractor
 from .features.item_spec import Unit, Sample, Frame, ItemSpec
 from .features.functionals import Continuous, Discrete, Functional
-from .modules.targets import CategoricalSampler, MoLSampler, MoLLoss
+from .modules.targets import CategoricalSampler,\
+    MixOfLogisticsSampler, MixOfLogisticsLoss, MixOfGaussianLoss, MixOfGaussianSampler,\
+    MixOfLaplaceLoss, MixOfLaplaceSampler
 from .modules.io import IOFactory
 from .modules.loss_functions import MeanL1Prop
 
@@ -24,10 +27,14 @@ __all__ = [
 
 @dtc.dataclass
 class _FeatureSpec(Config, type_field=False):
-    extractor: Extractor
+    extractor_name: str
     transform: Functional
     module: IOFactory
+    extractor: Extractor = dtc.field(init=False, repr=False, metadata=dict(omegaconf_ignore=True))
     # logger: None = None
+
+    def bind_to(self, extractor: Extractor):
+        self.extractor = extractor
 
     @property
     def units(self):
@@ -74,32 +81,32 @@ class _FeatureSpec(Config, type_field=False):
 @dtc.dataclass
 class InputSpec(_FeatureSpec, type_field=False):
 
-    def __post_init__(self):
+    def bind_to(self, extractor: Extractor):
+        super(InputSpec, self).bind_to(extractor)
         # wire feature -> module
         if isinstance(self.elem_type, Discrete):
             self.module.set(class_size=self.elem_type.class_size)
         elif isinstance(self.elem_type, Continuous):
             self.module.set(in_dim=self.elem_type.vector_size)
+        return self
 
 
 class ObjectiveType(AutoStrEnum):
     reconstruction = auto()
     categorical_dist = auto()
     logistic_dist = auto()
+    gaussian_dist = auto()
+    laplace_dist = auto()
     logistic_vector = auto()
     bernoulli_dist = auto()
     continuous_bernoulli = auto()
-    gaussian_dist = auto()
     gaussian_elbo = auto()
 
 
 @dtc.dataclass
 class Objective(Config, type_field=False):
     objective_type: ObjectiveType
-    n_components: Optional[int] = None
-    n_params: int = dtc.field(
-        init=False, repr=False, default=1
-    )
+    params: Dict = dtc.field(default_factory=lambda: {})
 
     def get_criterion(self):
         if self.objective_type == "reconstruction":
@@ -107,7 +114,7 @@ class Objective(Config, type_field=False):
         elif self.objective_type == "categorical_dist":
             return self.cross_entropy
         elif self.objective_type == "logistic_dist":
-            return MoLLoss(self.n_components, "mean")
+            return MixOfLogisticsLoss(**self.params)
 
     @staticmethod
     def cross_entropy(output, target):
@@ -119,7 +126,8 @@ class Objective(Config, type_field=False):
 class TargetSpec(_FeatureSpec, type_field=False):
     objective: Objective
 
-    def __post_init__(self):
+    def bind_to(self, extractor: Extractor):
+        super(TargetSpec, self).bind_to(extractor)
         # wire feature, objective, module
         if self.objective.objective_type == "reconstruction":
             assert isinstance(self.elem_type, Continuous)
@@ -130,9 +138,11 @@ class TargetSpec(_FeatureSpec, type_field=False):
             self.module.set(out_dim=self.elem_type.class_size, sampler=CategoricalSampler())
             self._loss_fn = self.cross_entropy
         elif self.objective.objective_type == 'logistic_dist':
-            self.module.set(out_dim=1, sampler=MoLSampler(self.objective.n_components),
-                            n_params=3, n_components=self.objective.n_components)
-            self._loss_fn = MoLLoss(self.objective.n_components, 'mean')
+            n_components = self.objective.params.get("n_components", 1)
+            self.module.set(out_dim=1, sampler=MixOfLogisticsSampler(**self.objective.params),
+                            n_params=3, n_components=n_components)
+            self._loss_fn = lambda o, t: {"loss": MixOfLogisticsLoss(**self.objective.params)(o, t)}
+        return self
 
     @staticmethod
     def cross_entropy(output, target):
@@ -154,6 +164,12 @@ class TargetSpec(_FeatureSpec, type_field=False):
 class IOSpec(Config, type_field=False):
     inputs: Tuple[InputSpec, ...]
     targets: Tuple[TargetSpec, ...]
+
+    def bind_to(self, dataset_config: DatasetConfig):
+        schema = dataset_config.schema
+        for f in [*self.inputs, *self.targets]:
+            f.bind_to(schema[f.extractor_name])
+        return self
 
     @property
     def sr(self):

@@ -34,7 +34,7 @@ class RandLabel(h5m.Feature):
 
 
 class TestDB(h5m.TypedFile):
-    snd = RandSignal()
+    signal = RandSignal()
     label = RandLabel()
 
 
@@ -57,8 +57,8 @@ def tmp_db(tmp_path):
 def test_fixture_db(tmp_db):
     db = tmp_db("temp")
 
-    assert_that(db.snd).is_not_none()
-    assert_that(db.snd[:32]).is_instance_of(np.ndarray)
+    assert_that(db.signal).is_not_none()
+    assert_that(db.signal[:32]).is_instance_of(np.ndarray)
 
 
 class TestARM(ARM, nn.Module):
