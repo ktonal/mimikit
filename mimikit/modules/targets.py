@@ -133,7 +133,10 @@ class _MixOfRealScalarSampler(_MixOfRealScalarBase):
         if self.training:
             return params
         mixture = self.mixture(params, temperature)
-        # TODO : sample() might be a bottleneck, maybe good to do it ourselves?...
+        # TODO :
+        #  - sample() might be a bottleneck, maybe good to do it ourselves?...
+        #  - sample() takes only one component
+        #       -> implement soft sampling with weighted sum?
         return mixture.sample((1,)).clamp(*self.clamp_samples).squeeze(0)
 
 
