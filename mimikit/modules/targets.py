@@ -90,6 +90,7 @@ class _MixOfRealScalarBase(nn.Module):
         weight, loc, scale = params
         # loc = torch.tanh(loc)  # this performs poorly!
         scale = torch.sigmoid(scale * self.beta) * self.max_scale
+        # scale = torch.maximum(scale.abs(), torch.tensor(1e-4, device=scale.device))
         if temperature is not None:
             scale = scale * as_tensor(temperature, scale)
         return D.MixtureSameFamily(
