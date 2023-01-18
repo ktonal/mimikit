@@ -136,6 +136,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] SampleGan (WaveGan with labeled segments?)
     - [ ] PocoNet
     - [ ] Stable Diffusion Experiment
+    - [ ] FFT_RNN
 - [ ] Test utils
     - [ ] test soundbank
     - [ ] test model
@@ -153,6 +154,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Multi-Checkpoint Models (stochastic averaging)
 - [ ] Resampler classes with `n_layers`
 - [ ] jitability
+    - [ ] no `*tuple` expr...
 - [ ] Network Visualizer (UI)
 - [ ] Resume Training
     - [ ] Optimizer in Checkpoint
