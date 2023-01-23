@@ -98,9 +98,6 @@ class ObjectiveType(AutoStrEnum):
     gaussian_dist = auto()
     laplace_dist = auto()
     logistic_vector = auto()
-    bernoulli_dist = auto()
-    continuous_bernoulli = auto()
-    gaussian_elbo = auto()
 
 
 @dtc.dataclass
@@ -115,6 +112,22 @@ class Objective(Config, type_field=False):
             return self.cross_entropy
         elif self.objective_type == "logistic_dist":
             return MixOfLogisticsLoss(**self.params)
+        elif self.objective_type == "gaussian_dist":
+            return MixOfGaussianLoss(**self.params)
+        elif self.objective_type == "laplace_dist":
+            return MixOfLaplaceLoss(**self.params)
+
+    def get_sampler(self):
+        if self.objective_type == "reconstruction":
+            return None
+        elif self.objective_type == "categorical_dist":
+            return CategoricalSampler()
+        elif self.objective_type == "logistic_dist":
+            return MixOfLogisticsSampler(**self.params)
+        elif self.objective_type == "gaussian_dist":
+            return MixOfGaussianSampler(**self.params)
+        elif self.objective_type == "laplace_dist":
+            return MixOfLaplaceSampler(**self.params)
 
     @staticmethod
     def cross_entropy(output, target):
@@ -129,35 +142,24 @@ class TargetSpec(_FeatureSpec, type_field=False):
     def bind_to(self, extractor: Extractor):
         super(TargetSpec, self).bind_to(extractor)
         # wire feature, objective, module
+        sampler = self.objective.get_sampler()
         if self.objective.objective_type == "reconstruction":
             assert isinstance(self.elem_type, Continuous)
             self.module.set(out_dim=self.elem_type.vector_size)
-            self._loss_fn = self.mean_l1_prop
         elif self.objective.objective_type == "categorical_dist":
             assert isinstance(self.elem_type, Discrete)
-            self.module.set(out_dim=self.elem_type.class_size, sampler=CategoricalSampler())
-            self._loss_fn = self.cross_entropy
-        elif self.objective.objective_type == 'logistic_dist':
+            self.module.set(out_dim=self.elem_type.class_size,
+                            sampler=sampler)
+        elif self.objective.objective_type in \
+                {'logistic_dist', "gaussian_dist", "laplace_dist"}:
             n_components = self.objective.params.get("n_components", 1)
-            self.module.set(out_dim=1, sampler=MixOfLogisticsSampler(**self.objective.params),
+            self.module.set(out_dim=1, sampler=sampler,
                             n_params=3, n_components=n_components)
-            self._loss_fn = lambda o, t: {"loss": MixOfLogisticsLoss(**self.objective.params)(o, t)}
+        self.criterion = self.objective.get_criterion()
         return self
 
-    @staticmethod
-    def cross_entropy(output, target):
-        criterion = nn.CrossEntropyLoss(reduction="mean")
-        L = criterion(output.view(-1, output.size(-1)), target.view(-1))
-        return {"loss": L}
-
-    @staticmethod
-    def mean_l1_prop(output, target):
-        criterion = MeanL1Prop()
-        return {"loss": criterion(output, target)}
-
-    @property
-    def loss_fn(self):
-        return self._loss_fn
+    def loss_fn(self, output, target):
+        return {"loss": self.criterion(output, target)}
 
 
 @dtc.dataclass

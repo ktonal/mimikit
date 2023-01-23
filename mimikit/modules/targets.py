@@ -70,6 +70,7 @@ class _MixOfRealScalarBase(nn.Module):
             reduction: Literal["sum", "mean", "none"] = "mean",
             max_scale: float = .5,
             beta: float = 1 / 15,
+            use_rsample: bool = False,
             weight_variance: float = .5,
             weight_l1: float = 0.,
             clamp_samples: Tuple[float, float] = (-1., 1.)
@@ -79,6 +80,7 @@ class _MixOfRealScalarBase(nn.Module):
         self.n_components = n_components
         self.max_scale = max_scale
         self.beta = beta
+        self.use_rsample = use_rsample
         self.weight_variance = weight_variance
         self.weight_l1 = weight_l1
         self.clamp_samples = clamp_samples

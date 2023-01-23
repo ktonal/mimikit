@@ -8,23 +8,23 @@ __all__ = [
 
 
 def dataset_view(cfg: DatasetConfig):
-    view = UI.ConfigView(
-        cfg,
-        UI.Param("sources",
-                 widget=UI.Labeled(
-                     W.HTML("<h4>Select Soundfiles</h4>", layout=W.Layout(margin="4px")),
-                     UI.SoundFilePicker().widget,
-                     W.VBox([])
-                 ),
-                 compute=lambda conf, ev: tuple(ev.split(", "))),
-        UI.Param("destination",
-                 widget=UI.Labeled(
-                     W.HTML(value="<b>Output Filename: </b>",
-                            layout=W.Layout(min_width="max-content", margin="0 4px")),
-                     W.Text(value="train.h5", layout=W.Layout(width="100%")),
-                     W.HBox([], layout=W.Layout(width="100%", margin="8px 0 8px 0"))
-                 )
-                 ),
-    ).as_widget(lambda children, **kwargs: W.VBox(children=children, **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="100%"))
-    return view
+
+    title = W.HTML("<h4>Select Soundfiles</h4>")
+    picker = UI.SoundFilePicker().widget
+    save_as = W.HTML("<b>Save as: </b>")
+    save_as_txt = W.Text(value=cfg.filename)
+    save_as_btn = W.Button(description="Save")
+    selected = W.VBox(disabled=True, layout=dict(height="255px", overflow="scroll"))
+    picker.observe(lambda ev: setattr(selected, 'children',
+                                      tuple(W.HTML(f"<li>{s}</li>", layout=dict(width='auto'))
+                                            .add_class('selected')
+                                            for s in ev["new"].split("<$>"))), 'value')
+    # selected.value = picker.value
+    container = W.AppLayout(
+        header=title,
+        right_sidebar=selected,
+        center=picker,
+        footer=W.HBox(children=(save_as, save_as_txt, save_as_btn),
+                      layout=dict(width='100%'))
+    )
+    return container

@@ -42,7 +42,6 @@ def magspec_view(cfg: MagSpec):
         UI.Param("center",
                  widget=UI.yesno_widget(
                      W.Label(value="center: ", layout=label_layout),
-                     container=W.HBox(layout=param_layout),
                      initial_value=cfg.center,
                      buttons_layout=W.Layout(width="50%", margin="4px")
                  ), ),
@@ -62,7 +61,7 @@ def magspec_view(cfg: MagSpec):
                      W.HBox(layout=param_layout),
                      selected_index=0 if cfg.window is None else 1
                  ),
-                 compute=lambda c, v: v if v != "None" else None
+                 setter=lambda c, v: v if v != "None" else None
                  )
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
@@ -118,7 +117,7 @@ def mfcc_view(cfg: MFCC):
                      W.HBox(layout=param_layout),
                      selected_index=cfg.dct_type - 1
                  ),
-                 compute=lambda c, v: int(v)
+                 setter=lambda c, v: int(v)
                  )
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
@@ -250,14 +249,12 @@ def f0_filter_view(cfg: F0Filter):
         UI.Param("soft",
                  widget=UI.yesno_widget(
                      W.Label(value="Soft Filter: ", layout=label_layout),
-                     container=W.HBox(layout=param_layout),
                      initial_value=cfg.soft,
                      buttons_layout=W.Layout(width="50%", margin="4px")
                  ), ),
         UI.Param("normalize",
                  widget=UI.yesno_widget(
                      W.Label(value="Normalize: ", layout=label_layout),
-                     container=W.HBox(layout=param_layout),
                      initial_value=cfg.normalize,
                      buttons_layout=W.Layout(width="50%", margin="4px")
                  ), ),

@@ -29,8 +29,8 @@ __all__ = [
 class QCluster(Functional):
 
     cores_prop: float = .5
-    n_neighbors: Optional[int] = None
-    core_neighborhood_size: Optional[int] = None
+    n_neighbors: int = 8
+    core_neighborhood_size: int = 8
     metric: str = "euclidean"
 
     def __post_init__(self):
@@ -95,12 +95,12 @@ class QCluster(Functional):
     @property
     def inv(self) -> "Functional":
         # todo: here we could implement some kind of inverse_transform()?
-        return Identity
+        return Identity()
 
 
 @dtc.dataclass
 class GCluster(Functional):
-    n_means: int
+    n_means: int = 16
     n_iter: int = 128
     lr: float = 0.025
     betas: Tuple[float, float] = (0.05, 0.05)
@@ -151,7 +151,7 @@ class GCluster(Functional):
     @property
     def inv(self) -> "Functional":
         # todo: here we could implement some kind of inverse_transform()?
-        return Identity
+        return Identity()
 
 
 @dtc.dataclass
@@ -201,7 +201,7 @@ class HCluster(Functional):
     @property
     def inv(self) -> "Functional":
         # todo: here we could implement some kind of inverse_transform()?
-        return Identity
+        return Identity()
 
 
 @dtc.dataclass
@@ -227,7 +227,7 @@ class ArgMax(Functional):
     @property
     def inv(self) -> "Functional":
         # todo: here we could implement some kind of inverse_transform()?
-        return Identity
+        return Identity()
 
 
 @dtc.dataclass
@@ -260,15 +260,15 @@ class KMeans(Functional):
     @property
     def inv(self) -> "Functional":
         # todo: here we could implement some kind of inverse_transform()?
-        return Identity
+        return Identity()
 
 
 @dtc.dataclass
 class SpectralClustering(Functional):
-    n_clusters: int
-    n_init: int
-    n_neighbors: int
-    random_seed: int
+    n_clusters: int = 8
+    n_init: int = 10
+    n_neighbors: int = 10
+    random_seed: int = 42
 
     def __post_init__(self):
         self.est = C.SpectralClustering(
@@ -295,7 +295,7 @@ class SpectralClustering(Functional):
     @property
     def inv(self) -> "Functional":
         # todo: here we could implement some kind of inverse_transform()?
-        return Identity
+        return Identity()
 
 
 def distance_matrices(X, metric="euclidean", n_neighbors=1, radius=1e-3):

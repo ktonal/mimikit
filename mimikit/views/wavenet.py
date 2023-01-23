@@ -8,63 +8,80 @@ __all__ = [
 
 
 def wavenet_view(cfg: WaveNet.Config):
-    label_layout = W.Layout(min_width="max-content", margin="0 0 0 auto")
-    param_layout = W.Layout(width="100%", margin="8px 0 8px 0")
     view = UI.ConfigView(
         cfg,
         UI.Param(name='kernel_sizes',
                  widget=UI.Labeled(
-                     W.Label("kernel size",
-                             layout=label_layout),
-                     W.IntText(value=cfg.kernel_sizes[0],
-                               layout={"width": "100px", }),
-                     W.HBox(layout=param_layout)
+                     "kernel size",
+                     W.IntText(value=cfg.kernel_sizes[0]),
                  ),
-                 compute=lambda conf, ev: (ev,)),
+                 setter=lambda conf, ev: (ev,)),
         UI.Param(name="blocks",
                  widget=UI.Labeled(
-                     W.Label(value="layers per block",
-                             layout=label_layout),
-                     W.Text(value=str(cfg.blocks)[1:-1], layout=W.Layout(width="75%", )),
-                     W.HBox(layout=param_layout), ),
-                 compute=lambda c, v: tuple(map(int, (s for s in v.split(",") if s not in ("", " "))))
+                     "layers per block",
+                     W.Text(value=str(cfg.blocks)[1:-1])
+                 ),
+                 setter=lambda c, v: tuple(map(int, (s for s in v.split(",") if s not in ("", " "))))
                  ),
         UI.Param(name="dims_dilated",
-                 widget=UI.pw2_widget(
-                     W.Label(value="$N$ units per layer: ",
-                             layout=label_layout, ),
-                     W.Text(value=str(cfg.dims_dilated[0]),
-                            layout=W.Layout(width="25%"), disabled=False),
-                     W.Button(icon="plus", layout=W.Layout(width="25%")),
-                     W.Button(icon="minus", layout=W.Layout(width="25%")),
-                     W.HBox(layout=param_layout)),
-                 compute=lambda c, v: (int(v),)
+                 widget=UI.Labeled(
+                     "$N$ units per layer: ",
+                     UI.pw2_widget(cfg.dims_dilated[0]),
                  ),
-        UI.Param(name='groups',
-                 widget=UI.pw2_widget(
-                     W.Label(value="groups of units",
-                             layout=label_layout, ),
-                     W.Text(value=str(cfg.groups),
-                            layout=W.Layout(width="25%"), disabled=False),
-                     W.Button(icon="plus", layout=W.Layout(width="25%")),
-                     W.Button(icon="minus", layout=W.Layout(width="25%")),
-                     W.HBox(layout=param_layout))
+                 setter=lambda c, v: (int(v),)
                  ),
-        UI.Param(name="residuals_dim",
-                 widget=UI.yesno_widget(
-                     label=W.Label(value="use residuals", layout=label_layout),
-                     container=W.HBox(layout=param_layout),
-                     initial_value=cfg.residuals_dim is not None,
-                     buttons_layout=W.Layout(width="27.5%")),
-                 compute=lambda conf, ev: conf.dims_dilated[0] if ev else None
+        UI.Param(name="dims_1x1",
+                 widget=UI.Labeled(
+                     "$N$ units per conditioning layer: ",
+                     UI.pw2_widget(cfg.dims_dilated[0]),
+                 ),
+                 setter=lambda c, v: (int(v),)
+                 ),
+        UI.Param(name="residual_dim",
+                 widget=UI.Labeled(
+                     "$N$ units per residual layer: ",
+                     UI.pw2_widget(cfg.dims_dilated[0]),
+                 ),
+                 setter=lambda c, v: (int(v),)
+                 ),
+        UI.Param(name="apply_residuals",
+                 widget=UI.Labeled(
+                     "use residuals",
+                     UI.yesno_widget(initial_value=cfg.residuals_dim is not None),
+                 ),
+                 setter=lambda conf, ev: conf.dims_dilated[0] if ev else None
                  ),
         UI.Param(name="skips_dim",
-                 widget=UI.yesno_widget(
-                     label=W.Label(value="use skips", layout=label_layout),
-                     container=W.HBox(layout=param_layout),
-                     initial_value=cfg.residuals_dim is not None,
-                     buttons_layout=W.Layout(width="27.5%")),
-                 compute=lambda conf, ev: conf.dims_dilated[0] if ev else None
+                 widget=UI.Labeled(
+                     "$N$ units per skip layer: ",
+                     UI.pw2_widget(cfg.dims_dilated[0]),
+                 ),
+                 setter=lambda c, v: (int(v),)
+                 ),
+        UI.Param(name='groups',
+                 widget=UI.Labeled(
+                     "groups of units",
+                     UI.pw2_widget(cfg.groups),
+                 )),
+
+        UI.Param(name="pad_side",
+                 widget=UI.Labeled(
+                     "use padding",
+                     UI.yesno_widget(initial_value=int(cfg.pad_side) is not None),
+                 ),
+                 setter=lambda conf, ev: int(ev)
+                 ),
+        UI.Param(name="bias",
+                 widget=UI.Labeled(
+                     "use bias",
+                     UI.yesno_widget(initial_value=cfg.bias is not None),
+                 ),
+                 ),
+        UI.Param(name="use_fast_generate",
+                 widget=UI.Labeled(
+                     "use fast generate",
+                     UI.yesno_widget(initial_value=cfg.use_fast_generate is not None),
+                 ),
                  ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 selected_index=0, layout=W.Layout(margin="0 auto 0 0", width="100%"))

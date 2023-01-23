@@ -117,7 +117,7 @@ def gcluster_view(cfg: GCluster):
                          layout={"width": "75%"}),
                      W.HBox(layout=param_layout)
                  ),
-                 compute=lambda conf, ev: (ev, conf.betas[1])),
+                 setter=lambda conf, ev: (ev, conf.betas[1])),
         UI.Param(name="betas",
                  widget=UI.Labeled(
                      W.Label(value="Beta 2", layout=label_layout),
@@ -126,7 +126,7 @@ def gcluster_view(cfg: GCluster):
                          layout={"width": "75%"}),
                      W.HBox(layout=param_layout)
                  ),
-                 compute=lambda conf, ev: (conf.betas[0], ev)),
+                 setter=lambda conf, ev: (conf.betas[0], ev)),
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)

@@ -37,11 +37,8 @@ class FilePicker:
                                       grid_auto_rows="min-content",
                                       width="98%",
                                       height="200px")),
-            W.Text(description="selected:",
-                   disabled=True,
-                   layout=W.Layout(width="100%",
-                                   margin="8px 0 0 0"))
-                .add_class("selected")
+            W.Text(disabled=True,
+                   layout=W.Layout(display="none"))
         ],
             layout=W.Layout(width="100%", ))
         self.widget.observe = self.widget.children[-1].observe
@@ -108,7 +105,7 @@ class FilePicker:
                     button.add_class("selected-button")
                     self.selected = desc
             self.widget.children[-1].value = os.path.split(self.selected)[-1] \
-                if not self.multiple else ", ".join([os.path.split(p)[-1] for p in self.selected])
+                if not self.multiple else "<$>".join([os.path.split(p)[-1] for p in self.selected])
 
 
 SoundFilePicker = partial(FilePicker, pattern=SOUND_FILE_REGEX)
