@@ -21,6 +21,10 @@ MMK_STYLE_SHEET = W.HTML(
 .selected-button {
     background-color: lightgreen !important;
 }
+.gray-label {
+    color: gray !important;
+}
+
 .selected {
     overflow-wrap: anywhere !important;
     text-color: black !important;

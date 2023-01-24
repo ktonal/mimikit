@@ -27,11 +27,7 @@ class FilePicker:
         self.pattern = pattern if not isinstance(pattern, str) else re.compile(pattern)
         self.multiple = multiple
         self.widget = W.VBox([
-            W.Text(value=self.root,
-                   description="current dir:",
-                   disabled=True,
-                   layout=W.Layout(width="100%", margin="0 0 12px 0"))
-                .add_class("selected"),
+            W.Label(value=self.root, layout=dict(margin="12px auto 12px 8px")).add_class("gray-label"),
             W.GridBox(layout=W.Layout(grid_template_columns="1fr " *
                                                             self.n_columns,
                                       grid_auto_rows="min-content",
