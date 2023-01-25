@@ -5,12 +5,11 @@ import torch
 import torch.nn as nn
 
 from .arm import ARMWithHidden
-from ..features.extractor import Extractor
 from ..config import NetworkConfig
-from ..io_spec import IOSpec, InputSpec, TargetSpec, Objective
+from ..io_spec import IOSpec
 from ..features.functionals import *
 from ..features.item_spec import ItemSpec
-from ..modules.io import IOFactory, ZipReduceVariables, ZipMode, MLPParams, LinearParams
+from ..modules.io import IOFactory, ZipReduceVariables, ZipMode
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -307,44 +306,6 @@ class SampleRNN(ARMWithHidden, nn.Module):
             )
             for spec in self.config.io_spec.targets
         )
-
-    @staticmethod
-    def qx_io(
-            extractor: Extractor = None,
-            sr=16000,
-            q_levels=256,
-            compression=1.,
-            mlp_dim=128,
-            n_mlp_layers=0,
-            min_temperature=1e-4
-    ):
-        if extractor is None:
-            extractor = Extractor(
-                "signal", Compose(
-                    FileToSignal(sr), Normalize(), RemoveDC()
-                )
-            )
-        mu_law = MuLawCompress(q_levels, compression)
-        return IOSpec(
-            inputs=(InputSpec(
-                extractor_name=extractor.name,
-                transform=mu_law,
-                module=IOFactory(
-                    module_type="framed_linear",
-                    params=LinearParams()
-                )).bind_to(extractor),),
-            targets=(TargetSpec(
-                extractor_name=extractor.name,
-                transform=mu_law,
-                module=IOFactory(
-                    module_type="mlp",
-                    params=MLPParams(
-                        hidden_dim=mlp_dim, n_hidden_layers=n_mlp_layers,
-                        min_temperature=min_temperature
-                    )
-                ),
-                objective=Objective("categorical_dist")
-            ).bind_to(extractor),))
 
     @property
     def generate_params(self) -> Set[str]:

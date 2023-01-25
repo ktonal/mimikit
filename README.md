@@ -32,7 +32,6 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 #### v0.4.0
  
 - [ ] code cleanup
-    - [ ] Training Scripts
     - [ ] package tree and imports
     - [ ] Models with Config (NO NEW FEATURES! (io, etc...))
         - [ ] S2S
@@ -42,30 +41,25 @@ You can explore the outputs of different trainings done with `mimikit` at this d
     - [ ] Cleanup GenerateLoop
         - [ ] migrate ensemble
 - [ ] Views / UI
-    - [ ] File / Data View
-        - [ ] NB Data cell with colab support
-    - [ ] IOSpec View
-        - [ ] Features
-        - [ ] IOFactory
+    - [ ] NB Data cell with colab support
+    - [ ] IOSpec Views
+    - [ ] integrate io_specs to network views
     - [ ] Networks View
         - [ ] S2S
     - [ ] `Run` Button
     - [ ] define UI in notebooks
         - [ ] validate config
         - [ ] call main()
-    - [ ] UI Style sheet
-    - [ ] make_notebooks
-        - [ ] Scripts
-            - [ ] General Flow:
-                IOSpec() -> soundbank
-                Network(..., io_spec, ...) -> model
-                Loop(soundbank, model, config)
-            - [ ] SampleRNN
-            - [ ] FreqNet
-            - [ ] S2S
-        - [ ] hide code
-        - [ ] embed UI state?
+    - [ ] training notebook
+        - [ ] nb config view
+            - [ ] hide code
+            - [ ] UI width 
+        - [ ] select IO
+        - [ ] select Network
+        - [ ] compat IO/Network/Training-options
         - [ ] test on colab
+- [ ] Training Notebook
+- [ ] Generate Notebook
 - [ ] Ensemble NoteBook
 - [ ] Clustering NoteBook
 - [ ] Segmentation NoteBook

@@ -67,20 +67,20 @@ def wavenet_view(cfg: WaveNet.Config):
         UI.Param(name="pad_side",
                  widget=UI.Labeled(
                      "use padding",
-                     UI.yesno_widget(initial_value=int(cfg.pad_side) is not None),
+                     UI.yesno_widget(initial_value=bool(cfg.pad_side)),
                  ),
                  setter=lambda conf, ev: int(ev)
                  ),
         UI.Param(name="bias",
                  widget=UI.Labeled(
                      "use bias",
-                     UI.yesno_widget(initial_value=cfg.bias is not None),
+                     UI.yesno_widget(initial_value=cfg.bias),
                  ),
                  ),
         UI.Param(name="use_fast_generate",
                  widget=UI.Labeled(
                      "use fast generate",
-                     UI.yesno_widget(initial_value=cfg.use_fast_generate is not None),
+                     UI.yesno_widget(initial_value=cfg.use_fast_generate),
                  ),
                  ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),

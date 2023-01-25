@@ -1,3 +1,4 @@
+import os
 from typing import Tuple
 import dataclasses as dtc
 import h5mapper as h5m
@@ -15,6 +16,10 @@ class DatasetConfig(Config, type_field=False):
     sources: Tuple[str, ...] = tuple()
     filename: str = "dataset.h5"
     extractors: Tuple[Extractor, ...] = tuple()
+
+    def __post_init__(self):
+        if not self.filename.startswith('/'):
+            self.filename = os.path.abspath(self.filename)
 
     @property
     def schema(self):

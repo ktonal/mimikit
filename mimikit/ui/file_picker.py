@@ -5,7 +5,6 @@ from functools import partial
 
 from ..utils import SOUND_FILE_REGEX
 
-
 __all__ = [
     "FilePicker",
     "SoundFilePicker",
@@ -20,19 +19,35 @@ class FilePicker:
                  multiple=True,
                  show_hidden=False,
                  pattern=".*",
-                 n_columns=4):
+                 n_columns=5):
         self.root = root
         self.n_columns = n_columns
         self.show_hidden = show_hidden
         self.pattern = pattern if not isinstance(pattern, str) else re.compile(pattern)
         self.multiple = multiple
+        search = W.Text(placeholder="Search", vlaue='', layout=dict(margin="auto 8px auto auto"))
+        self.query = None
+
+        def update_query(ev):
+            if ev["new"]:
+                self.query = re.compile(ev["new"])
+                self.update()
+            else:
+                self.query = None
+
+        search.observe(update_query, 'value')
         self.widget = W.VBox([
-            W.Label(value=self.root, layout=dict(margin="12px auto 12px 8px")).add_class("gray-label"),
+            W.HBox(children=(
+                W.Label(value="current directory: ", layout=dict(margin="auto 2px auto 8px")).add_class('gray-label'),
+                W.Label(value=self.root, layout=dict(margin="auto auto auto 2px")).add_class("gray-label"),
+                search),
+                layout=dict(height="50px")),
             W.GridBox(layout=W.Layout(grid_template_columns="1fr " *
                                                             self.n_columns,
                                       grid_auto_rows="min-content",
                                       width="98%",
-                                      height="200px")),
+                                      height="200px",
+                                      margin='8px 0')),
             W.Text(disabled=True,
                    layout=W.Layout(display="none"))
         ],
@@ -70,6 +85,8 @@ class FilePicker:
             show = False
         if not bool(re.search(self.pattern, path)) and not is_dir and show:
             show = True
+        if self.query is not None and not bool(re.search(self.query, path)):
+            show = False
         return show
 
     def disabled(self, path):
@@ -81,7 +98,7 @@ class FilePicker:
         if desc.startswith('\U0001F4C1 '):
             self.root = os.path.abspath(
                 os.path.join(self.root, desc.strip('\U0001F4C1 ')))
-            self.widget.children[0].value = self.root
+            self.widget.children[0].children[1].value = self.root
             self.update()
         else:
             desc = os.path.join(self.root, desc)

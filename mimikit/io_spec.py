@@ -1,5 +1,5 @@
 from enum import auto
-from typing import Tuple, Optional, List, Dict
+from typing import Tuple, Optional, List, Dict, Literal
 import torch.nn as nn
 import dataclasses as dtc
 import h5mapper as h5m
@@ -9,11 +9,10 @@ from .config import Config
 from .features.dataset import DatasetConfig
 from .features.extractor import Extractor
 from .features.item_spec import Unit, Sample, Frame, ItemSpec
-from .features.functionals import Continuous, Discrete, Functional
-from .modules.targets import CategoricalSampler,\
-    MixOfLogisticsSampler, MixOfLogisticsLoss, MixOfGaussianLoss, MixOfGaussianSampler,\
-    MixOfLaplaceLoss, MixOfLaplaceSampler
-from .modules.io import IOFactory
+from .features.functionals import *
+from .modules.targets import *
+from .modules.io import *
+from .modules.activations import *
 from .modules.loss_functions import MeanL1Prop
 
 __all__ = [
@@ -31,6 +30,7 @@ class _FeatureSpec(Config, type_field=False):
     transform: Functional
     module: IOFactory
     extractor: Extractor = dtc.field(init=False, repr=False, metadata=dict(omegaconf_ignore=True))
+
     # logger: None = None
 
     def bind_to(self, extractor: Extractor):
@@ -211,7 +211,135 @@ class IOSpec(Config, type_field=False):
                 out[f"output_{i}_{spec.objective.objective_type}"] = d["loss"]
             out["loss"] = L
             return out
+
         return func
+
+    @staticmethod
+    def qx_io(
+            extractor: Extractor = None,
+            sr=16000,
+            q_levels=256,
+            compression=1.,
+            input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear',
+            mlp_dim=128,
+            n_mlp_layers=0,
+            min_temperature=1e-4
+    ):
+        if extractor is None:
+            extractor = Extractor(
+                "signal", Compose(
+                    FileToSignal(sr), Normalize(), RemoveDC()
+                )
+            )
+        mu_law = MuLawCompress(q_levels, compression)
+        return IOSpec(
+            inputs=(InputSpec(
+                extractor_name=extractor.name,
+                transform=mu_law,
+                module=IOFactory(
+                    module_type=input_module_type,
+                    params=LinearParams()
+                )).bind_to(extractor),),
+            targets=(TargetSpec(
+                extractor_name=extractor.name,
+                transform=mu_law,
+                module=IOFactory(
+                    module_type="mlp",
+                    params=MLPParams(
+                        hidden_dim=mlp_dim, n_hidden_layers=n_mlp_layers,
+                        min_temperature=min_temperature
+                    )
+                ),
+                objective=Objective("categorical_dist")
+            ).bind_to(extractor),))
+
+    @staticmethod
+    def yt_io(
+            extractor: Extractor = None,
+            sr=16000,
+            input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear',
+            mlp_dim=128,
+            n_mlp_layers=0,
+            max_scale=.25,
+            beta=1 / 15,
+            weight_variance=0.1,
+            weight_l1=0.,
+            n_components=128,
+            objective_type:
+            Literal['logistic_dist', 'gaussian_dist', 'laplace_dist']
+            = 'logistic_dist'
+    ):
+        if extractor is None:
+            extractor = Extractor(
+                "signal", Compose(
+                    FileToSignal(sr), Normalize(), RemoveDC()
+                )
+            )
+        return IOSpec(
+            inputs=(
+                InputSpec(
+                    extractor_name=extractor.name,
+                    transform=Identity(),
+                    module=IOFactory(
+                        module_type=input_module_type,
+                        params=LinearParams()
+                    )
+                ).bind_to(extractor),),
+            targets=(
+                TargetSpec(
+                    extractor_name=extractor.name,
+                    transform=Identity(),
+                    module=IOFactory(
+                        module_type="mlp",
+                        params=MLPParams(
+                            hidden_dim=mlp_dim, n_hidden_layers=n_mlp_layers,
+                            min_temperature=None
+                        ),
+                    ),
+                    objective=Objective(
+                        objective_type=objective_type,
+                        params=dict(
+                            max_scale=max_scale,
+                            beta=beta,
+                            weight_l1=weight_l1,
+                            weight_variance=weight_variance,
+                            n_components=n_components
+                        )
+                    )
+                ).bind_to(extractor),
+            ))
+
+    @staticmethod
+    def fft_io(
+            extractor=None,
+            sr=22050,
+            n_fft=2048,
+            hop_length=512,
+            activation="Abs",
+    ):
+        if extractor is None:
+            extractor = Extractor("signal", Compose(
+                FileToSignal(sr), Normalize(), RemoveDC()
+            ))
+        return IOSpec(
+            inputs=(InputSpec(
+                extractor_name=extractor.name,
+                transform=MagSpec(n_fft, hop_length, center=False, window='hann'),
+                module=IOFactory(
+                    module_type="chunked_linear",
+                    params=ChunkedLinearParams(n_heads=1)
+                )).bind_to(extractor),),
+            targets=(TargetSpec(
+                extractor_name=extractor.name,
+                transform=MagSpec(n_fft, hop_length, center=False, window='hann'),
+                module=IOFactory(
+                    module_type="chunked_linear",
+                    params=ChunkedLinearParams(n_heads=1),
+                    activation=ActivationConfig(
+                        act="Abs",
+                    )),
+                objective=Objective("reconstruction")
+            ).bind_to(extractor),))
 
     @property
     def matching_io(self) -> Tuple[List[Optional[int]], List[Optional[int]]]:
@@ -238,4 +366,3 @@ class IOSpec(Config, type_field=False):
     def is_fixture_input(self) -> List[bool]:
         target_feats = self.target_features
         return [f not in target_feats for f in self.input_features]
-

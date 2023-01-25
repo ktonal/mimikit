@@ -1,8 +1,9 @@
+from typing import Iterable
+
 from ipywidgets import widgets as W, GridspecLayout
 import os
 
 from ..loops.callbacks import tqdm
-
 
 __all__ = [
     "EnumWidget",
@@ -11,6 +12,7 @@ __all__ = [
     "Labeled",
     "UploadWidget",
 ]
+
 
 # TODO:
 #  - wavenet/sampleRNN -> all params
@@ -32,7 +34,8 @@ def Labeled(
                         disabled=True,
                         ).add_class("tltp")
         label_w = W.HBox(children=[label_w, tltp], )
-    label_w.layout = W.Layout(min_width="max_content", width="auto", overflow='hidden')
+    label_w.layout = W.Layout(min_width="max_content", width="auto",
+                              overflow='hidden')
     container = W.GridBox(children=(label_w, widget),
                           layout=dict(width="100%", grid_template_columns='1fr 1fr')
                           )
@@ -42,19 +45,19 @@ def Labeled(
 
 
 def pw2_widget(
-    initial_value,
-    min_value=1,
-    max_value=2**16,
+        initial_value,
+        min_value=1,
+        max_value=2 ** 16,
 ):
     plus = W.Button(icon="plus", layout=dict(width="auto", overflow='hidden', grid_area='plus'))
     minus = W.Button(icon="minus", layout=dict(width="auto", overflow='hidden', grid_area='minus'))
     value = W.Text(value=str(initial_value), layout=dict(width="auto", overflow='hidden', grid_area='val'))
     plus.on_click(lambda clk: setattr(value, "value", str(min(max_value, int(value.value) * 2))))
     minus.on_click(lambda clk: setattr(value, "value", str(max(min_value, int(value.value) // 2))))
-    grid = W.GridBox(children=(plus, value, minus),
+    grid = W.GridBox(children=(minus, value, plus),
                      layout=dict(grid_template_columns='1fr 1fr 1fr',
                                  grid_template_rows='1fr',
-                                 grid_template_areas='"plus val minus"'))
+                                 grid_template_areas='"minus val plus"'))
     # bind value state to box state
     # grid.value = value.value
     grid.observe = value.observe
@@ -62,19 +65,19 @@ def pw2_widget(
 
 
 def yesno_widget(
-    initial_value=True,
+        initial_value=True,
 ):
     yes = W.ToggleButton(
         value=initial_value,
         description="yes",
         button_style="success" if initial_value else "",
-        layout=dict(width='auto', grid_area='yes')
+        layout=dict(width='auto', maring='auto 4px', grid_area='yes')
     )
     no = W.ToggleButton(
         value=not initial_value,
         description="no",
         button_style="" if initial_value else "danger",
-        layout=dict(width='auto', grid_area='no')
+        layout=dict(width='auto', maring='auto 4px', grid_area='no')
     )
 
     def toggle_yes(ev):
@@ -102,23 +105,35 @@ def yesno_widget(
 
 
 def EnumWidget(
-        label,
-        options,
-        container,
+        label: str,
+        options: Iterable[str],
         value_type=str,
         selected_index=0
 ):
-    container.children = (label, *options)
+    options_w = W.GridBox(children=tuple(W.ToggleButton(value=False,
+                                                        description=opt,
+                                                        tooltip=opt,
+                                                        layout=dict(margin='auto 4px'))
+                                         for opt in options),
+                          layout=dict(grid_template_columns='1fr ' * len(options), width='100%', align_self='center'))
+    container = Labeled(label, options_w)
     dummy = W.Text(value='')
-    container.value = options[selected_index].value if value_type is str else value_type(options[selected_index].value)
-    for i, child in enumerate(options):
+    if isinstance(selected_index, int):
+        value = options_w.children[selected_index].value if value_type is str else \
+            value_type(options_w.children[selected_index].value)
+        options_w.children[selected_index].value = True
+        setattr(options_w.children[selected_index], "button_style", "success")
+    else:
+        value = selected_index
+    container.value = value
+    for i, child in enumerate(options_w.children):
         def observer(ev, c=child, index=i):
             val = ev["new"]
             if val and dummy.value != c.description:
                 container.selected_index = index
                 dummy.value = c.description if value_type is str else value_type(c.description)
                 setattr(c, "button_style", "success")
-                for other in options:
+                for other in options_w.children:
                     if other.value and other is not c:
                         other.value = False
                         other.button_style = ""
@@ -126,7 +141,6 @@ def EnumWidget(
                 c.value = True
 
         child.observe(observer, "value")
-    options[selected_index].value = True
     container.observe = dummy.observe
     return container
 

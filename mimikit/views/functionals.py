@@ -1,7 +1,7 @@
 from ipywidgets import widgets as W
 
 from ..features.functionals import MagSpec, MelSpec, MFCC, Chroma, \
-    HarmonicSource, PercussiveSource, AutoConvolve, F0Filter,\
+    HarmonicSource, PercussiveSource, AutoConvolve, F0Filter, \
     NearestNeighborFilter, PCA, NMF, FactorAnalysis
 from .. import ui as UI
 
@@ -22,45 +22,26 @@ __all__ = [
 
 
 def magspec_view(cfg: MagSpec):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
 
     view = UI.ConfigView(
         cfg,
         UI.Param("n_fft",
-                 widget=UI.Labeled(
-                     W.Label(value="N FFT: ", layout=label_layout),
-                     W.IntText(value=cfg.n_fft, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N FFT: ",
+                                   W.IntText(value=cfg.n_fft, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("hop_length",
-                 widget=UI.Labeled(
-                     W.Label(value="hop length: ", layout=label_layout),
-                     W.IntText(value=cfg.hop_length, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("hop length: ",
+                                   W.IntText(value=cfg.hop_length, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("center",
-                 widget=UI.yesno_widget(
-                     W.Label(value="center: ", layout=label_layout),
-                     initial_value=cfg.center,
-                     buttons_layout=W.Layout(width="50%", margin="4px")
-                 ), ),
+                 widget=
+                 UI.Labeled("center: ", UI.yesno_widget(initial_value=cfg.center),
+                            ), ),
         UI.Param("window",
-                 widget=UI.EnumWidget(
-                     W.Label(value="window: ", layout=label_layout),
-                     [W.ToggleButton(description="None",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="hann",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="hamming",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     )
-                      ],
-                     W.HBox(layout=param_layout),
-                     selected_index=0 if cfg.window is None else 1
-                 ),
+                 widget=UI.EnumWidget("window: ",
+                                      ["None", "hann", "hamming", ],
+                                      selected_index=0 if cfg.window is None else 1
+                                      ),
                  setter=lambda c, v: v if v != "None" else None
                  )
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
@@ -71,17 +52,12 @@ def magspec_view(cfg: MagSpec):
 
 
 def melspec_view(cfg: MelSpec):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_mels",
-                 widget=UI.Labeled(
-                     W.Label(value="N Mels: ", layout=label_layout),
-                     W.IntText(value=cfg.n_mels, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Mels: ",
+                                   W.IntText(value=cfg.n_mels, layout=dict(margin='4px', width="100%")),
+                                   ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
 
@@ -90,33 +66,17 @@ def melspec_view(cfg: MelSpec):
 
 
 def mfcc_view(cfg: MFCC):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_mfcc",
-                 widget=UI.Labeled(
-                     W.Label(value="N MFCC: ", layout=label_layout),
-                     W.IntText(value=cfg.n_mfcc, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N MFCC: ",
+                                   W.IntText(value=cfg.n_mfcc, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("dct_type",
-                 widget=UI.EnumWidget(
-                     W.Label(value="DCT Type: ", layout=label_layout),
-                     [W.ToggleButton(description="1",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="2",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="3",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     )
-                      ],
-                     W.HBox(layout=param_layout),
-                     selected_index=cfg.dct_type - 1
-                 ),
+                 widget=UI.EnumWidget("DCT Type: ",
+                                      ["1", "2", "3", ],
+                                      selected_index=cfg.dct_type - 1
+                                      ),
                  setter=lambda c, v: int(v)
                  )
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
@@ -127,17 +87,12 @@ def mfcc_view(cfg: MFCC):
 
 
 def chroma_view(cfg: Chroma):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_chroma",
-                 widget=UI.Labeled(
-                     W.Label(value="N Chroma: ", layout=label_layout),
-                     W.IntText(value=cfg.n_chroma, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Chroma: ",
+                                   W.IntText(value=cfg.n_chroma, layout=dict(margin='4px', width="100%")),
+                                   ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
 
@@ -146,29 +101,20 @@ def chroma_view(cfg: Chroma):
 
 
 def harmonic_source_view(cfg: HarmonicSource):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("kernel_size",
-                 widget=UI.Labeled(
-                     W.Label(value="Kernel Size: ", layout=label_layout),
-                     W.IntText(value=cfg.kernel_size, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Kernel Size: ",
+                                   W.IntText(value=cfg.kernel_size, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("power",
-                 widget=UI.Labeled(
-                     W.Label(value="Power: ", layout=label_layout),
-                     W.FloatText(value=cfg.power, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Power: ",
+                                   W.FloatText(value=cfg.power, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("margin",
-                 widget=UI.Labeled(
-                     W.Label(value="Margin: ", layout=label_layout),
-                     W.FloatText(value=cfg.margin, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Margin: ",
+                                   W.FloatText(value=cfg.margin, layout=dict(margin='4px', width="100%")),
+                                   ), ),
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
@@ -178,29 +124,20 @@ def harmonic_source_view(cfg: HarmonicSource):
 
 
 def percussive_source_view(cfg: PercussiveSource):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("kernel_size",
-                 widget=UI.Labeled(
-                     W.Label(value="Kernel Size: ", layout=label_layout),
-                     W.IntText(value=cfg.kernel_size, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Kernel Size: ",
+                                   W.IntText(value=cfg.kernel_size, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("power",
-                 widget=UI.Labeled(
-                     W.Label(value="Power: ", layout=label_layout),
-                     W.FloatText(value=cfg.power, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Power: ",
+                                   W.FloatText(value=cfg.power, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("margin",
-                 widget=UI.Labeled(
-                     W.Label(value="Margin: ", layout=label_layout),
-                     W.FloatText(value=cfg.margin, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Margin: ",
+                                   W.FloatText(value=cfg.margin, layout=dict(margin='4px', width="100%")),
+                                   ), ),
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
@@ -210,17 +147,12 @@ def percussive_source_view(cfg: PercussiveSource):
 
 
 def autoconvolve_view(cfg: AutoConvolve):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("window_size",
-                 widget=UI.Labeled(
-                     W.Label(value="Window Size: ", layout=label_layout),
-                     W.IntText(value=cfg.window_size, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Window Size: ",
+                                   W.IntText(value=cfg.window_size, layout=dict(margin='4px', width="100%")),
+                                   ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
 
@@ -229,35 +161,23 @@ def autoconvolve_view(cfg: AutoConvolve):
 
 
 def f0_filter_view(cfg: F0Filter):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_overtone",
-                 widget=UI.Labeled(
-                     W.Label(value="N Overtone: ", layout=label_layout),
-                     W.IntText(value=cfg.n_overtone, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Overtone: ",
+                                   W.IntText(value=cfg.n_overtone, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("n_undertone",
-                 widget=UI.Labeled(
-                     W.Label(value="N Undertone: ", layout=label_layout),
-                     W.IntText(value=cfg.n_undertone, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Undertone: ",
+                                   W.IntText(value=cfg.n_undertone, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("soft",
-                 widget=UI.yesno_widget(
-                     W.Label(value="Soft Filter: ", layout=label_layout),
-                     initial_value=cfg.soft,
-                     buttons_layout=W.Layout(width="50%", margin="4px")
-                 ), ),
+                 widget=UI.Labeled("Soft Filter: ",
+                                   UI.yesno_widget(initial_value=cfg.soft, )), ),
         UI.Param("normalize",
-                 widget=UI.yesno_widget(
-                     W.Label(value="Normalize: ", layout=label_layout),
-                     initial_value=cfg.normalize,
-                     buttons_layout=W.Layout(width="50%", margin="4px")
-                 ), ),
+                 widget=UI.Labeled("Normalize: ",
+                                   UI.yesno_widget(initial_value=cfg.normalize)
+                                   ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
 
@@ -266,50 +186,29 @@ def f0_filter_view(cfg: F0Filter):
 
 
 def nearest_neighbor_filter_view(cfg: NearestNeighborFilter):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_neighbors",
-                 widget=UI.Labeled(
-                     W.Label(value="N Neighbors: ", layout=label_layout),
-                     W.IntText(value=cfg.n_neighbors, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Neighbors: ",
+                                   W.IntText(value=cfg.n_neighbors, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("metric",
-                 widget=UI.EnumWidget(
-                     W.Label(value="Metric: ", layout=label_layout),
-                     [W.ToggleButton(description="cosine",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="euclidean",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="manhattan",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     )
-                      ],
-                     W.HBox(layout=param_layout),
-                     selected_index=["cosine", "euclidean", "manhattan"].index(cfg.metric)
-                 ),
+                 widget=UI.EnumWidget("Metric: ",
+                                      ["cosine",
+                                       "euclidean",
+                                       "manhattan",
+                                       ],
+                                      selected_index=["cosine", "euclidean", "manhattan"].index(cfg.metric)
+                                      ),
                  ),
         UI.Param("aggregate",
-                 widget=UI.EnumWidget(
-                     W.Label(value="Aggregate: ", layout=label_layout),
-                     [W.ToggleButton(description="mean",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="median",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     ),
-                      W.ToggleButton(description="max",
-                                     layout=W.Layout(width="33%", margin="4px")
-                                     )
-                      ],
-                     W.HBox(layout=param_layout),
-                     selected_index=["mean", "median", "max"].index(cfg.aggregate)
-                 ),
+                 widget=UI.EnumWidget("Aggregate: ",
+                                      ["mean",
+                                       "median",
+                                       "max",
+                                       ],
+                                      selected_index=["mean", "median", "max"].index(cfg.aggregate)
+                                      ),
                  ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
@@ -319,23 +218,16 @@ def nearest_neighbor_filter_view(cfg: NearestNeighborFilter):
 
 
 def pca_view(cfg: PCA):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_components",
-                 widget=UI.Labeled(
-                     W.Label(value="N Components: ", layout=label_layout),
-                     W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Components: ",
+                                   W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("random_seed",
-                 widget=UI.Labeled(
-                     W.Label(value="Random Seed: ", layout=label_layout),
-                     W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), )
+                 widget=UI.Labeled("Random Seed: ",
+                                   W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
+                                   ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
@@ -345,35 +237,24 @@ def pca_view(cfg: PCA):
 
 
 def nmf_view(cfg: NMF):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_components",
-                 widget=UI.Labeled(
-                     W.Label(value="N Components: ", layout=label_layout),
-                     W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Components: ",
+                                   W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("tol",
-                 widget=UI.Labeled(
-                     W.Label(value="Tolerance: ", layout=label_layout),
-                     W.FloatText(value=cfg.tol, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Tolerance: ",
+                                   W.FloatText(value=cfg.tol, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("max_iter",
-                 widget=UI.Labeled(
-                     W.Label(value="Max Iter: ", layout=label_layout),
-                     W.IntText(value=cfg.max_iter, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Max Iter: ",
+                                   W.IntText(value=cfg.max_iter, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("random_seed",
-                 widget=UI.Labeled(
-                     W.Label(value="Random Seed: ", layout=label_layout),
-                     W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), )
+                 widget=UI.Labeled("Random Seed: ",
+                                   W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
+                                   ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
@@ -383,35 +264,24 @@ def nmf_view(cfg: NMF):
 
 
 def factor_analysis_view(cfg: FactorAnalysis):
-    label_layout = W.Layout(min_width="max-content", margin="auto 12px auto auto")
-    param_layout = W.Layout(width="100%", margin="6px 0 6px 0", display="flex")
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_components",
-                 widget=UI.Labeled(
-                     W.Label(value="N Components: ", layout=label_layout),
-                     W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("N Components: ",
+                                   W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("tol",
-                 widget=UI.Labeled(
-                     W.Label(value="Tolerance: ", layout=label_layout),
-                     W.FloatText(value=cfg.tol, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Tolerance: ",
+                                   W.FloatText(value=cfg.tol, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("max_iter",
-                 widget=UI.Labeled(
-                     W.Label(value="Max Iter: ", layout=label_layout),
-                     W.IntText(value=cfg.max_iter, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), ),
+                 widget=UI.Labeled("Max Iter: ",
+                                   W.IntText(value=cfg.max_iter, layout=dict(margin='4px', width="100%")),
+                                   ), ),
         UI.Param("random_seed",
-                 widget=UI.Labeled(
-                     W.Label(value="Random Seed: ", layout=label_layout),
-                     W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
-                     W.HBox([], layout=param_layout)
-                 ), )
+                 widget=UI.Labeled("Random Seed: ",
+                                   W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
+                                   ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
                 layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
