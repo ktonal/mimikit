@@ -214,30 +214,35 @@ class IOSpec(Config, type_field=False):
 
         return func
 
+    @dtc.dataclass
+    class MuLawIOConfig(Config):
+        sr = 16000
+        q_levels = 256
+        compression = 1.
+        input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear'
+        mlp_dim = 128
+        n_mlp_layers = 0
+        min_temperature = 1e-4
+
     @staticmethod
-    def qx_io(
+    def mulaw_io(
+            config: MuLawIOConfig,
             extractor: Extractor = None,
-            sr=16000,
-            q_levels=256,
-            compression=1.,
-            input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear',
-            mlp_dim=128,
-            n_mlp_layers=0,
-            min_temperature=1e-4
     ):
+        c = config
         if extractor is None:
             extractor = Extractor(
                 "signal", Compose(
-                    FileToSignal(sr), Normalize(), RemoveDC()
+                    FileToSignal(c.sr), Normalize(), RemoveDC()
                 )
             )
-        mu_law = MuLawCompress(q_levels, compression)
+        mu_law = MuLawCompress(c.q_levels, c.compression)
         return IOSpec(
             inputs=(InputSpec(
                 extractor_name=extractor.name,
                 transform=mu_law,
                 module=IOFactory(
-                    module_type=input_module_type,
+                    module_type=c.input_module_type,
                     params=LinearParams()
                 )).bind_to(extractor),),
             targets=(TargetSpec(
@@ -246,33 +251,36 @@ class IOSpec(Config, type_field=False):
                 module=IOFactory(
                     module_type="mlp",
                     params=MLPParams(
-                        hidden_dim=mlp_dim, n_hidden_layers=n_mlp_layers,
-                        min_temperature=min_temperature
+                        hidden_dim=c.mlp_dim, n_hidden_layers=c.n_mlp_layers,
+                        min_temperature=c.min_temperature
                     )
                 ),
                 objective=Objective("categorical_dist")
             ).bind_to(extractor),))
 
+    @dtc.dataclass
+    class YtIOConfig(Config):
+        sr = 16000
+        input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear'
+        mlp_dim = 128
+        n_mlp_layers = 0
+        max_scale = .25
+        beta = 1 / 15
+        weight_variance = 0.1
+        weight_l1 = 0.
+        n_components = 128
+        objective_type: Literal['logistic_dist', 'gaussian_dist', 'laplace_dist'] = 'logistic_dist'
+
     @staticmethod
     def yt_io(
+            config: YtIOConfig,
             extractor: Extractor = None,
-            sr=16000,
-            input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear',
-            mlp_dim=128,
-            n_mlp_layers=0,
-            max_scale=.25,
-            beta=1 / 15,
-            weight_variance=0.1,
-            weight_l1=0.,
-            n_components=128,
-            objective_type:
-            Literal['logistic_dist', 'gaussian_dist', 'laplace_dist']
-            = 'logistic_dist'
     ):
+        c = config
         if extractor is None:
             extractor = Extractor(
                 "signal", Compose(
-                    FileToSignal(sr), Normalize(), RemoveDC()
+                    FileToSignal(c.sr), Normalize(), RemoveDC()
                 )
             )
         return IOSpec(
@@ -281,7 +289,7 @@ class IOSpec(Config, type_field=False):
                     extractor_name=extractor.name,
                     transform=Identity(),
                     module=IOFactory(
-                        module_type=input_module_type,
+                        module_type=c.input_module_type,
                         params=LinearParams()
                     )
                 ).bind_to(extractor),),
@@ -292,46 +300,51 @@ class IOSpec(Config, type_field=False):
                     module=IOFactory(
                         module_type="mlp",
                         params=MLPParams(
-                            hidden_dim=mlp_dim, n_hidden_layers=n_mlp_layers,
+                            hidden_dim=c.mlp_dim, n_hidden_layers=c.n_mlp_layers,
                             min_temperature=None
                         ),
                     ),
                     objective=Objective(
-                        objective_type=objective_type,
+                        objective_type=c.objective_type,
                         params=dict(
-                            max_scale=max_scale,
-                            beta=beta,
-                            weight_l1=weight_l1,
-                            weight_variance=weight_variance,
-                            n_components=n_components
+                            max_scale=c.max_scale,
+                            beta=c.beta,
+                            weight_l1=c.weight_l1,
+                            weight_variance=c.weight_variance,
+                            n_components=c.n_components
                         )
                     )
                 ).bind_to(extractor),
             ))
 
+    @dtc.dataclass
+    class MagSpecIOConfig(Config):
+        sr = 22050
+        n_fft = 2048
+        hop_length = 512
+        activation = "Abs"
+
     @staticmethod
-    def fft_io(
+    def magspec_io(
+            config: MagSpecIOConfig,
             extractor=None,
-            sr=22050,
-            n_fft=2048,
-            hop_length=512,
-            activation="Abs",
     ):
+        c = config
         if extractor is None:
             extractor = Extractor("signal", Compose(
-                FileToSignal(sr), Normalize(), RemoveDC()
+                FileToSignal(c.sr), Normalize(), RemoveDC()
             ))
         return IOSpec(
             inputs=(InputSpec(
                 extractor_name=extractor.name,
-                transform=MagSpec(n_fft, hop_length, center=False, window='hann'),
+                transform=MagSpec(c.n_fft, c.hop_length, center=False, window='hann'),
                 module=IOFactory(
                     module_type="chunked_linear",
                     params=ChunkedLinearParams(n_heads=1)
                 )).bind_to(extractor),),
             targets=(TargetSpec(
                 extractor_name=extractor.name,
-                transform=MagSpec(n_fft, hop_length, center=False, window='hann'),
+                transform=MagSpec(c.n_fft, c.hop_length, center=False, window='hann'),
                 module=IOFactory(
                     module_type="chunked_linear",
                     params=ChunkedLinearParams(n_heads=1),
