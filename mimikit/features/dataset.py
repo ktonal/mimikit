@@ -30,7 +30,7 @@ class DatasetConfig(Config, type_field=False):
         return cls.create(self.filename, self.sources, **kwargs)
 
     def get(self, **kwargs):
-        cls = type("Dataset", (h5m.TypedFile,), {"config": self, **self.schema})
+        cls = self._typed_file_class()
         return cls(self.filename, **kwargs)
 
     def _typed_file_class(self):
