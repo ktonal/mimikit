@@ -1,18 +1,21 @@
 from typing import *
 import dataclasses as dtc
 from ipywidgets import widgets as W
+import numpy as np
+import pandas as pd
 
 from ..extract.clusters import *
+from ..features.dataset import DatasetConfig
 from ..features.functionals import *
 from .clusters import *
+from .dataset import dataset_view
 from .functionals import *
-
 
 __all__ = [
     'ComposeTransformWidget',
     'ClusterWidget',
-    'Segment'
-
+    'Segment',
+    'ClusterizerApp'
 ]
 
 
@@ -90,8 +93,7 @@ class ComposeTransformWidget:
             W.HTML(value="<h4> Pre Processing Pipeline </h4>", layout=dict(margin="auto")),
             collapse_all, expand_all
         ])
-        box = W.VBox(children=(header,
-                               new_choice,),
+        box = W.VBox(children=(header,),
                      layout=dict(width=width))
 
         def on_collapse(ev):
@@ -119,21 +121,14 @@ class ComposeTransformWidget:
             new_choice.disabled = True
 
         def add_choice(ev):
-            meta = TRANSFORMS[choices.value]
-            cfg = meta.config_class()
-            self.metas.append(meta)
-            self.transforms.append(cfg)
-            new_w = meta.view_func(cfg)
-            new_w.layout = dict(width="95%", margin="auto")
-            remove_w = W.Button(icon="fa-trash", layout=dict(width="50px", margin="auto 2px"))
-            hbox = W.HBox(children=(remove_w, new_w), layout=dict(width="95%", margin="0 4px 4px 4px"))
+            meta, cfg, remove_w, hbox = self.new_transform_view_for(choices.value)
             choices.options = self.get_possible_choices()
 
             def remove_cb(ev):
-                keep = []
-                for i, (t, m) in enumerate(zip(self.transforms, self.metas)):
+                keep = [0]  # always keep magspec
+                for i, (t, m) in enumerate(zip(self.transforms[1:], self.metas[1:]), 1):
                     is_el = t is cfg
-                    requires_t = type(cfg) in m.requires or not meta.requires  # MagSpec kills everything!
+                    requires_t = type(cfg) in m.requires
                     if not is_el and not requires_t:
                         keep += [i]
                 self.transforms = [self.transforms[i] for i in keep]
@@ -152,6 +147,11 @@ class ComposeTransformWidget:
         cancel.on_click(cancel_new_choice)
         new_choice.on_click(show_new_choice)
         self.widget = box
+        choices.value = "magspec"
+        submit.click()
+        # can not remove magspec
+        box.children[1].children[0].disabled = True
+        self.magspec_cfg = self.transforms[0]
 
     def get_possible_choices(self):
         options = []
@@ -160,6 +160,17 @@ class ComposeTransformWidget:
             if meta.can_be_added(ts):
                 options += [k]
         return options
+
+    def new_transform_view_for(self, keyword: str):
+        meta = TRANSFORMS[keyword]
+        cfg = meta.config_class()
+        self.metas.append(meta)
+        self.transforms.append(cfg)
+        new_w = meta.view_func(cfg)
+        new_w.layout = dict(width="95%", margin="auto")
+        remove_w = W.Button(icon="fa-trash", layout=dict(width="50px", margin="auto 2px"))
+        hbox = W.HBox(children=(remove_w, new_w), layout=dict(width="95%", margin="0 4px 4px 4px"))
+        return meta, cfg, remove_w, hbox
 
 
 class ClusterWidget:
@@ -205,3 +216,83 @@ class ClusterWidget:
 
     def get_possible_choices(self):
         return [*CLUSTERINGS.keys()]
+
+
+class ClusterizerApp:
+
+    def __init__(self):
+        self.dataset_cfg = DatasetConfig()
+        self.dataset_widget = dataset_view(self.dataset_cfg)
+        self.pre_pipeline = ComposeTransformWidget()
+        self.pre_pipeline_widget = self.pre_pipeline.widget
+        self.magspec_cfg = self.pre_pipeline.magspec_cfg
+        self.clusters = ClusterWidget()
+        self.clusters_widget = self.clusters.widget
+        self.feature_name = ''
+
+        save_as = W.HBox(children=(
+            W.Label(value='Save clustering as: '), W.Text(value="labels")),
+            layout=dict(margin="auto", width="max-content"))
+        compute = W.HBox(children=(W.Button(description="compute"),), layout=dict(margin="auto", width="max-content"))
+        out = W.Output()
+
+        def on_submit(ev):
+            db = self.db
+            self.feature_name = save_as.children[1].value
+            pipeline = Compose(
+                *self.pre_pipeline.transforms, self.clusters.cfg,
+                Interpolate(mode="previous", length=db.signal.shape[0])
+            )
+            if self.feature_name in db.handle():
+                db.handle().pop(self.feature_name)
+                db.flush()
+            out.clear_output()
+            with out:
+                db.signal.compute({
+                    self.feature_name: pipeline
+                })
+                db.info()
+                feat = getattr(db, self.feature_name)
+                feat.attrs["config"] = pipeline.serialize()
+                db.flush()
+                db.close()
+
+        compute.children[0].on_click(on_submit)
+
+        self.clustering_widget = W.VBox(children=(
+            W.HBox(children=(self.pre_pipeline_widget, self.clusters_widget),
+                   layout=dict(align_items='baseline')),
+            save_as, compute, out
+        ))
+
+    @property
+    def db(self):
+        return self.dataset_cfg.get(mode="r+")
+
+    @property
+    def sr(self):
+        return self.db.config.extractors[0].functional.functionals[0].sr
+
+    def segments_for(self, feature_name: str):
+        db = self.db
+        sr = self.sr
+        lbl = getattr(db, feature_name)[:]
+        splits = (lbl[1:] - lbl[:-1]) != 0
+        time_idx = np.r_[splits.nonzero()[0], lbl.shape[0] - 1]
+        cluster_idx = lbl[time_idx]
+        segments = [
+            Segment(t, tp1, id=i, labelText=str(c)).dict()
+            for i, (t, tp1, c) in enumerate(
+                zip(time_idx[:-1] / sr, time_idx[1:] / sr, cluster_idx[:-1]))
+        ]
+        df = pd.DataFrame.from_dict(segments)
+        df.set_index("id", drop=True, inplace=True)
+        label_set = [*sorted(set(lbl))]
+        return df, label_set
+
+    def bounce(self, segments: List[Segment]):
+        fft = self.magspec_cfg(self.db.signal[:])
+        sr, hop = self.sr, self.magspec_cfg.hop_length
+        def t2f(t): return int(t*sr/hop)
+        filtered = np.concatenate([fft[slice(t2f(s.startTime), t2f(s.endTime)+1)] for s in segments])
+        return self.magspec_cfg.inv(filtered)

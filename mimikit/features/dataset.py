@@ -27,7 +27,9 @@ class DatasetConfig(Config, type_field=False):
 
     def create(self, **kwargs):
         cls = self._typed_file_class()
-        return cls.create(self.filename, self.sources, **kwargs)
+        db = cls.create(self.filename, self.sources, **kwargs)
+        db.attrs["config"] = self.serialize()
+        return db
 
     def get(self, **kwargs):
         cls = self._typed_file_class()
@@ -36,10 +38,17 @@ class DatasetConfig(Config, type_field=False):
     def _typed_file_class(self):
         def reduce(self):
             return h5m.TypedFile, (self.filename,), {}
-
+        if os.path.exists(self.filename):
+            tf = h5m.TypedFile(self.filename)
+            if "config" in tf.attrs:
+                cfg = Config.deserialize(tf.attrs["config"], DatasetConfig)
+            else:
+                cfg = self
+        else:
+            cfg = self
         return type("Dataset", (h5m.TypedFile,),
                     {
-                        "config": self,
+                        "config": cfg,
                         **self.schema,
                         "__reduce__": reduce
                     })
