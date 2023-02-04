@@ -9,24 +9,15 @@ import operator as opr
 
 from .arm import ARM
 from ..config import NetworkConfig
-from ..io_spec import IOSpec, InputSpec, TargetSpec, Objective
-from ..features.extractor import Extractor
+from ..io_spec import IOSpec
 from ..features.item_spec import ItemSpec, Step
-from ..features.functionals import *
-from ..modules.io import IOFactory, MLPParams, ChunkedLinearParams
-from ..utils import AutoStrEnum
 from ..modules.misc import Chunk, CausalPad, Transpose
-from ..modules.activations import GatingUnit, ActivationConfig
+from ..modules.activations import GatingUnit, ActivationEnum
 
 __all__ = [
     "WNLayer",
     "WaveNet"
 ]
-
-
-class ActivationEnum(AutoStrEnum):
-    Tanh = auto()
-    Sigmoid = auto()
 
 
 class WNLayer(nn.Module):

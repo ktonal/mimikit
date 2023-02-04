@@ -83,7 +83,7 @@ class TrainARMLoop(LoggingHooks,
                        net: ARM,
                        cfg: TrainARMConfig):
         user_spec = ItemSpec(shift=0, length=cfg.batch_length,
-                             stride=cfg.downsampling, unit=Step())
+                             stride=cfg.downsampling, unit=net.config.io_spec.unit)
         batch = net.train_batch(user_spec)
 
         if cfg.tbptt_chunk_length is not None:

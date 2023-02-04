@@ -39,7 +39,7 @@ def qcluster_view(cfg: QCluster):
                                    ), ),
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Quantile Clustering")
     return view
@@ -89,7 +89,7 @@ def gcluster_view(cfg: GCluster):
                  setter=lambda conf, ev: (conf.betas[0], ev)),
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Grid of Means Clustering")
     return view
@@ -97,7 +97,7 @@ def gcluster_view(cfg: GCluster):
 
 def argmax_view(cfg=None):
     view = W.Accordion(children=[W.Label(value="no parameters to set", layout=dict(width="100%"))],
-                       layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                       layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
     view.set_title(0, "Arg Max Clustering")
     return view
 
@@ -124,7 +124,7 @@ def kmeans_view(cfg: KMeans):
                                    ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "KMeans Clustering")
     return view
@@ -152,7 +152,7 @@ def spectral_clustering_view(cfg: SpectralClustering):
                                    ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Spectral Clustering Clustering")
     return view

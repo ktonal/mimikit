@@ -20,7 +20,7 @@ __all__ = [
     "ObjectiveType",
     "Objective",
     "TargetSpec",
-    "IOSpec"
+    "IOSpec",
 ]
 
 
@@ -98,6 +98,8 @@ class ObjectiveType(AutoStrEnum):
     gaussian_dist = auto()
     laplace_dist = auto()
     logistic_vector = auto()
+    gaussian_vector = auto()
+    laplace_vector = auto()
 
 
 @dtc.dataclass
@@ -105,7 +107,7 @@ class Objective(Config, type_field=False):
     objective_type: ObjectiveType
     params: Dict = dtc.field(default_factory=lambda: {})
 
-    def get_criterion(self):
+    def get_criterion(self, vector_dim=None):
         if self.objective_type == "reconstruction":
             return MeanL1Prop()
         elif self.objective_type == "categorical_dist":
@@ -116,8 +118,14 @@ class Objective(Config, type_field=False):
             return MixOfGaussianLoss(**self.params)
         elif self.objective_type == "laplace_dist":
             return MixOfLaplaceLoss(**self.params)
+        elif self.objective_type == "logistic_vector":
+            return VectorOfLogisticLoss(vector_dim=vector_dim, **self.params)
+        elif self.objective_type == "gaussian_vector":
+            return VectorOfGaussianLoss(vector_dim=vector_dim, **self.params)
+        elif self.objective_type == "laplace_vector":
+            return VectorOfLaplaceLoss(vector_dim=vector_dim, **self.params)
 
-    def get_sampler(self):
+    def get_sampler(self, vector_dim=None):
         if self.objective_type == "reconstruction":
             return None
         elif self.objective_type == "categorical_dist":
@@ -128,6 +136,12 @@ class Objective(Config, type_field=False):
             return MixOfGaussianSampler(**self.params)
         elif self.objective_type == "laplace_dist":
             return MixOfLaplaceSampler(**self.params)
+        elif self.objective_type == "logistic_vector":
+            return VectorOfLogisticSampler(vector_dim=vector_dim, **self.params)
+        elif self.objective_type == "gaussian_vector":
+            return VectorOfGaussianSampler(vector_dim=vector_dim, **self.params)
+        elif self.objective_type == "laplace_vector":
+            return VectorOfLaplaceSampler(vector_dim=vector_dim, **self.params)
 
     @staticmethod
     def cross_entropy(output, target):
@@ -142,7 +156,7 @@ class TargetSpec(_FeatureSpec, type_field=False):
     def bind_to(self, extractor: Extractor):
         super(TargetSpec, self).bind_to(extractor)
         # wire feature, objective, module
-        sampler = self.objective.get_sampler()
+        sampler = self.objective.get_sampler(self.elem_type.vector_size)
         if self.objective.objective_type == "reconstruction":
             assert isinstance(self.elem_type, Continuous)
             self.module.set(out_dim=self.elem_type.vector_size)
@@ -155,7 +169,13 @@ class TargetSpec(_FeatureSpec, type_field=False):
             n_components = self.objective.params.get("n_components", 1)
             self.module.set(out_dim=1, sampler=sampler,
                             n_params=3, n_components=n_components)
-        self.criterion = self.objective.get_criterion()
+        elif self.objective.objective_type in \
+                {"logistic_vector", "gaussian_vector", "laplace_vector"}:
+            n_components = self.objective.params.get("n_components", 1)
+            self.module.set(out_dim=self.elem_type.vector_size * 2 * n_components + n_components,
+                            sampler=sampler,
+                            n_params=1, n_components=1)
+        self.criterion = self.objective.get_criterion(self.elem_type.vector_size)
         return self
 
     def loss_fn(self, output, target):
@@ -216,13 +236,13 @@ class IOSpec(Config, type_field=False):
 
     @dtc.dataclass
     class MuLawIOConfig(Config):
-        sr = 16000
-        q_levels = 256
-        compression = 1.
+        sr: int = 16000
+        q_levels: int = 256
+        compression: float = 1.
         input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear'
-        mlp_dim = 128
-        n_mlp_layers = 0
-        min_temperature = 1e-4
+        mlp_dim: int = 128
+        n_mlp_layers: int = 0
+        min_temperature: float = 1e-4
 
     @staticmethod
     def mulaw_io(
@@ -260,15 +280,15 @@ class IOSpec(Config, type_field=False):
 
     @dtc.dataclass
     class YtIOConfig(Config):
-        sr = 16000
+        sr: int = 16000
         input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear'
-        mlp_dim = 128
-        n_mlp_layers = 0
-        max_scale = .25
-        beta = 1 / 15
-        weight_variance = 0.1
-        weight_l1 = 0.
-        n_components = 128
+        mlp_dim: int = 128
+        n_mlp_layers: int = 0
+        max_scale: float = .25
+        beta: float = 1 / 15
+        weight_variance: float = 0.1
+        weight_l1: float = 0.
+        n_components: int = 128
         objective_type: Literal['logistic_dist', 'gaussian_dist', 'laplace_dist'] = 'logistic_dist'
 
     @staticmethod
@@ -319,10 +339,10 @@ class IOSpec(Config, type_field=False):
 
     @dtc.dataclass
     class MagSpecIOConfig(Config):
-        sr = 22050
-        n_fft = 2048
-        hop_length = 512
-        activation = "Abs"
+        sr: int = 22050
+        n_fft: int = 2048
+        hop_length: int = 512
+        activation: str = "Abs"
 
     @staticmethod
     def magspec_io(

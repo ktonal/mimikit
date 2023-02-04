@@ -27,11 +27,11 @@ def magspec_view(cfg: MagSpec):
         cfg,
         UI.Param("n_fft",
                  widget=UI.Labeled("N FFT: ",
-                                   W.IntText(value=cfg.n_fft, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_fft),
                                    ), ),
         UI.Param("hop_length",
                  widget=UI.Labeled("hop length: ",
-                                   W.IntText(value=cfg.hop_length, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.hop_length),
                                    ), ),
         UI.Param("center",
                  widget=
@@ -45,7 +45,7 @@ def magspec_view(cfg: MagSpec):
                  setter=lambda c, v: v if v != "None" else None
                  )
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Magnitude Spectrogram")
     return view
@@ -56,10 +56,10 @@ def melspec_view(cfg: MelSpec):
         cfg,
         UI.Param("n_mels",
                  widget=UI.Labeled("N Mels: ",
-                                   W.IntText(value=cfg.n_mels, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_mels),
                                    ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "MelSpectrogram")
     return view
@@ -70,7 +70,7 @@ def mfcc_view(cfg: MFCC):
         cfg,
         UI.Param("n_mfcc",
                  widget=UI.Labeled("N MFCC: ",
-                                   W.IntText(value=cfg.n_mfcc, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_mfcc),
                                    ), ),
         UI.Param("dct_type",
                  widget=UI.EnumWidget("DCT Type: ",
@@ -80,7 +80,7 @@ def mfcc_view(cfg: MFCC):
                  setter=lambda c, v: int(v)
                  )
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "MFCC")
     return view
@@ -91,10 +91,10 @@ def chroma_view(cfg: Chroma):
         cfg,
         UI.Param("n_chroma",
                  widget=UI.Labeled("N Chroma: ",
-                                   W.IntText(value=cfg.n_chroma, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_chroma),
                                    ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Chroma")
     return view
@@ -105,19 +105,19 @@ def harmonic_source_view(cfg: HarmonicSource):
         cfg,
         UI.Param("kernel_size",
                  widget=UI.Labeled("Kernel Size: ",
-                                   W.IntText(value=cfg.kernel_size, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.kernel_size),
                                    ), ),
         UI.Param("power",
                  widget=UI.Labeled("Power: ",
-                                   W.FloatText(value=cfg.power, layout=dict(margin='4px', width="100%")),
+                                   W.FloatText(value=cfg.power),
                                    ), ),
         UI.Param("margin",
                  widget=UI.Labeled("Margin: ",
-                                   W.FloatText(value=cfg.margin, layout=dict(margin='4px', width="100%")),
+                                   W.FloatText(value=cfg.margin),
                                    ), ),
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Harmonic Source")
     return view
@@ -128,19 +128,19 @@ def percussive_source_view(cfg: PercussiveSource):
         cfg,
         UI.Param("kernel_size",
                  widget=UI.Labeled("Kernel Size: ",
-                                   W.IntText(value=cfg.kernel_size, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.kernel_size),
                                    ), ),
         UI.Param("power",
                  widget=UI.Labeled("Power: ",
-                                   W.FloatText(value=cfg.power, layout=dict(margin='4px', width="100%")),
+                                   W.FloatText(value=cfg.power),
                                    ), ),
         UI.Param("margin",
                  widget=UI.Labeled("Margin: ",
-                                   W.FloatText(value=cfg.margin, layout=dict(margin='4px', width="100%")),
+                                   W.FloatText(value=cfg.margin),
                                    ), ),
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Percussive Source")
     return view
@@ -151,10 +151,10 @@ def autoconvolve_view(cfg: AutoConvolve):
         cfg,
         UI.Param("window_size",
                  widget=UI.Labeled("Window Size: ",
-                                   W.IntText(value=cfg.window_size, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.window_size),
                                    ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "AutoConvolve")
     return view
@@ -165,11 +165,11 @@ def f0_filter_view(cfg: F0Filter):
         cfg,
         UI.Param("n_overtone",
                  widget=UI.Labeled("N Overtone: ",
-                                   W.IntText(value=cfg.n_overtone, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_overtone),
                                    ), ),
         UI.Param("n_undertone",
                  widget=UI.Labeled("N Undertone: ",
-                                   W.IntText(value=cfg.n_undertone, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_undertone),
                                    ), ),
         UI.Param("soft",
                  widget=UI.Labeled("Soft Filter: ",
@@ -179,7 +179,7 @@ def f0_filter_view(cfg: F0Filter):
                                    UI.yesno_widget(initial_value=cfg.normalize)
                                    ), ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "F0 Filter")
     return view
@@ -190,7 +190,7 @@ def nearest_neighbor_filter_view(cfg: NearestNeighborFilter):
         cfg,
         UI.Param("n_neighbors",
                  widget=UI.Labeled("N Neighbors: ",
-                                   W.IntText(value=cfg.n_neighbors, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_neighbors),
                                    ), ),
         UI.Param("metric",
                  widget=UI.EnumWidget("Metric: ",
@@ -211,7 +211,7 @@ def nearest_neighbor_filter_view(cfg: NearestNeighborFilter):
                                       ),
                  ),
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Nearest Neighbor Filter")
     return view
@@ -222,15 +222,15 @@ def pca_view(cfg: PCA):
         cfg,
         UI.Param("n_components",
                  widget=UI.Labeled("N Components: ",
-                                   W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_components),
                                    ), ),
         UI.Param("random_seed",
                  widget=UI.Labeled("Random Seed: ",
-                                   W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.random_seed),
                                    ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "PCA")
     return view
@@ -241,23 +241,23 @@ def nmf_view(cfg: NMF):
         cfg,
         UI.Param("n_components",
                  widget=UI.Labeled("N Components: ",
-                                   W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_components),
                                    ), ),
         UI.Param("tol",
                  widget=UI.Labeled("Tolerance: ",
-                                   W.FloatText(value=cfg.tol, layout=dict(margin='4px', width="100%")),
+                                   W.FloatText(value=cfg.tol),
                                    ), ),
         UI.Param("max_iter",
                  widget=UI.Labeled("Max Iter: ",
-                                   W.IntText(value=cfg.max_iter, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.max_iter),
                                    ), ),
         UI.Param("random_seed",
                  widget=UI.Labeled("Random Seed: ",
-                                   W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.random_seed),
                                    ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "NMF")
     return view
@@ -268,23 +268,23 @@ def factor_analysis_view(cfg: FactorAnalysis):
         cfg,
         UI.Param("n_components",
                  widget=UI.Labeled("N Components: ",
-                                   W.IntText(value=cfg.n_components, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.n_components),
                                    ), ),
         UI.Param("tol",
                  widget=UI.Labeled("Tolerance: ",
-                                   W.FloatText(value=cfg.tol, layout=dict(margin='4px', width="100%")),
+                                   W.FloatText(value=cfg.tol),
                                    ), ),
         UI.Param("max_iter",
                  widget=UI.Labeled("Max Iter: ",
-                                   W.IntText(value=cfg.max_iter, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.max_iter),
                                    ), ),
         UI.Param("random_seed",
                  widget=UI.Labeled("Random Seed: ",
-                                   W.IntText(value=cfg.random_seed, layout=dict(margin='4px', width="100%")),
+                                   W.IntText(value=cfg.random_seed),
                                    ), )
 
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0", width="33%"), selected_index=0)
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "Factor Analysis")
     return view

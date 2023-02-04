@@ -91,6 +91,10 @@ You can explore the outputs of different trainings done with `mimikit` at this d
         - [ ] (Learnable) MFCC
         - [ ] Mixed Batch (fft + signal + clusters)
         - [ ] Parametrized (one class, several params, e.g. q_levels=(2, 4, 8, ...))
+- [ ] Click tests
+    - [ ] MagSpec
+    - [ ] PolSpec
+    - [ ] S2S
 - [ ] Multiple IO
     - [ ] tuple or not tuple
     - [ ] AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
@@ -137,6 +141,7 @@ You can explore the outputs of different trainings done with `mimikit` at this d
 - [ ] Loss Terms
 - [ ] Hooks for storing outputs
 - [ ] flowtorch
+- [ ] huggingface/dffusers/transformers
 - [ ] Multi-Checkpoint Models (stochastic averaging)
 - [ ] Resampler classes with `n_layers`
 - [ ] jitability

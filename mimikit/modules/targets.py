@@ -11,7 +11,16 @@ __all__ = [
     "MixOfGaussianLoss",
     "MixOfGaussianSampler",
     "MixOfLaplaceLoss",
-    "MixOfLaplaceSampler"
+    "MixOfLaplaceSampler",
+    "LogisticVectorDistribution",
+    "VectorOfLogisticLoss",
+    "VectorOfLogisticSampler",
+    "GaussianVectorDistribution",
+    "VectorOfGaussianLoss",
+    "VectorOfGaussianSampler",
+    "LaplaceVectorDistribution",
+    "VectorOfLaplaceLoss",
+    "VectorOfLaplaceSampler",
 ]
 
 
@@ -62,6 +71,7 @@ class CategoricalSampler(nn.Module):
 
 class _MixOfRealScalarBase(nn.Module):
     mixture_class = None
+
     # Would also work with D.Gumbel, D.Cauchy
 
     def __init__(
@@ -155,7 +165,7 @@ class LogisticDistribution(D.TransformedDistribution):
 
     @property
     def variance(self):
-        return self._scale.pow(2)*(pi**2)/3
+        return self._scale.pow(2) * (pi ** 2) / 3
 
     @property
     def mean(self):
@@ -206,7 +216,7 @@ class _MixOfRealVectorBase(nn.Module):
             vector_dim: int = 1,
             n_components: int = 1,
             reduction: Literal["sum", "mean", "none"] = "mean",
-            max_scale: float = .5,
+            max_scale: float = 100.,
             beta: float = 1 / 15,
             weight_variance: float = .5,
             weight_l1: float = 0.,
@@ -224,13 +234,58 @@ class _MixOfRealVectorBase(nn.Module):
 
     def mixture(self,
                 fused_params: torch.Tensor,
+                temperature=None
                 ):
-        weight, params = fused_params[..., 0], fused_params[..., 1:]
+        weight, params = fused_params[..., 0:self.n_components], fused_params[..., self.n_components:]
         loc, scale = params.chunk(2, -1)
-
+        rest_dims = loc.shape[:-1]
+        scale = torch.sigmoid(scale * self.beta) * self.max_scale
+        if temperature is not None:
+            scale = scale * as_tensor(temperature, scale)
         return D.MixtureSameFamily(
-            D.Categorical(logits=weight), self.mixture_class(loc, scale, self.vector_dim)
+            D.Categorical(logits=weight),
+            self.mixture_class(loc.reshape(*rest_dims, self.n_components, self.vector_dim),
+                               scale.reshape(*rest_dims, self.n_components, self.vector_dim), self.vector_dim)
         )
+
+
+class _MixOfRealVectorLoss(_MixOfRealVectorBase):
+
+    def forward(self,
+                fused_params: torch.Tensor,
+                targets: torch.Tensor
+                ):
+        mixture = self.mixture(fused_params)
+        probs = mixture.log_prob(targets)
+        if self.weight_variance > 0.:
+            var_term = mixture.variance.mean() * self.weight_variance
+        else:
+            var_term = 0.
+        if self.weight_l1 > 0.:
+            l1_term = nn.L1Loss(reduction='mean')(mixture.mean, targets) * self.weight_l1
+        else:
+            l1_term = 0.
+        if self.reduction != "none":
+            return - getattr(torch, self.reduction)(probs) + var_term + l1_term
+        return probs
+
+
+class _MixOfRealVectorSampler(_MixOfRealVectorBase):
+    sampling_params = {"temperature"}
+
+    def forward(
+            self,
+            fused_params,
+            *, temperature=None,
+    ):
+        if self.training:
+            return fused_params
+        mixture = self.mixture(fused_params, temperature)
+        # TODO :
+        #  - sample() might be a bottleneck, maybe good to do it ourselves?...
+        #  - sample() takes only one component
+        #       -> implement soft sampling with weighted sum?
+        return mixture.sample((1,)).clamp(*self.clamp_samples).squeeze(0)
 
 
 # noinspection PyAbstractClass
@@ -240,18 +295,26 @@ class LogisticVectorDistribution(D.TransformedDistribution):
             D.Independent(D.Uniform(
                 torch.tensor(0., device=loc.device), torch.tensor(1., device=loc.device)
             ).expand((dim,)), 1),
-            [D.SigmoidTransform().inv, D.AffineTransform(loc, scale)]
+            [D.SigmoidTransform().inv, D.AffineTransform(loc, scale, event_dim=1)]
         )
         self._loc = loc
         self._scale = scale
 
     @property
     def variance(self):
-        return self._scale.pow(2)*(pi**2)/3
+        return self._scale.pow(2) * (pi ** 2) / 3
 
     @property
     def mean(self):
         return self._loc
+
+
+class VectorOfLogisticLoss(_MixOfRealVectorLoss):
+    mixture_class = LogisticVectorDistribution
+
+
+class VectorOfLogisticSampler(_MixOfRealVectorSampler):
+    mixture_class = LogisticVectorDistribution
 
 
 # noinspection PyAbstractClass
@@ -261,7 +324,23 @@ class GaussianVectorDistribution(D.Independent):
         super(GaussianVectorDistribution, self).__init__(D.Normal(loc, scale).expand((dim,)), 1)
 
 
+class VectorOfGaussianLoss(_MixOfRealVectorLoss):
+    mixture_class = GaussianVectorDistribution
+
+
+class VectorOfGaussianSampler(_MixOfRealVectorSampler):
+    mixture_class = GaussianVectorDistribution
+
+
 # noinspection PyAbstractClass
 class LaplaceVectorDistribution(D.Independent):
     def __init__(self, loc, scale, dim):
         super(LaplaceVectorDistribution, self).__init__(D.Laplace(loc, scale).expand((dim,)), 1)
+
+
+class VectorOfLaplaceLoss(_MixOfRealVectorLoss):
+    mixture_class = LaplaceVectorDistribution
+
+
+class VectorOfLaplaceSampler(_MixOfRealVectorSampler):
+    mixture_class = LaplaceVectorDistribution

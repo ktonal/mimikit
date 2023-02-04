@@ -124,7 +124,10 @@ class ItemSpec:
 
         target_unit = min(self.unit, other.unit)
         if target_unit == self.unit:
-            a, b = self, other.to(target_unit)
+            if other.unit != self.unit:
+                a, b = self, other.to(target_unit)
+            else:
+                a, b = self, other
         else:
             a, b = self.to(target_unit), other
         return ItemSpec(
