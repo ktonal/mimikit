@@ -25,7 +25,7 @@ __all__ = [
 def Labeled(
         label, widget, tooltip=None
 ):
-    label_w = W.Label(value=label)
+    label_w = W.Label(value=label, tooltip=label)
     if tooltip is not None:
         tltp = W.Button(icon="fa-info", tooltip=tooltip,
                         layout=W.Layout(
@@ -35,9 +35,10 @@ def Labeled(
                         ).add_class("tltp")
         label_w = W.HBox(children=[label_w, tltp], )
     label_w.layout = W.Layout(min_width="max_content", width="auto",
-                              overflow='hidden')
+                              overflow='revert')
     container = W.GridBox(children=(label_w, widget),
-                          layout=dict(width="100%", grid_template_columns='1fr 1fr')
+                          layout=dict(width="auto",
+                                      grid_template_columns='1fr 2fr')
                           )
     # container.value = widget.value
     container.observe = widget.observe
@@ -113,9 +114,10 @@ def EnumWidget(
     options_w = W.GridBox(children=tuple(W.ToggleButton(value=False,
                                                         description=opt,
                                                         tooltip=opt,
-                                                        layout=dict(margin='auto 4px'))
+                                                        layout=dict(margin='0 4px', width='auto'))
                                          for opt in options),
-                          layout=dict(grid_template_columns='1fr ' * len(options), width='100%', align_self='center'))
+                          layout=dict(grid_template_columns='1fr ' * len(options),
+                                      width='auto', align_self='center'))
     container = Labeled(label, options_w)
     dummy = W.Text(value='')
     if isinstance(selected_index, int):

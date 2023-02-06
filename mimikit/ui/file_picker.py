@@ -114,7 +114,6 @@ class FilePicker:
                     button.remove_class("selected-button")
                     self.selected = None
                 else:
-                    print("SELECT")
                     button.add_class("selected-button")
                     self.selected = desc
             self.widget.children[-1].value = os.path.split(self.selected)[-1] \

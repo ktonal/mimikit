@@ -4,6 +4,7 @@ from ipywidgets import widgets as W
 import numpy as np
 import pandas as pd
 
+from ..config import Config
 from ..extract.clusters import *
 from ..features.dataset import DatasetConfig
 from ..features.functionals import *
@@ -80,12 +81,8 @@ CLUSTERINGS = {
 
 class ComposeTransformWidget:
 
-    def __init__(self, width="500px"):
-        self.transforms = []
-        self.metas = []
-
-        new_choice = W.Button(icon="fa-plus", layout=dict(margin="8px auto"))
-
+    @staticmethod
+    def header(box):
         collapse_all = W.Button(description="collapse all",
                                 layout=dict(width="max-content", margin="auto 4px auto 2px"))
         expand_all = W.Button(description="expand all", layout=dict(width="max-content", margin="auto auto auto 4px"))
@@ -93,8 +90,6 @@ class ComposeTransformWidget:
             W.HTML(value="<h4> Pre Processing Pipeline </h4>", layout=dict(margin="auto")),
             collapse_all, expand_all
         ])
-        box = W.VBox(children=(header,),
-                     layout=dict(width=width))
 
         def on_collapse(ev):
             for item in box.children:
@@ -108,6 +103,17 @@ class ComposeTransformWidget:
 
         collapse_all.on_click(on_collapse)
         expand_all.on_click(on_expand)
+
+        return header
+
+    def __init__(self, width="500px"):
+        self.transforms = []
+        self.metas = []
+        new_choice = W.Button(icon="fa-plus", layout=dict(margin="8px auto"))
+
+        box = W.VBox(layout=dict(width=width))
+        header = self.header(box)
+        box.children = (header,)
 
         choices = W.Select(options=self.get_possible_choices(), layout=dict(width="100%", margin="4px auto"))
         submit = W.Button(description="submit", layout=dict(width="max-content", margin="auto 8px"))
@@ -172,6 +178,19 @@ class ComposeTransformWidget:
         hbox = W.HBox(children=(remove_w, new_w), layout=dict(width="95%", margin="0 4px 4px 4px"))
         return meta, cfg, remove_w, hbox
 
+    @staticmethod
+    def display(cfg: Compose):
+        w = []
+        for func in cfg.functionals:
+            tp = type(func)
+            key = next(k for k, v in TRANSFORMS.items() if v.config_class is tp)
+            meta = TRANSFORMS[key]
+            w += [meta.view_func(func)]
+        box = W.VBox(layout=dict(width="500px"))
+        header = ComposeTransformWidget.header(box)
+        box.children = (header, *w)
+        return box
+
 
 class ClusterWidget:
     def __init__(self, width="400px"):
@@ -214,8 +233,19 @@ class ClusterWidget:
         new_choice.on_click(show_new_choice)
         self.widget = box
 
-    def get_possible_choices(self):
+    @staticmethod
+    def get_possible_choices():
         return [*CLUSTERINGS.keys()]
+
+    @staticmethod
+    def display(cfg):
+        tp = type(cfg)
+        key = next(k for k, v in CLUSTERINGS.items() if v.config_class is tp)
+        box = W.VBox(children=[
+            W.HTML(value="<h4> Clustering Algo </h4>", layout=dict(margin="auto")),
+            CLUSTERINGS[key].view_func(cfg)
+        ])
+        return box
 
 
 class ClusterizerApp:
@@ -296,3 +326,15 @@ class ClusterizerApp:
         def t2f(t): return int(t*sr/hop)
         filtered = np.concatenate([fft[slice(t2f(s.startTime), t2f(s.endTime)+1)] for s in segments])
         return self.magspec_cfg.inv(filtered)
+
+    def load_result(self, key: str):
+        cfg = Config.deserialize(getattr(self.db, key).attrs["config"])
+        pre_pipeline = Compose(*cfg.functionals[:-2])
+        clustering = cfg.functionals[-2]
+        self.display(pre_pipeline, clustering)
+
+    def display(self, compose: Compose, clustering):
+        self.clustering_widget.children = (
+            W.HBox(children=(ComposeTransformWidget.display(compose), ClusterWidget.display(clustering)),
+                   layout=dict(align_items='baseline')),
+        )

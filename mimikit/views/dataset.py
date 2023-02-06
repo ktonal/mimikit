@@ -76,7 +76,7 @@ def dataset_view(cfg: DatasetConfig):
     tabs.set_title(1, "Load Dataset File from Disk")
     clear_output = W.Button(description="Clear Output", layout=dict(margin='8px'))
     clear_output.on_click(lambda ev: out.clear_output())
-    top = W.VBox(children=(W.Accordion(children=(tabs, )), clear_output, out))
-    top.children[0].set_title(0, "Dataset")
+    top = W.Accordion(children=(W.VBox(children=(tabs, clear_output, out)),))
+    top.set_title(0, "Dataset")
     return top
 
