@@ -101,15 +101,18 @@ class _MixOfRealScalarBase(nn.Module):
                 ):
         weight, loc, scale = params
         # loc = torch.tanh(loc)  # this performs poorly!
-        scale = torch.sigmoid(scale * self.beta) * self.max_scale
+        eps = torch.finfo(scale.dtype).tiny * 100
+        scale = (torch.sigmoid(scale * self.beta) * (self.max_scale - eps) + eps)
         # scale = torch.maximum(scale.abs(), torch.tensor(1e-4, device=scale.device))
         if temperature is not None:
-            scale = scale * as_tensor(temperature, scale)
+            tmp = as_tensor(temperature, scale)
+            scale = scale * tmp
+            weight = weight / tmp
         return D.MixtureSameFamily(
             # todo:
             #  - logits could also be scaled by temperature when sampling
             #  - scale could have different activations (SoftPlus, exp, ...)
-            #  - weights and/or scale can be made constants (works fine, tend to freezes...)
+            #  - weights and/or scale can be made constants (works fine, tend to freeze...)
             D.Categorical(logits=weight),
             self.mixture_class(loc, scale)
         )
@@ -121,7 +124,12 @@ class _MixOfRealScalarLoss(_MixOfRealScalarBase):
                 targets: torch.Tensor
                 ):
         mixture = self.mixture(params)
-        probs = mixture.log_prob(targets)
+        if self.use_rsample:
+            smp = mixture.component_distribution.rsample((1,)).squeeze(0)
+            smp = (mixture.mixture_distribution.probs * smp).sum(dim=-1)
+            probs = nn.L1Loss()(smp, targets)
+        else:
+            probs = mixture.log_prob(targets).maximum(torch.tensor(-1e6).to(targets.device))
         if self.weight_variance > 0.:
             var_term = mixture.variance.mean() * self.weight_variance
         else:
@@ -131,7 +139,7 @@ class _MixOfRealScalarLoss(_MixOfRealScalarBase):
         else:
             l1_term = 0.
         if self.reduction != "none":
-            return - getattr(torch, self.reduction)(probs) + var_term + l1_term
+            return - getattr(torch, self.reduction)(probs)
         return probs
 
 
@@ -220,7 +228,8 @@ class _MixOfRealVectorBase(nn.Module):
             beta: float = 1 / 15,
             weight_variance: float = .5,
             weight_l1: float = 0.,
-            clamp_samples: Tuple[float, float] = (-1., 1.)
+            clamp_samples: Tuple[float, float] = (-1., 1.),
+            use_rsample: bool = False
     ):
         super(_MixOfRealVectorBase, self).__init__()
         self.vector_dim = vector_dim
@@ -231,6 +240,7 @@ class _MixOfRealVectorBase(nn.Module):
         self.weight_variance = weight_variance
         self.weight_l1 = weight_l1
         self.clamp_samples = clamp_samples
+        self.use_rsample = use_rsample
 
     def mixture(self,
                 fused_params: torch.Tensor,
@@ -239,7 +249,9 @@ class _MixOfRealVectorBase(nn.Module):
         weight, params = fused_params[..., 0:self.n_components], fused_params[..., self.n_components:]
         loc, scale = params.chunk(2, -1)
         rest_dims = loc.shape[:-1]
-        scale = torch.sigmoid(scale * self.beta) * self.max_scale
+        eps = torch.finfo(scale.dtype).tiny * 100
+        scale = (torch.sigmoid(scale * self.beta) * (self.max_scale - eps) + eps)
+        # scale = scale.exp()
         if temperature is not None:
             scale = scale * as_tensor(temperature, scale)
         return D.MixtureSameFamily(
@@ -256,17 +268,23 @@ class _MixOfRealVectorLoss(_MixOfRealVectorBase):
                 targets: torch.Tensor
                 ):
         mixture = self.mixture(fused_params)
-        probs = mixture.log_prob(targets)
+        if self.use_rsample:
+            smp = mixture.component_distribution.rsample((1,)).squeeze(0)
+            smp = (mixture.mixture_distribution.probs.unsqueeze(-1) * smp).sum(dim=-2)
+            probs = nn.L1Loss()(smp, targets)
+        else:
+            probs = mixture.log_prob(targets)
         if self.weight_variance > 0.:
-            var_term = mixture.variance.mean() * self.weight_variance
+            var_term = mixture.variance.mean()
         else:
             var_term = 0.
         if self.weight_l1 > 0.:
-            l1_term = nn.L1Loss(reduction='mean')(mixture.mean, targets) * self.weight_l1
+            l1_term = nn.L1Loss()(mixture.mean, targets).mean()
         else:
             l1_term = 0.
         if self.reduction != "none":
-            return - getattr(torch, self.reduction)(probs) + var_term + l1_term
+            return - getattr(torch, self.reduction)(probs) + l1_term + var_term
+
         return probs
 
 
@@ -321,7 +339,7 @@ class VectorOfLogisticSampler(_MixOfRealVectorSampler):
 class GaussianVectorDistribution(D.Independent):
 
     def __init__(self, loc, scale, dim):
-        super(GaussianVectorDistribution, self).__init__(D.Normal(loc, scale).expand((dim,)), 1)
+        super(GaussianVectorDistribution, self).__init__(D.Normal(loc, scale), 1)
 
 
 class VectorOfGaussianLoss(_MixOfRealVectorLoss):
@@ -335,7 +353,7 @@ class VectorOfGaussianSampler(_MixOfRealVectorSampler):
 # noinspection PyAbstractClass
 class LaplaceVectorDistribution(D.Independent):
     def __init__(self, loc, scale, dim):
-        super(LaplaceVectorDistribution, self).__init__(D.Laplace(loc, scale).expand((dim,)), 1)
+        super(LaplaceVectorDistribution, self).__init__(D.Laplace(loc, scale), 1)
 
 
 class VectorOfLaplaceLoss(_MixOfRealVectorLoss):

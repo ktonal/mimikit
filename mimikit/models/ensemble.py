@@ -1,10 +1,16 @@
+from typing import Optional, Union, Set, Tuple, Generator
+
 import h5mapper as h5m
 import torch.nn as nn
 import torch
 from pprint import pprint
+import dataclasses as dtc
 
-from ..features import Resample
-from ..loops import GenerateLoop
+from ..config import NetworkConfig
+from ..networks import ARM
+from ..features.functionals import Resample
+from ..features.item_spec import ItemSpec
+from ..loops import GenerateLoop, GenerateLoopV2
 from ..checkpoint import Checkpoint
 from .nnn import NearestNextNeighbor
 
@@ -47,11 +53,52 @@ class VotingEnsemble(nn.Module):
         return self
 
 
-class Ensemble(nn.Module):
+@dtc.dataclass
+class Event:
+    generator: Union[ARM, Checkpoint, NearestNextNeighbor]
+    seconds: float
+    temperature: Optional[float] = None
+
+
+class Ensemble(ARM):
     """
     generate form a prompt by chaining checkpoints/models
     """
-    device = property(lambda self: next(self.parameters()).device)
+    class Config(NetworkConfig):
+        io_spec = None
+        max_seconds: float = 10.
+        base_sr: int = 22050
+        stream: Generator = ()
+        print_events: bool = False
+
+    @classmethod
+    def from_config(cls, config: Config):
+        return Ensemble(config.max_seconds, config.base_sr,
+                        config.stream, config.print_events)
+
+    @property
+    def config(self) -> NetworkConfig:
+        return self.Config()
+
+    @property
+    def rf(self):
+        return None
+
+    def train_batch(self, item_spec: ItemSpec) -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
+        pass
+
+    def test_batch(self, item_spec: ItemSpec) -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
+        pass
+
+    def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
+        pass
+
+    def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
+        pass
+
+    @property
+    def generate_params(self) -> Set[str]:
+        return {}
 
     def __init__(self,
                  max_seconds,
@@ -71,98 +118,59 @@ class Ensemble(nn.Module):
         """called from outer GenerateLoop"""
         if t >= int(self.max_seconds * self.base_sr):
             return None
-        event, net, feature, n_steps, params = self.next_event()
+        event, net, n_steps, params = self.next_event()
         if hasattr(net, 'to'):
             net = net.to("cuda")
         if hasattr(net, "use_fast_generate"):
             net.use_fast_generate = False
 
-        if (t / self.base_sr + event['seconds']) < self.max_seconds:
+        if (t / self.base_sr + event.seconds) < self.max_seconds:
             if self.print_events:
-                event.update({"start": t / self.base_sr})
-                pprint(event)
-            out = self.run_event(inputs[0], net, feature, n_steps, *params)
+                e = dtc.asdict(event)
+                e.update({"start": t / self.base_sr})
+                pprint(e)
+            out = self.run_event(inputs[0], net, n_steps, params)
             return out
         return torch.zeros(1, int(self.max_seconds * self.base_sr - t)).to("cuda")
 
-    def run_event(self, inputs, net, feature, n_steps, *params):
+    def run_event(self, inputs, net, feature, n_steps, params):
         resample = Resample(self.base_sr, feature.sr)
         inputs_resampled = resample(inputs)
         prompt = feature.t(inputs_resampled)
         n_input_samples = inputs.shape[1]
 
-        output = [[]]
-
-        def process_outputs(outputs, _):
+        cfg = GenerateLoopV2.Config(
+            parameters=params
+        )
+        loop = GenerateLoopV2(
+            cfg,
+            network=net,
+            n_steps=n_steps,
+            dataloader=[(prompt,)],
+            logger=None
+        )
+        for outputs in loop.run():
             inv_resample = Resample(feature.sr, self.base_sr)
             # prompt + generated in base_sr :
             y = feature.inv(outputs[0])
             out = inv_resample(y)
-            output[0] = out[:, n_input_samples:]
-
-        loop = GenerateLoop(
-            net,
-            dataloader=[(prompt,)],
-            inputs=(h5m.Input(None,
-                              getter=h5m.AsSlice(dim=1, shift=-net.shift, length=net.shift),
-                              setter=h5m.Setter(dim=1)),
-                    *tuple(h5m.Input(p, h5m.AsSlice(dim=1 + int(hasattr(net.hp, 'hop')), length=1),
-                                     setter=None) for p in params)
-                    ),
-            n_steps=n_steps,
-            add_blank=True,
-            process_outputs=process_outputs,
-            time_hop=getattr(net, 'hop', 1)
-        )
-        loop.run()
-        return output[0]
-
-    @staticmethod
-    def get_network(event):
-        return None
-
-    @staticmethod
-    def get_feature(event):
-        return None
-
-    @staticmethod
-    def get_n_steps(event, net, feature):
-        return None
-
-    @staticmethod
-    def seconds_to_n_steps(seconds, net, feature):
-        # return int(seconds * feature.sr) if isinstance(feature, MuLawSignal) \
-        #     else int(seconds * (feature.sr // feature.hop_length)) // getattr(net, "hop", 1)
-        return seconds
-
-    @staticmethod
-    def get_params(event):
-        return None
+            return out[:, n_input_samples:]
 
     def next_event(self):
-        event = next(self.stream)
-        if "Checkpoint" in str(event["type"]):
-            ck = Checkpoint(event['id'], event['epoch'], event.get("root_dir", "./"))
-            net, feature = ck.network, ck.feature
-        elif "NearestNextNeighbor" in str(event["type"]):
-            feature = event['feature']
-            data = event["soundbank"]
-            path_length = event.get("path_length", 10)
-            net = NearestNextNeighbor(feature, data.snd, path_length)
-        elif event["type"] == "Parallel":
-            pass
-
+        event = Event(**next(self.stream))
+        if isinstance(event.generator, Checkpoint):
+            ck = event.generator
+            net = ck.network
+        elif isinstance(event.generator, NearestNextNeighbor):
+            net = event.generator
+        # elif event["type"] == "Parallel":
+        #     pass
         else:
-            raise TypeError(f"event type '{event['type']}' not recognized")
-        n_steps = self.seconds_to_n_steps(event['seconds'], net, feature)
-        if "temperature" in event:
-            temp = event['temperature']
-            if isinstance(temp, float):
-                params = (torch.tensor([[temp]]).to(self.device).repeat(1, n_steps),)
-            elif isinstance(temp, tuple):
-                params = (torch.linspace(temp[0], temp[1], n_steps, device=self.device),)
-            else:
-                params = tuple()
+            raise TypeError(f"event generator type '{type(event.generator)}' not supported")
+        cfg = GenerateLoopV2.Config(output_duration_sec=event.seconds)
+        n_steps = GenerateLoopV2.get_n_steps(cfg, net)
+        if event.temperature is not None:
+            params = dict(temperature=event.temperature)
         else:
-            params = tuple()
-        return event, net, feature, n_steps, params
+            params = {}
+        return event, net, n_steps, params

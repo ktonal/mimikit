@@ -1,8 +1,11 @@
 from typing import *
 import dataclasses as dtc
+
+import h5mapper
 from ipywidgets import widgets as W
 import numpy as np
 import pandas as pd
+
 
 from ..config import Config
 from ..extract.clusters import *
@@ -85,7 +88,8 @@ class ComposeTransformWidget:
     def header(box):
         collapse_all = W.Button(description="collapse all",
                                 layout=dict(width="max-content", margin="auto 4px auto 2px"))
-        expand_all = W.Button(description="expand all", layout=dict(width="max-content", margin="auto auto auto 4px"))
+        expand_all = W.Button(description="expand all",
+                              layout=dict(width="max-content", margin="auto auto auto 4px"))
         header = W.HBox(children=[
             W.HTML(value="<h4> Pre Processing Pipeline </h4>", layout=dict(margin="auto")),
             collapse_all, expand_all
@@ -106,12 +110,12 @@ class ComposeTransformWidget:
 
         return header
 
-    def __init__(self, width="500px"):
+    def __init__(self):
         self.transforms = []
         self.metas = []
         new_choice = W.Button(icon="fa-plus", layout=dict(margin="8px auto"))
 
-        box = W.VBox(layout=dict(width=width))
+        box = W.VBox(layout=dict(width="50%"))
         header = self.header(box)
         box.children = (header,)
 
@@ -173,9 +177,9 @@ class ComposeTransformWidget:
         self.metas.append(meta)
         self.transforms.append(cfg)
         new_w = meta.view_func(cfg)
-        new_w.layout = dict(width="95%", margin="auto")
+        new_w.layout = dict(margin="auto", width='100%')
         remove_w = W.Button(icon="fa-trash", layout=dict(width="50px", margin="auto 2px"))
-        hbox = W.HBox(children=(remove_w, new_w), layout=dict(width="95%", margin="0 4px 4px 4px"))
+        hbox = W.HBox(children=(remove_w, new_w), layout=dict(margin="0 4px 4px 4px"))
         return meta, cfg, remove_w, hbox
 
     @staticmethod
@@ -186,14 +190,14 @@ class ComposeTransformWidget:
             key = next(k for k, v in TRANSFORMS.items() if v.config_class is tp)
             meta = TRANSFORMS[key]
             w += [meta.view_func(func)]
-        box = W.VBox(layout=dict(width="500px"))
+        box = W.VBox(layout=dict(width="50%"))
         header = ComposeTransformWidget.header(box)
         box.children = (header, *w)
         return box
 
 
 class ClusterWidget:
-    def __init__(self, width="400px"):
+    def __init__(self):
         self.cfg = None
         new_choice = W.Button(description="change algo",
                               layout=dict(width="max-content", margin="auto auto auto 12px"),
@@ -210,7 +214,7 @@ class ClusterWidget:
                             layout=dict(width="95%", margin="auto"))
         box = W.VBox(children=(header,
                                choice_box,),
-                     layout=dict(width=width))
+                     layout=dict(width='50%'))
 
         def show_new_choice(ev):
             box.children = (header, choice_box)
@@ -243,8 +247,8 @@ class ClusterWidget:
         key = next(k for k, v in CLUSTERINGS.items() if v.config_class is tp)
         box = W.VBox(children=[
             W.HTML(value="<h4> Clustering Algo </h4>", layout=dict(margin="auto")),
-            CLUSTERINGS[key].view_func(cfg)
-        ])
+            CLUSTERINGS[key].view_func(cfg),
+        ], layout=dict(width="50%"))
         return box
 
 
@@ -253,17 +257,21 @@ class ClusterizerApp:
     def __init__(self):
         self.dataset_cfg = DatasetConfig()
         self.dataset_widget = dataset_view(self.dataset_cfg)
+        self.dataset_widget.on_created(lambda ev: self.build_load_view(self.db))
+        self.dataset_widget.on_loaded(lambda ev: self.build_load_view(self.db))
         self.pre_pipeline = ComposeTransformWidget()
         self.pre_pipeline_widget = self.pre_pipeline.widget
         self.magspec_cfg = self.pre_pipeline.magspec_cfg
         self.clusters = ClusterWidget()
         self.clusters_widget = self.clusters.widget
+        self.labels_widget = W.VBox()
         self.feature_name = ''
 
         save_as = W.HBox(children=(
             W.Label(value='Save clustering as: '), W.Text(value="labels")),
             layout=dict(margin="auto", width="max-content"))
-        compute = W.HBox(children=(W.Button(description="compute"),), layout=dict(margin="auto", width="max-content"))
+        compute = W.HBox(children=(W.Button(description="compute"),),
+                         layout=dict(margin="auto", width="max-content"))
         out = W.Output()
 
         def on_submit(ev):
@@ -281,19 +289,24 @@ class ClusterizerApp:
                 db.signal.compute({
                     self.feature_name: pipeline
                 })
-                db.info()
                 feat = getattr(db, self.feature_name)
                 feat.attrs["config"] = pipeline.serialize()
                 db.flush()
                 db.close()
+            self.build_load_view(self.db)
 
         compute.children[0].on_click(on_submit)
 
-        self.clustering_widget = W.VBox(children=(
-            W.HBox(children=(self.pre_pipeline_widget, self.clusters_widget),
-                   layout=dict(align_items='baseline')),
-            save_as, compute, out
+        self.clustering_widget = W.Tab(children=(
+            W.VBox(children=(
+                W.HBox(children=(self.pre_pipeline_widget, self.clusters_widget),
+                       layout=dict(align_items='baseline')),
+                save_as, compute, out
+            )),
+            W.Label("Select a dataset to load a clustering")
         ))
+        self.clustering_widget.set_title(0, 'Create new clustering')
+        self.clustering_widget.set_title(1, 'Load clustering')
 
     @property
     def db(self):
@@ -323,9 +336,29 @@ class ClusterizerApp:
     def bounce(self, segments: List[Segment]):
         fft = self.magspec_cfg(self.db.signal[:])
         sr, hop = self.sr, self.magspec_cfg.hop_length
-        def t2f(t): return int(t*sr/hop)
-        filtered = np.concatenate([fft[slice(t2f(s.startTime), t2f(s.endTime)+1)] for s in segments])
+
+        def t2f(t): return int(t * sr / hop)
+
+        filtered = np.concatenate([fft[slice(t2f(s.startTime), t2f(s.endTime) + 1)] for s in segments])
         return self.magspec_cfg.inv(filtered)
+
+    def build_load_view(self, db):
+        proxies = [k for k, v in db.__dict__.items()
+                   if isinstance(v, h5mapper.Proxy) and not k.startswith("__") and k != "signal"
+                   ]
+        self.results_buttons = W.ToggleButtons(options=proxies, index=None,
+                                               layout=dict(margin="12px 0"))
+
+        def callback(ev):
+            self.load_result(ev["new"])
+            self.feature_name = ev["new"]
+            self.labels_widget.children = self.label_view()
+
+        self.results_buttons.observe(callback, "value")
+        self.clustering_widget.children = (
+            self.clustering_widget.children[0],
+            W.VBox(children=(W.Label(value="load clustering: "), self.results_buttons))
+        )
 
     def load_result(self, key: str):
         cfg = Config.deserialize(getattr(self.db, key).attrs["config"])
@@ -335,6 +368,108 @@ class ClusterizerApp:
 
     def display(self, compose: Compose, clustering):
         self.clustering_widget.children = (
-            W.HBox(children=(ComposeTransformWidget.display(compose), ClusterWidget.display(clustering)),
-                   layout=dict(align_items='baseline')),
+            self.clustering_widget.children[0],
+            W.VBox(children=(
+                W.VBox(children=(W.Label(value="load clustering: "), self.results_buttons)),
+                W.HBox(children=(ComposeTransformWidget.display(compose), ClusterWidget.display(clustering)),
+                       layout=dict(align_items='baseline'))
+            ))
+        )
+
+    def label_view(self):
+        from peaksjs_widget import PeaksJSWidget
+        import qgrid
+        df, label_set = self.segments_for(self.feature_name)
+
+        w = PeaksJSWidget(array=self.db.signal[:], sr=self.sr, id_count=len(df))
+        empty = pd.DataFrame([])
+        empty.index.name = "id"
+        g = qgrid.show_grid(empty,
+                            grid_options=dict(maxVisibleRows=10))
+
+        labels_grid = W.GridBox(layout=dict(max_height='400px',
+                                            margin="16px auto",
+                                            grid_template_columns="1fr " * 10,
+                                            overflow="scroll"))
+        labels_w = []
+
+        for i in label_set:
+            btn = W.ToggleButton(value=False,
+                                 description=str(i),
+                                 layout=dict(width="100px", margin="4px"))
+
+            def on_click(ev, widget=btn, index=i):
+                if ev["new"]:
+                    w.segments = [
+                        *w.segments, *df[df.labelText == str(index)].reset_index().T.to_dict().values()
+                    ]
+                    widget.button_style = "success"
+                else:
+                    w.segments = [
+                        s for s in w.segments if s["labelText"] != str(index)
+                    ]
+                    widget.button_style = ""
+                if w.segments:
+                    g.df = pd.DataFrame.from_dict(w.segments).sort_values(by="startTime").set_index("id", drop=True)
+                else:
+                    g.df = pd.DataFrame([])
+                    g.df.index.name = "id"
+
+            btn.observe(on_click, "value")
+            labels_w += [W.HBox(children=(btn,))]
+
+        labels_grid.children = tuple(labels_w)
+
+        def on_new_segment(wdg, seg):
+            new_seg = Segment(**seg).dict()
+            if w.segments:
+                g.add_row(row=[*new_seg.items()])
+                # i = {**new_seg}.pop("id")
+                # df.loc[i] = {**new_seg}
+            else:
+                g.df = pd.DataFrame.from_dict([new_seg]).set_index("id", drop=True)
+            w.segments = [*w.segments, new_seg]
+
+        def on_edit_segment(wdg, seg):
+            for k, v in seg.items():
+                if k == "id": continue
+                g.edit_cell(seg["id"], k, v)
+                # df.loc[seg["id"], k] = v
+            w.segments = [s if s["id"] != seg["id"] else seg for s in w.segments]
+            g.change_selection([seg["id"]])
+
+        def on_remove_segment(wdg, seg):
+            g.remove_row([seg["id"]])
+            w.segments = [*filter(lambda s: s["id"] != seg["id"], w.segments)]
+            # df.drop(seg["id"], inplace=True)
+
+        def segments_changed(ev):
+            pass
+            # print("segments changed")
+
+        w.observe(segments_changed, "segments")
+        w.on_new_segment(on_new_segment)
+        w.on_edit_segment(on_edit_segment)
+        w.on_remove_segment(on_remove_segment)
+
+        # g.on("selection_changed", on_selection_changed)
+        # g.on("cell_edited", on_edited_cell)
+        # g.on("filter_changed", lambda ev, qg: print(ev))
+        # g.on("row_removed", on_row_removed)
+
+        def on_bounce(ev):
+            bnc = self.bounce([Segment(s["startTime"], s["endTime"], s["id"]) for s in w.segments])
+            self.labels_widget.children = (*self.labels_widget.children,
+                                           PeaksJSWidget(array=bnc, sr=self.sr, id_count=0))
+
+        bounce = W.Button(description="Bounce Selection")
+        bounce.on_click(on_bounce)
+
+        return (
+            w,
+            W.HTML("<h4>Select Label(s): </h4>"),
+            labels_grid,
+            W.HTML("<h4>Selected Labels Segments Table: </h4>"),
+            g,
+            bounce
         )

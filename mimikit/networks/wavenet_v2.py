@@ -1,5 +1,3 @@
-from enum import auto
-
 import torch
 import torch.nn as nn
 import dataclasses as dtc

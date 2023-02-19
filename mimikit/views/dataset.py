@@ -33,7 +33,7 @@ def dataset_view(cfg: DatasetConfig):
         pane_heights=("40px", "250px", "112px")
     )
 
-    def create_ds(ev):
+    def create_ds(ev, callback=None):
         cfg.sources = tuple(picker.selected)
         cfg.extractors = (Extractor(name='signal',
                                     functional=Compose(
@@ -45,8 +45,8 @@ def dataset_view(cfg: DatasetConfig):
         with out:
             db = cfg.create(mode='w')
             print("Extracted:\n\n", *(f"\t- {k}\n" for k in db.index))
-            print("Dataset file summary: ")
-            db.info()
+        if callback is not None:
+            callback(db)
 
     create.on_click(create_ds)
 
@@ -59,24 +59,35 @@ def dataset_view(cfg: DatasetConfig):
         load_ds
     ])
 
-    def load_cb(ev):
+    def load_cb(ev, callback=None):
         cfg.filename = ds_picker.selected
         db = cfg.get(mode='r')
         out.clear_output()
         with out:
             print("Loaded", cfg.filename)
             print("Containing:\n\n", *(f"\t- {k}\n" for k in db.index))
-            print("Dataset file summary: ")
-            db.info()
+        if callback is not None:
+            callback(db)
 
     load_ds.on_click(load_cb)
 
     tabs = W.Tab(children=(new_ds_container, load_ds_container))
     tabs.set_title(0, "New Dataset from Soundfiles")
     tabs.set_title(1, "Load Dataset File from Disk")
-    clear_output = W.Button(description="Clear Output", layout=dict(margin='8px'))
-    clear_output.on_click(lambda ev: out.clear_output())
-    top = W.Accordion(children=(W.VBox(children=(tabs, clear_output, out)),))
+
+    class DatasetView(W.Accordion):
+        def __init__(self, *children):
+            super(DatasetView, self).__init__(children=children)
+            self.create = create
+            self.load_ds = load_ds
+
+        def on_created(self, callback):
+            self.create.on_click(callback)
+
+        def on_loaded(self, callback):
+            self.load_ds.on_click(callback)
+
+    top = DatasetView(W.VBox(children=(tabs, out)),)
     top.set_title(0, "Dataset")
     return top
 

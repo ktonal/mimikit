@@ -229,6 +229,7 @@ class IOSpec(Config, type_field=False):
                 d = spec.loss_fn(o, t)
                 L += d["loss"]
                 out[f"output_{i}_{spec.objective.objective_type}"] = d["loss"]
+                # out.update(d)
             out["loss"] = L
             return out
 

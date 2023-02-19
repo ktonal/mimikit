@@ -45,7 +45,7 @@ def magspec_view(cfg: MagSpec):
                  setter=lambda c, v: v if v != "None" else None
                  )
     ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
-                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
+                layout=W.Layout(margin="0 0 0 0"), selected_index=0)
 
     view.set_title(0, "Magnitude Spectrogram")
     return view

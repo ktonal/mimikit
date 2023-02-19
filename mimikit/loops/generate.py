@@ -97,17 +97,22 @@ class GenerateLoopV2:
         callback: Optional[Callable[[Tuple[torch.Tensor, ...]], None]] = None
 
     @classmethod
-    def from_config(cls, config: Config, dataset: h5m.TypedFile, network: ARM):
+    def get_n_steps(cls, config: Config, network: ARM):
         io_spec = network.config.io_spec
         sr = io_spec.sr
         unit = io_spec.unit
         output_n_samples = int(sr * config.output_duration_sec)
-        prompt_n_samples = int(sr * config.prompts_length_sec)
         if isinstance(unit, Frame):
             hop_length = unit.hop_length
-            n_steps = output_n_samples // hop_length
+            return output_n_samples // hop_length
         else:
-            n_steps = output_n_samples
+            return output_n_samples
+
+    @classmethod
+    def get_dataloader(cls, config, dataset: h5m.TypedFile, network: ARM):
+        io_spec = network.config.io_spec
+        sr = io_spec.sr
+        prompt_n_samples = int(sr * config.prompts_length_sec)
         max_len = prompt_n_samples
         # TODO: get rid of '.signal' assumption
         max_i = dataset.signal.shape[0] - max_len
@@ -119,7 +124,7 @@ class GenerateLoopV2:
         )
         indices = tuple(int(x * sr) if x is not None else x
                         for x in config.prompts_position_sec)
-        dataloader = dataset.serve(
+        return dataset.serve(
             prompt_batch,
             sampler=IndicesSampler(N=len(indices),
                                    indices=indices,
@@ -129,8 +134,12 @@ class GenerateLoopV2:
             batch_size=config.batch_size
         )
 
+    @classmethod
+    def from_config(cls, config: Config, dataset: h5m.TypedFile, network: ARM):
+        n_steps = cls.get_n_steps(config, network)
+        dataloader = cls.get_dataloader(config, dataset, network)
         logger = AudioLogger(
-            sr=sr,
+            sr=network.config.io_spec.sr,
             file_template=config.output_name_template if config.write_waveform else None,
             title_template=config.output_name_template if config.display_waveform else None)
 
@@ -142,7 +151,7 @@ class GenerateLoopV2:
             network: ARM,
             n_steps: int,
             dataloader: torch.utils.data.DataLoader,
-            logger: AudioLogger,
+            logger: Optional[AudioLogger] = None,
     ):
         self.config = config
         self.network = network
@@ -221,7 +230,8 @@ class GenerateLoopV2:
             prompt_idx: torch.Tensor,
             **template_vars
     ):
-        if self.config.output_name_template is None and not self.config.display_waveform:
+        if self.logger is None or \
+                (not self.config.write_waveform and not self.config.display_waveform):
             return
         features = self.network.config.io_spec.targets
         outputs = tuple(feature.inv(out) for feature, out in zip(features, final_outputs))
