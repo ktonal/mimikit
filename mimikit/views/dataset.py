@@ -76,8 +76,8 @@ def dataset_view(cfg: DatasetConfig):
     tabs.set_title(1, "Load Dataset File from Disk")
 
     class DatasetView(W.Accordion):
-        def __init__(self, *children):
-            super(DatasetView, self).__init__(children=children)
+        def __init__(self, *children, **kwargs):
+            super(DatasetView, self).__init__(children=children, **kwargs)
             self.create = create
             self.load_ds = load_ds
 
@@ -87,7 +87,8 @@ def dataset_view(cfg: DatasetConfig):
         def on_loaded(self, callback):
             self.load_ds.on_click(callback)
 
-    top = DatasetView(W.VBox(children=(tabs, out)),)
+    top = DatasetView(W.VBox(children=(tabs, out)),
+                      layout=dict(max_width="1000px", margin="auto"))
     top.set_title(0, "Dataset")
     return top
 

@@ -264,7 +264,7 @@ class ClusterizerApp:
         self.magspec_cfg = self.pre_pipeline.magspec_cfg
         self.clusters = ClusterWidget()
         self.clusters_widget = self.clusters.widget
-        self.labels_widget = W.VBox()
+        self.labels_widget = W.VBox(layout=dict(max_width="90vw", margin="auto"))
         self.feature_name = ''
 
         save_as = W.HBox(children=(
@@ -304,7 +304,7 @@ class ClusterizerApp:
                 save_as, compute, out
             )),
             W.Label("Select a dataset to load a clustering")
-        ))
+        ), layout=dict(max_width="1000px", margin="auto"))
         self.clustering_widget.set_title(0, 'Create new clustering')
         self.clustering_widget.set_title(1, 'Load clustering')
 
@@ -381,7 +381,8 @@ class ClusterizerApp:
         import qgrid
         df, label_set = self.segments_for(self.feature_name)
 
-        w = PeaksJSWidget(array=self.db.signal[:], sr=self.sr, id_count=len(df))
+        w = PeaksJSWidget(array=self.db.signal[:], sr=self.sr, id_count=len(df),
+                          layout=dict(margin="auto", max_width="1500px", width="100%"))
         empty = pd.DataFrame([])
         empty.index.name = "id"
         g = qgrid.show_grid(empty,
