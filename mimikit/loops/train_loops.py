@@ -5,6 +5,9 @@ from typing import Optional, Tuple
 import torch
 from pytorch_lightning import LightningModule, Trainer
 import os
+
+from torch.optim import Optimizer
+
 import h5mapper as h5m
 
 from .logger import LoggingHooks
@@ -62,6 +65,38 @@ class ARMHP(Config):
     training: TrainARMConfig
 
 
+class EMAOpt(Optimizer):
+
+    def __init__(self, params, lr=1e-3, betas=.999):
+        defaults = dict(lr=lr, momentum=betas, mix=.5)
+        super().__init__(params, defaults)
+
+    def step(self, closure=None):
+        loss = None
+        if closure is not None:
+            with torch.enable_grad():
+                loss = closure()
+        with torch.no_grad():
+            for group in self.param_groups:
+                lr, beta, mix = group["lr"], group["momentum"], group["mix"]
+                for p in group['params']:
+                    if p.grad is not None:
+                        state = self.state[p]
+                        if len(state) == 0:
+                            state['step'] = torch.tensor(0.)
+                            # Exponential moving average of gradient values
+                            state['exp_avg'] = p.grad.clone()
+                        step_t = state["step"]
+                        exp_avg = state['exp_avg']
+                        grad = p.grad
+
+                        step_t += 1
+                        exp_avg.mul_(beta).add_(grad, alpha=1 - beta)
+                        # upd = exp_avg.mul(1-mix).add(grad, alpha=mix)
+                        p.add_(exp_avg, alpha=-torch.rand(1).item()*lr)
+        return loss
+
+
 # noinspection PyCallByClass
 class TrainARMLoop(LoggingHooks,
                    LightningModule):
@@ -115,7 +150,7 @@ class TrainARMLoop(LoggingHooks,
 
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
-        opt = torch.optim.Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
+        opt = EMAOpt(net.parameters(), lr=cfg.max_lr, betas=cfg.betas[0])
         sched = torch.optim.lr_scheduler.OneCycleLR(
             opt,
             steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
@@ -206,9 +241,12 @@ class TrainARMLoop(LoggingHooks,
             self.net, self.dataset, self.root_dir, self.output_template,
             self.train_cfg
         )
+        self.opt = None
+        self.avgs = {}
 
     def configure_optimizers(self):
-        return self.get_optimizer(self.net, self.loader, self.config.training)
+        self.opt = self.get_optimizer(self.net, self.loader, self.config.training)
+        return self.opt
 
     def train_dataloader(self):
         return self.loader
@@ -223,6 +261,16 @@ class TrainARMLoop(LoggingHooks,
         if not isinstance(output, tuple):
             output = output,
         return self.loss_fn(output, target)
+
+    def on_train_epoch_end(self, *args):
+        super(TrainARMLoop, self).on_train_epoch_end(*args)
+        opt: Optimizer = self.opt[0][0]
+        data = []
+        for g in opt.param_groups:
+            for p in g["params"]:
+                s = opt.state[p]
+                data += [torch.norm(s["exp_avg"]).item()]
+        self.avgs[self.current_epoch] = data
 
     def run(self):
         os.makedirs(self.root_dir, exist_ok=True)

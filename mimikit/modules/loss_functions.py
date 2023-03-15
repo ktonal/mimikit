@@ -37,8 +37,8 @@ class Mean2dDiff(nn.Module):
 
     def forward(self, output, target):
         """compute the mean_L1_prop loss of the differences along the 2 last axes of `output` and `target`"""
-        Lw = self.mean_L1_prop((output[:, :, 1:] - output[:, :, :-1]), target[:, :, 1:] - target[:, :, :-1], )
-        Lh = self.mean_L1_prop((output[:, 1:] - output[:, :-1]), target[:, 1:] - target[:, :-1], )
+        Lw = self.mean_l1_prop((output[:, :, 1:] - output[:, :, :-1]), target[:, :, 1:] - target[:, :, :-1], )
+        Lh = self.mean_l1_prop((output[:, 1:] - output[:, :-1]), target[:, 1:] - target[:, :-1], )
         return Lw + Lh
 
 

@@ -10,7 +10,7 @@ from ..config import NetworkConfig
 from ..io_spec import IOSpec
 from ..features.item_spec import ItemSpec, Step
 from ..modules.misc import Chunk, CausalPad, Transpose
-from ..modules.activations import GatingUnit, ActivationEnum
+from ..modules.activations import GatingUnit, ActivationEnum, ActivationConfig
 
 __all__ = [
     "WNLayer",
@@ -74,7 +74,7 @@ class WNLayer(nn.Module):
             in_dim = main_outer_dim if input_dim is None else input_dim
 
         kwargs_dil = dict(kernel_size=(kernel_size,), dilation=dilation, stride=stride, bias=bias, groups=groups)
-        kwargs_1x1 = dict(kernel_size=(1,), stride=stride, bias=bias, groups=groups)
+        kwargs_1x1 = dict(kernel_size=(1,), stride=stride, bias=bias)
 
         if self.needs_padding:
             self.pad = CausalPad((0, 0, pad_side * self.cause))
@@ -90,7 +90,6 @@ class WNLayer(nn.Module):
                               Chunk(2, dim=1, sum_outputs=False))
                 for d in dims_1x1
             ])
-            self.activation = GatingUnit()
         else:
             self.conv_dil = nn.ModuleList([
                 nn.Conv1d(in_dim, d, **kwargs_dil) for d in dims_dilated
@@ -98,7 +97,6 @@ class WNLayer(nn.Module):
             self.conv_1x1 = nn.ModuleList([
                 nn.Conv1d(d, main_inner_dim, **kwargs_1x1) for d in dims_1x1
             ])
-            self.activation = nn.Tanh()
         if self.has_skips:
             self.conv_skip = nn.Conv1d(main_inner_dim, skips_dim, **kwargs_1x1)
         if self.has_residuals:
@@ -129,7 +127,7 @@ class WNLayer(nn.Module):
                 cond_f += y_f
                 cond_g += y_g
             x_f, x_g = self.conv_dil[0](inputs_dilated[0])
-            y = self.activation(x_f + cond_f, x_g + cond_g)
+            y = self.act_f(x_f + cond_f) * self.act_g(x_g + cond_g)
         else:
             cond = 0
             for conv, x in zip(self.conv_1x1, inputs_1x1):
@@ -137,7 +135,7 @@ class WNLayer(nn.Module):
                     x = self.trim_cause(x)
                 cond += conv(x)
             y = self.conv_dil[0](inputs_dilated[0])
-            y = self.activation(y + cond)
+            y = self.act_f(y + cond)
 
         if self.has_skips:
             if not self.needs_padding:
@@ -191,8 +189,8 @@ class WaveNet(ARM, nn.Module):
                 skips_dim=config.skips_dim,
                 kernel_size=k,
                 groups=config.groups,
-                act_f=getattr(nn, str(config.act_f)),
-                act_g=getattr(nn, str(config.act_g)) if config.act_g is not None else None,
+                act_f=ActivationConfig(str(config.act_f)).get(),
+                act_g=ActivationConfig(str(config.act_g)).get() if config.act_g is not None else None,
                 pad_side=config.pad_side,
                 stride=config.stride, bias=config.bias,
                 dilation=d
@@ -232,6 +230,7 @@ class WaveNet(ARM, nn.Module):
         self.transpose = Transpose(1, 2)
         self.layers: Iterable[WNLayer] = nn.ModuleList(layers)
         self.has_skips = config.skips_dim is not None
+        # output_modules[0][0][0].weight = nn.Parameter(input_modules[0][0][0].weight.transpose(1, 0))
         self.output_modules = nn.ModuleList(output_modules)
         self.eval_slice = slice(-1, None) if config.pad_side == 1 else slice(0, 1)
         self._gen_context = {}
