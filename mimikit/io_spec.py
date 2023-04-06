@@ -107,41 +107,17 @@ class Objective(Config, type_field=False):
     objective_type: ObjectiveType
     params: Dict = dtc.field(default_factory=lambda: {})
 
-    def get_criterion(self, vector_dim=None):
+    def get_criterion(self):
         if self.objective_type == "reconstruction":
-            return MeanL1Prop()
+            return MeanL1Prop(eps=1.)
         elif self.objective_type == "categorical_dist":
             return self.cross_entropy
-        elif self.objective_type == "logistic_dist":
-            return MixOfLogisticsLoss(**self.params)
-        elif self.objective_type == "gaussian_dist":
-            return MixOfGaussianLoss(**self.params)
-        elif self.objective_type == "laplace_dist":
-            return MixOfLaplaceLoss(**self.params)
-        elif self.objective_type == "logistic_vector":
-            return VectorOfLogisticLoss(vector_dim=vector_dim, **self.params)
-        elif self.objective_type == "gaussian_vector":
-            return VectorOfGaussianLoss(vector_dim=vector_dim, **self.params)
-        elif self.objective_type == "laplace_vector":
-            return VectorOfLaplaceLoss(vector_dim=vector_dim, **self.params)
 
-    def get_sampler(self, vector_dim=None):
+    def get_sampler(self):
         if self.objective_type == "reconstruction":
             return None
         elif self.objective_type == "categorical_dist":
             return CategoricalSampler()
-        elif self.objective_type == "logistic_dist":
-            return MixOfLogisticsSampler(**self.params)
-        elif self.objective_type == "gaussian_dist":
-            return MixOfGaussianSampler(**self.params)
-        elif self.objective_type == "laplace_dist":
-            return MixOfLaplaceSampler(**self.params)
-        elif self.objective_type == "logistic_vector":
-            return VectorOfLogisticSampler(vector_dim=vector_dim, **self.params)
-        elif self.objective_type == "gaussian_vector":
-            return VectorOfGaussianSampler(vector_dim=vector_dim, **self.params)
-        elif self.objective_type == "laplace_vector":
-            return VectorOfLaplaceSampler(vector_dim=vector_dim, **self.params)
 
     @staticmethod
     def cross_entropy(output, target):
@@ -156,7 +132,7 @@ class TargetSpec(_FeatureSpec, type_field=False):
     def bind_to(self, extractor: Extractor):
         super(TargetSpec, self).bind_to(extractor)
         # wire feature, objective, module
-        sampler = self.objective.get_sampler(self.elem_type.vector_size)
+        sampler = self.objective.get_sampler()
         if self.objective.objective_type == "reconstruction":
             assert isinstance(self.elem_type, Continuous)
             self.module.set(out_dim=self.elem_type.vector_size)
@@ -164,18 +140,7 @@ class TargetSpec(_FeatureSpec, type_field=False):
             assert isinstance(self.elem_type, Discrete)
             self.module.set(out_dim=self.elem_type.class_size,
                             sampler=sampler)
-        elif self.objective.objective_type in \
-                {'logistic_dist', "gaussian_dist", "laplace_dist"}:
-            n_components = self.objective.params.get("n_components", 1)
-            self.module.set(out_dim=1, sampler=sampler,
-                            n_params=3, n_components=n_components)
-        elif self.objective.objective_type in \
-                {"logistic_vector", "gaussian_vector", "laplace_vector"}:
-            n_components = self.objective.params.get("n_components", 1)
-            self.module.set(out_dim=self.elem_type.vector_size * 2 * n_components + n_components,
-                            sampler=sampler,
-                            n_params=1, n_components=1)
-        self.criterion = self.objective.get_criterion(self.elem_type.vector_size)
+        self.criterion = self.objective.get_criterion()
         return self
 
     def loss_fn(self, output, target):
@@ -278,65 +243,6 @@ class IOSpec(Config, type_field=False):
                 ),
                 objective=Objective("categorical_dist")
             ).bind_to(extractor),))
-
-    @dtc.dataclass
-    class YtIOConfig(Config):
-        sr: int = 16000
-        input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear'
-        mlp_dim: int = 128
-        n_mlp_layers: int = 0
-        max_scale: float = .25
-        beta: float = 1 / 15
-        weight_variance: float = 0.1
-        weight_l1: float = 0.
-        n_components: int = 128
-        objective_type: Literal['logistic_dist', 'gaussian_dist', 'laplace_dist'] = 'logistic_dist'
-
-    @staticmethod
-    def yt_io(
-            config: YtIOConfig,
-            extractor: Extractor = None,
-    ):
-        c = config
-        if extractor is None:
-            extractor = Extractor(
-                "signal", Compose(
-                    FileToSignal(c.sr), Normalize(), RemoveDC()
-                )
-            )
-        return IOSpec(
-            inputs=(
-                InputSpec(
-                    extractor_name=extractor.name,
-                    transform=Identity(),
-                    module=IOFactory(
-                        module_type=c.input_module_type,
-                        params=LinearParams()
-                    )
-                ).bind_to(extractor),),
-            targets=(
-                TargetSpec(
-                    extractor_name=extractor.name,
-                    transform=Identity(),
-                    module=IOFactory(
-                        module_type="mlp",
-                        params=MLPParams(
-                            hidden_dim=c.mlp_dim, n_hidden_layers=c.n_mlp_layers,
-                            min_temperature=None
-                        ),
-                    ),
-                    objective=Objective(
-                        objective_type=c.objective_type,
-                        params=dict(
-                            max_scale=c.max_scale,
-                            beta=c.beta,
-                            weight_l1=c.weight_l1,
-                            weight_variance=c.weight_variance,
-                            n_components=c.n_components
-                        )
-                    )
-                ).bind_to(extractor),
-            ))
 
     @dtc.dataclass
     class MagSpecIOConfig(Config):
