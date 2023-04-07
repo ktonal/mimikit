@@ -4,7 +4,7 @@
 
 ### necessary
 
-- EnsembleGenerator
+- TEST EnsembleGenerator
 - Seq2Seq
 - Notebooks
     - FreqNet
@@ -13,7 +13,6 @@
     - Generate from Checkpoint
     - Ensemble
 - packaging
-    - publish h5mapper
     - publish PeaksJSWidget
     - publish pbind
     - new build tools...?
@@ -22,7 +21,7 @@
 
 ### nice to have
 
-- M1 Support
+- TEST M1 Support
 - Ensemble / Generate nb
     - Prompt UI
     - AudioLogger methods (batch, spectrogram...)
@@ -33,7 +32,7 @@
 - Eval checkpoint Notebook
 - Segmentation Notebook
 - PocoNet / poco Wavenet
-    - refactor io modules...
+
     
 ### long term...
 
