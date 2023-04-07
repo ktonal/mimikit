@@ -1,4 +1,5 @@
-from typing import Optional, Any, Callable, Tuple, Iterable, Dict, overload, Sized, Literal, Union
+from typing import Optional, Any, Callable, Tuple, Iterable, Dict, Union
+from typing_extensions import Literal
 import numpy as np
 import torch
 import h5mapper as h5m

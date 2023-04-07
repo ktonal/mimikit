@@ -1,6 +1,7 @@
 import abc
 import dataclasses as dtc
-from typing import Optional, Protocol
+from typing import Optional
+from typing_extensions import Protocol
 
 try:
     from functools import cached_property

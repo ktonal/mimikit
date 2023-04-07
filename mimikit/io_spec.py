@@ -1,5 +1,6 @@
 from enum import auto
-from typing import Tuple, Optional, List, Dict, Literal
+from typing import Tuple, Dict
+from typing_extensions import Literal
 import torch.nn as nn
 import dataclasses as dtc
 import h5mapper as h5m
