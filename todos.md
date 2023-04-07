@@ -14,7 +14,6 @@
     - Ensemble
 - packaging
     - publish PeaksJSWidget
-    - publish pbind
     - new build tools...?
     - dependencies
 - Colab TESTS
