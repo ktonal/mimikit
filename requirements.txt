@@ -6,7 +6,7 @@ ffmpeg-python
 tqdm>=4.48.0
 matplotlib
 scipy>=1.4.1
-scikit-learn>=1.2.0
+scikit-learn>=1.0.0
 soundfile>=0.10.2
 test-tube>=0.7.5
 h5mapper==0.3.0
