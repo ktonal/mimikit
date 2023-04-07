@@ -1,3 +1,4 @@
+import os
 from typing import Tuple
 
 import pytest
@@ -6,11 +7,13 @@ from assertpy import assert_that
 import torch
 from torch.nn import Sigmoid
 
-from mimikit import IOSpec, InputSpec, TargetSpec, IOFactory, LinearParams, Objective, \
-    FileToSignal, Normalize
+from mimikit import IOSpec, InputSpec, TargetSpec, LinearIO, Objective, \
+    FileToSignal, Normalize, TrainARMConfig, TrainARMLoop
 from mimikit.features.extractor import Extractor
 from mimikit.checkpoint import Checkpoint
 from mimikit.networks.wavenet_v2 import WNLayer, WaveNet
+
+from .test_utils import tmp_db
 
 
 def inputs_(b=8, t=32, d=16):
@@ -169,37 +172,25 @@ def test_should_support_multiple_io():
             InputSpec(
                 extractor_name=extractor.name,
                 transform=Normalize(),
-                module=IOFactory(
-                    module_type='linear',
-                    params=LinearParams()
-                )
+                module=LinearIO()
             ).bind_to(extractor),
             InputSpec(
                 extractor_name=extractor.name,
                 transform=Normalize(),
-                module=IOFactory(
-                    module_type='linear',
-                    params=LinearParams()
-                )
+                module=LinearIO()
             ).bind_to(extractor),
         ),
         targets=(
             TargetSpec(
                 extractor_name=extractor.name,
                 transform=Normalize(),
-                module=IOFactory(
-                    module_type='linear',
-                    params=LinearParams()
-                ),
+                module=LinearIO(),
                 objective=Objective("reconstruction")
             ).bind_to(extractor),
             TargetSpec(
                 extractor_name=extractor.name,
                 transform=Normalize(),
-                module=IOFactory(
-                    module_type='linear',
-                    params=LinearParams(),
-                ),
+                module=LinearIO(),
                 objective=Objective("reconstruction")
             ).bind_to(extractor)), )
     wn = WaveNet.from_config(WaveNet.Config(
@@ -219,3 +210,34 @@ def test_should_support_multiple_io():
 
     assert_that(outputs).is_instance_of(tuple)
     assert_that(outputs[0].size()).is_equal_to(outputs[1].size())
+
+
+def test_should_train(tmp_db, tmp_path):
+    given_config = WaveNet.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig(input_module_type="embedding"),
+    ), blocks=(3,))
+    wn = WaveNet.from_config(given_config)
+    db = tmp_db("train-loop.h5")
+    config = TrainARMConfig(
+        root_dir=str(tmp_path),
+        limit_train_batches=2,
+        batch_size=2,
+        batch_length=8,
+        max_epochs=2,
+        every_n_epochs=1,
+        CHECKPOINT_TRAINING=True,
+        MONITOR_TRAINING=True,
+        OUTPUT_TRAINING=True,
+    )
+
+    loop = TrainARMLoop.from_config(
+        config, dataset=db, network=wn
+    )
+
+    loop.run()
+
+    content = os.listdir(os.path.join(str(tmp_path), loop.hash_))
+    assert_that(content).contains("hp.yaml", "outputs", "epoch=1.h5")
+
+    outputs = os.listdir(os.path.join(str(tmp_path), loop.hash_, "outputs"))
+    assert_that([os.path.splitext(o)[-1] for o in outputs]).contains(".mp3")

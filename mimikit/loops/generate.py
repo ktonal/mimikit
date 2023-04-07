@@ -15,6 +15,7 @@ __all__ = [
 ]
 
 from .logger import AudioLogger
+from ..utils import default_device
 
 from ..config import Config
 from ..features.item_spec import ItemSpec, Second, Frame
@@ -168,7 +169,7 @@ class GenerateLoopV2:
         self._initial_device = net.device
         self._was_training = net.training
         net.eval()
-        self.device = 'cuda' if torch.cuda.is_available() else "cpu"
+        self.device = default_device()
         net.to(self.device)
         torch.set_grad_enabled(False)
 
@@ -261,7 +262,7 @@ class GenerateLoop:
                  n_steps: int = 1,
                  time_hop: int = 1,
                  disable_grads: bool = True,
-                 device: str = 'cuda:0',
+                 device: str = default_device(),
                  process_outputs: Callable[[Tuple[Any], int], None] = lambda x, i: None,
                  ):
         # self.config = config
@@ -282,8 +283,7 @@ class GenerateLoop:
         self._initial_device = net.device
         self._was_training = net.training
         net.eval()
-        net.to(self.device if 'cuda' in self.device and torch.cuda.is_available()
-               else "cpu")
+        net.to(self.device)
         if self.disable_grads:
             torch.set_grad_enabled(False)
 

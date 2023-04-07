@@ -5,6 +5,7 @@ import torch
 from pprint import pprint
 import dataclasses as dtc
 
+from ..utils import default_device
 from ..networks import ARM
 from ..features.functionals import Resample
 from ..loops import GenerateLoopV2
@@ -67,7 +68,7 @@ class EnsembleGenerator:
                  base_sr: int = 22050,
                  stream: Generator = (),
                  print_events: bool = False,
-                 device="cuda" if torch.cuda.is_available() else "cpu"
+                 device=default_device()
                  ):
         super(EnsembleGenerator, self).__init__()
         self.prompt = prompt.to(device)
@@ -108,7 +109,7 @@ class EnsembleGenerator:
                 pprint(e)
             out = self.run_event(inputs, net, n_steps, params)
             return out
-        return torch.zeros(inputs.size(0), int(self.max_seconds * self.base_sr - t)).to("cuda")
+        return torch.zeros(inputs.size(0), int(self.max_seconds * self.base_sr - t)).to(self.device)
 
     def run_event(self,
                   inputs: torch.Tensor,

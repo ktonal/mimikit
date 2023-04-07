@@ -28,7 +28,7 @@ __all__ = [
 class _FeatureSpec(Config, type_field=False):
     extractor_name: str
     transform: Functional
-    module: IOFactory
+    module: IOModule
     extractor: Extractor = dtc.field(init=False, repr=False, metadata=dict(omegaconf_ignore=True))
 
     # logger: None = None
@@ -223,24 +223,25 @@ class IOSpec(Config, type_field=False):
                 )
             )
         mu_law = MuLawCompress(c.q_levels, c.compression)
+        if config.input_module_type == "framed_linear":
+            module_type = FramedLinearIO
+        elif config.input_module_type == "embedding":
+            module_type = EmbeddingIO
+        else:
+            raise ValueError(f"Unimplemented input_module_type: '{config.input_module_type}'")
         return IOSpec(
             inputs=(InputSpec(
                 extractor_name=extractor.name,
                 transform=mu_law,
-                module=IOFactory(
-                    module_type=c.input_module_type,
-                    params=LinearParams()
-                )).bind_to(extractor),),
+                module=module_type()).bind_to(extractor),
+                    ),
             targets=(TargetSpec(
                 extractor_name=extractor.name,
                 transform=mu_law,
-                module=IOFactory(
-                    module_type="mlp",
-                    params=MLPParams(
+                module=MLPIO(
                         hidden_dim=c.mlp_dim, n_hidden_layers=c.n_mlp_layers,
                         min_temperature=c.min_temperature
-                    )
-                ),
+                    ),
                 objective=Objective("categorical_dist")
             ).bind_to(extractor),))
 
@@ -265,44 +266,14 @@ class IOSpec(Config, type_field=False):
             inputs=(InputSpec(
                 extractor_name=extractor.name,
                 transform=MagSpec(c.n_fft, c.hop_length, center=False, window='hann'),
-                module=IOFactory(
-                    module_type="chunked_linear",
-                    params=ChunkedLinearParams(n_heads=1)
-                )).bind_to(extractor),),
+                module=ChunkedLinearIO(n_chunks=1)).bind_to(extractor),),
             targets=(TargetSpec(
                 extractor_name=extractor.name,
                 transform=MagSpec(c.n_fft, c.hop_length, center=False, window='hann'),
-                module=IOFactory(
-                    module_type="chunked_linear",
-                    params=ChunkedLinearParams(n_heads=1),
-                    activation=ActivationConfig(
-                        act="Abs",
-                    )),
+                module=ChunkedLinearIO(n_chunks=1,
+                                       activation=ActivationConfig(
+                                           act="Abs",
+                                       )),
                 objective=Objective("reconstruction")
             ).bind_to(extractor),))
 
-    @property
-    def matching_io(self) -> Tuple[List[Optional[int]], List[Optional[int]]]:
-        # TODO: broken...
-        inputs = [None] * len(self.inputs)
-        targets = [None] * len(self.targets)
-        trg_feats = self.target_features
-        for n, i in enumerate(self.input_features):
-            try:
-                idx = trg_feats.index(i)
-            except ValueError:
-                idx = None
-            if idx is not None:
-                inputs[n] = idx
-                targets[idx] = n
-        return inputs, targets
-
-    @property
-    def is_auxiliary_target(self) -> List[bool]:
-        in_feats = self.input_features
-        return [f not in in_feats for f in self.target_features]
-
-    @property
-    def is_fixture_input(self) -> List[bool]:
-        target_feats = self.target_features
-        return [f not in target_feats for f in self.input_features]

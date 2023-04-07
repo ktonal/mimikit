@@ -15,25 +15,25 @@ def test_should_run(tmp_db):
                 mmk.InputSpec(
                     extractor_name=extractor.name,
                     transform=mmk.Normalize(),
-                    module=mmk.IOFactory("linear")
+                    module=mmk.LinearIO()
                 ).bind_to(extractor),
                 mmk.InputSpec(
                     extractor_name=extractor.name,
                     transform=mmk.MuLawCompress(256),
-                    module=mmk.IOFactory("linear")
+                    module=mmk.LinearIO()
                 ).bind_to(extractor),
             ),
             targets=(
                 mmk.TargetSpec(
                     extractor_name=extractor.name,
                     transform=mmk.Normalize(),
-                    module=mmk.IOFactory("linear"),
+                    module=mmk.LinearIO(),
                     objective=mmk.Objective("none")
                 ).bind_to(extractor),
                 mmk.TargetSpec(
                     extractor_name=extractor.name,
                     transform=mmk.MuLawCompress(256),
-                    module=mmk.IOFactory("linear"),
+                    module=mmk.LinearIO(),
                     objective=mmk.Objective("none")
                 ).bind_to(extractor),
             )

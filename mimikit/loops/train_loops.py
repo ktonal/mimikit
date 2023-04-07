@@ -14,6 +14,7 @@ from .logger import LoggingHooks
 from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint, TrainingProgressBar, is_notebook
 from .samplers import TBPTTSampler
 from .generate import GenerateLoopV2
+from ..utils import default_device
 from ..features.dataset import DatasetConfig
 from ..features.item_spec import ItemSpec
 from ..networks.arm import ARM, NetworkConfig
@@ -259,6 +260,7 @@ class TrainARMLoop(LoggingHooks,
             logger=None,
             enable_checkpointing=False,
             num_sanity_val_steps=0,
+            accelerator=default_device(),
             gpus=torch.cuda.device_count() if torch.cuda.is_available() else 0,
         )
         self.trainer.fit(self)

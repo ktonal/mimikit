@@ -26,7 +26,7 @@ class TBPTTSampler(Sampler):
         self.chunk_length = min(chunk_length, n_samples)
         self.seq_len = seq_len
         self.n_chunks = max(1, self.n_samples // self.chunk_length - int(oversampling > 1))
-        self.remainder = self.n_samples % self.chunk_length
+        self.remainder = max(self.n_samples % self.chunk_length, 1)
         self.n_per_chunk = self.chunk_length // self.seq_len
         self.batch_size = batch_size
         self.oversampling = oversampling

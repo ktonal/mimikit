@@ -14,14 +14,14 @@ def test_should_run(tmp_db, tmp_path):
                 mmk.InputSpec(
                     extractor_name=extractor.name,
                     transform=mmk.Normalize(),
-                    module=mmk.IOFactory("linear")
+                    module=mmk.LinearIO()
                 ).bind_to(extractor),
             ),
             targets=(
                 mmk.TargetSpec(
                     extractor_name=extractor.name,
                     transform=mmk.Normalize(),
-                    module=mmk.IOFactory("linear"),
+                    module=mmk.LinearIO(),
                     objective=mmk.Objective("reconstruction")
                 ).bind_to(extractor),
             )

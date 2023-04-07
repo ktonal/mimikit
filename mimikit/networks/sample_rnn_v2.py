@@ -8,7 +8,7 @@ from .arm import ARMWithHidden, NetworkConfig
 from ..io_spec import IOSpec
 from ..features.functionals import *
 from ..features.item_spec import ItemSpec
-from ..modules.io import IOFactory, ZipReduceVariables, ZipMode
+from ..modules.io import IOModule, ZipReduceVariables, ZipMode, FramedLinearIO, FramedConv1dIO, EmbeddingConv1d
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -139,7 +139,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         h_dim = config.hidden_dim
         for i, fs in enumerate(config.frame_sizes[:-1]):
             modules = tuple(in_spec.module.copy()
-                            .set(frame_size=fs, hop_length=fs, out_dim=h_dim).get()
+                            .set(frame_size=fs, hop_length=fs, out_dim=h_dim).module()
                             for in_spec in config.io_spec.inputs)
             input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
             tiers += [
@@ -161,17 +161,17 @@ class SampleRNN(ARMWithHidden, nn.Module):
         for in_spec in config.io_spec.inputs:
             if isinstance(in_spec.elem_type, Discrete):
                 params = dict(class_size=in_spec.elem_type.class_size)
-                if "framed" in in_spec.module.module_type:
-                    module_type = "framed_conv1d"
+                if isinstance(in_spec.module, FramedLinearIO):
+                    module_type = FramedConv1dIO
                 else:
-                    module_type = "embedding_conv1d"
+                    module_type = EmbeddingConv1d
             else:
                 params = dict()
-                module_type = "framed_conv1d"
-            modules += [IOFactory(module_type=module_type)
+                module_type = FramedConv1dIO
+            modules += [module_type()
                             .set(**params,
                                  frame_size=config.frame_sizes[-1],
-                                 hop_length=1, out_dim=h_dim).get()]
+                                 hop_length=1, out_dim=h_dim).module()]
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
         tiers += [
             SampleRNNTier(
@@ -180,7 +180,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                 rnn_class="none",
                 up_sampling=None
             )]
-        output_module = [target_spec.module.copy().set(in_dim=h_dim).get()
+        output_module = [target_spec.module.copy().set(in_dim=h_dim).module()
                          for target_spec in config.io_spec.targets]
         return cls(
             config=config, tiers=tiers, output_module=output_module)

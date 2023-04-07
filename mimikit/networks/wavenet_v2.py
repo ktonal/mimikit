@@ -205,14 +205,14 @@ class WaveNet(ARM, nn.Module):
         # set Inner Connection
         input_modules = [spec.module.copy()
                              .set(out_dim=h_dim)
-                             .get()
+                             .module()
                          for spec, h_dim in zip(config.io_spec.inputs, all_dims)]
         if config.skips_dim is not None:
             all_dims[0] = config.skips_dim
         all_dims = len(config.io_spec.targets) * [all_dims[0]]
         output_module = [spec.module.copy()
                              .set(in_dim=h_dim)
-                             .get()
+                             .module()
                          for spec, h_dim in zip(config.io_spec.targets, all_dims)]
         if config.tie_io_weights:
             for i, o in zip(input_modules, output_module):

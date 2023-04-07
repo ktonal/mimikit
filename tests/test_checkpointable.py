@@ -17,14 +17,12 @@ class MyCustom(mimikit.config.Configurable, nn.Module):
             inputs=(mmk.InputSpec(
                 extractor_name="signal",
                 transform=mmk.Normalize(),
-                module=mmk.IOFactory(module_type="linear",
-                                     params=mmk.LinearParams())
+                module=mmk.LinearIO()
             ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),),
             targets=(mmk.TargetSpec(
                 extractor_name="signal",
                 transform=mmk.Normalize(),
-                module=mmk.IOFactory(module_type="linear",
-                                     params=mmk.LinearParams()),
+                module=mmk.LinearIO(),
                 objective=mmk.Objective(objective_type="reconstruction")
             ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),)
         )

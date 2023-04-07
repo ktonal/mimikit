@@ -38,7 +38,6 @@ STATIC_TYPED_KEYS = {
     "objective": "Objective",
     "feature": "Feature",
     "extractor": "Extractor",
-    "module": "IOFactory",
     "activation": "ActivationConfig"
 }
 

@@ -1,10 +1,11 @@
+import os
 from typing import Tuple
 
 import pytest
 import torch
 from assertpy import assert_that
 
-from mimikit import GenerateLoopV2
+from mimikit import GenerateLoopV2, TrainARMLoop, TrainARMConfig
 from .test_utils import TestDB, tmp_db
 
 from mimikit.networks.sample_rnn_v2 import SampleRNN
@@ -109,3 +110,36 @@ def test_generate_loop_integration(tmp_db):
         assert_that(outputs).is_not_none()
         assert_that(outputs[0].shape).is_equal_to((2, 1024))
         assert_that(outputs[0].dtype).is_equal_to(torch.float)
+
+
+def test_should_train(tmp_db, tmp_path):
+    given_config = SampleRNN.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig()
+    ), frame_sizes=(4, 2, 2))
+    srnn = SampleRNN.from_config(given_config)
+    db = tmp_db("train-loop.h5")
+    config = TrainARMConfig(
+        root_dir=str(tmp_path),
+        limit_train_batches=2,
+        batch_size=2,
+        batch_length=8,
+        tbptt_chunk_length=128,
+        max_epochs=2,
+        every_n_epochs=1,
+        oversampling=4,
+        CHECKPOINT_TRAINING=True,
+        MONITOR_TRAINING=True,
+        OUTPUT_TRAINING=True,
+    )
+
+    loop = TrainARMLoop.from_config(
+        config, dataset=db, network=srnn
+    )
+
+    loop.run()
+
+    content = os.listdir(os.path.join(str(tmp_path), loop.hash_))
+    assert_that(content).contains("hp.yaml", "outputs", "epoch=1.h5")
+
+    outputs = os.listdir(os.path.join(str(tmp_path), loop.hash_, "outputs"))
+    assert_that([os.path.splitext(o)[-1] for o in outputs]).contains(".mp3")
