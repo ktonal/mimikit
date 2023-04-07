@@ -55,7 +55,7 @@ class TrainARMConfig(Config):
     n_examples: int = 3
     prompt_length_sec: float = .5
     outputs_duration_sec: float = 1.
-    temperature: Optional[Tuple[float]] = None
+    temperature: Optional[Tuple[float, ...]] = None
 
 
 # implements TrainingConfig structurally

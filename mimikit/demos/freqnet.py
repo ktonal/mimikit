@@ -4,11 +4,13 @@ def demo():
     import h5mapper as h5m
     import os
 
+    # DATA
+
     # list of files or directories to use as data ("./" is the cwd of the notebook)
     sources = tuple(h5m.FileWalker(mmk.SOUND_FILE_REGEX, "./"))
-    SAMPLE_RATE = 16000
+    SAMPLE_RATE = 22050
 
-    db_path = "train-srnn.h5"
+    db_path = "train-freqnet.h5"
     if os.path.exists(db_path):
         os.remove(db_path)
 
@@ -30,26 +32,35 @@ def demo():
     """### Configure Network"""
 
     # INPUT / TARGET
-
-    io = mmk.IOSpec.mulaw_io(extractor=signal,
-                             config=mmk.IOSpec.MuLawIOConfig(
-                                 sr=SAMPLE_RATE,
-                                 compression=.5,
-                                 mlp_dim=128,
-                                 n_mlp_layers=0,
-                                 min_temperature=1e-3
-                             ))
+    io = mmk.IOSpec.magspec_io(
+        mmk.IOSpec.MagSpecIOConfig(
+            sr=SAMPLE_RATE,
+            n_fft=2048,
+            hop_length=512,
+            activation="Identity"
+        ),
+        signal
+    )
 
     # NETWORK
 
-    net = mmk.SampleRNN.from_config(
-        mmk.SampleRNN.Config(rnn_class="lstm",
-                             n_rnn=1,
-                             rnn_dropout=0.0,
-                             frame_sizes=(256, 128, 64, 32, 16, 8, 4, 8),
-                             hidden_dim=128,
-                             weight_norm=True,
-                             io_spec=io))
+    net = mmk.WaveNet.from_config(
+        mmk.WaveNet.Config(
+            io_spec=io,
+            kernel_sizes=(2,),
+            blocks=(3,),
+            dims_dilated=(2048,),
+            apply_residuals=False,
+            residuals_dim=None,
+            skips_dim=None,
+            groups=8,
+            act_f="Tanh",
+            act_g="Sigmoid",
+            pad_side=0,
+            bias=True,
+            use_fast_generate=False,
+            tie_io_weights=False
+        ))
 
     """### Configure Training"""
 
@@ -58,19 +69,18 @@ def demo():
         mmk.TrainARMConfig(max_lr=1e-3,
                            betas=(0.9, 0.9),
                            div_factor=1.,
-                           final_div_factor=1.,
+                           final_div_factor=100.,
                            pct_start=0.0,
-                           temperature=(1., .75, 0.5, .1),
                            n_examples=4,
-                           prompt_length_sec=1.,
-                           batch_size=32,
-                           tbptt_chunk_length=8 * SAMPLE_RATE,
-                           batch_length=2048,
-                           oversampling=4,
-                           limit_train_batches=None,
-                           max_epochs=2000,
-                           every_n_epochs=5,
-                           outputs_duration_sec=10,
+                           prompt_length_sec=3.,
+                           batch_size=16,
+                           tbptt_chunk_length=None,
+                           batch_length=64,
+                           downsampling=64,
+                           limit_train_batches=10000,
+                           max_epochs=300,
+                           every_n_epochs=10,
+                           outputs_duration_sec=60,
                            MONITOR_TRAINING=True,
                            OUTPUT_TRAINING=False,
                            CHECKPOINT_TRAINING=True),
