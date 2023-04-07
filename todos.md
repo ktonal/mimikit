@@ -17,7 +17,7 @@
     - publish pbind
     - new build tools...?
     - dependencies
-- Colab test
+- Colab TESTS
 
 ### nice to have
 
@@ -27,7 +27,8 @@
     - AudioLogger methods (batch, spectrogram...)
 - Ensemble
     - working nearest neighbour generator
-    - Ensemble classes (average from several models?, fade-in/out?)
+    - Generator classes (average from several models?, ...)
+    - parameters (fade-in/out?, gain?, noise?, ...)
 - Clusterizer App
 - Eval checkpoint Notebook
 - Segmentation Notebook
@@ -76,7 +77,9 @@
     - FFT_RNN
     ....
 - Loss Terms
-- Hooks for storing outputs
+- Hooks for
+    - storing outputs
+    - modifying generate_step() implementation on the fly...
 - flowtorch
 - huggingface/dffusers/transformers
 - Multi-Checkpoint Models (stochastic averaging)

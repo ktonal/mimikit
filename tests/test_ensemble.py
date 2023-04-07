@@ -38,7 +38,7 @@ def test_should_generate(tmp_db, checkpoints):
     db = tmp_db("ensemble-test.h5")
 
     """### Define the prompts from which to generate"""
-
+    # just a torch.Tensor or a numpy.ndarray
     prompts = next(iter(db.serve(
         (h5m.Input(data='signal', getter=h5m.AsSlice(shift=0, length=BASE_SR)),),
         shuffle=False,
@@ -46,7 +46,7 @@ def test_should_generate(tmp_db, checkpoints):
         batch_size=3,
         sampler=mmk.IndicesSampler(
             # INDICES FOR THE PROMPTS :
-            indices=(0, BASE_SR //2, BASE_SR)
+            indices=(0, BASE_SR // 2, BASE_SR)
         ))))[0]
 
     """### Define a pattern of models"""

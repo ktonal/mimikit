@@ -77,8 +77,6 @@ class EnsembleGenerator:
         self.stream = stream
         self.print_events = print_events
         self.device = device
-        # just to make self.device settable/gettable
-        self._param = nn.Parameter(torch.ones(1))
 
     def run(self):
         prompt_length = t = self.prompt.size(-1)

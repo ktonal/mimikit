@@ -24,9 +24,9 @@ def demo():
     dataset = ds.get(mode="r", keep_open=True)
 
     N = dataset.signal.shape[0]
-    print("Dataset length in minutes is:", (N / SAMPLE_RATE) / 60)
+    print(f"Dataset length in minutes is: {(N / SAMPLE_RATE) / 60:.2f}")
     print("Extracted following files:")
-    for f in dataset.index.values():
+    for f in dataset.index:
         print("\t", f)
 
     """### Configure Network"""
