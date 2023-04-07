@@ -1,15 +1,27 @@
 import abc
+import dataclasses as dtc
 from typing import Tuple, Dict, Set
 import torch
 import h5mapper as h5m
 
 from ..features.item_spec import ItemSpec
-from ..config import Configurable, NetworkConfig
+from ..config import Config, Configurable
+from ..io_spec import IOSpec
 
 __all__ = [
+    "NetworkConfig",
     "ARM",
     "ARMWithHidden"
 ]
+
+
+@dtc.dataclass
+class NetworkConfig(Config, abc.ABC):
+
+    @property
+    @abc.abstractmethod
+    def io_spec(self) -> IOSpec:
+        ...
 
 
 class ARM(Configurable, torch.nn.Module):

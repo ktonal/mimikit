@@ -8,26 +8,25 @@ __all__ = [
 ]
 
 
+def raise_on_nan(msg):
+    def _hook(x):
+        if torch.any(torch.isnan(x)):
+            raise RuntimeError(msg)
+    return _hook
+
+
 def no_nan_hooks(network):
 
     def frw_hook(module, inpt, output):
         is_tensor = lambda x: isinstance(x, torch.Tensor)
-        h5m.process_batch(inpt, is_tensor,
-                          lambda x: print("INPUT NAN", module) if torch.any(torch.isnan(x)) else None
-                          )
-        h5m.process_batch(output, is_tensor,
-                          lambda x: print("OUTPUT NAN", module) if torch.any(torch.isnan(x)) else None
-                          )
+        h5m.process_batch(inpt, is_tensor, raise_on_nan(f"input is NAN for {module}"))
+        h5m.process_batch(output, is_tensor, raise_on_nan(f"output is NAN for {module}"))
         return output
 
     def grad_hook(module, inpt, output):
         is_tensor = lambda x: isinstance(x, torch.Tensor)
-        h5m.process_batch(inpt, is_tensor,
-                          lambda x: print("INPUT GRAD NAN", module) if torch.any(torch.isnan(x)) else None
-                          )
-        h5m.process_batch(output, is_tensor,
-                          lambda x: print("OUTPUT GRAD NAN", module) if torch.any(torch.isnan(x)) else None
-                          )
+        h5m.process_batch(inpt, is_tensor, raise_on_nan(f"input GRAD is NAN for {module}"))
+        h5m.process_batch(output, is_tensor,  raise_on_nan(f"output GRAD is NAN for {module}"))
         return inpt
 
     for mod in network.modules():

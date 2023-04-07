@@ -288,7 +288,7 @@ class ClusterizerApp:
             with out:
                 db.signal.compute({
                     self.feature_name: pipeline
-                })
+                }, parallelism='none')
                 feat = getattr(db, self.feature_name)
                 feat.attrs["config"] = pipeline.serialize()
                 db.flush()
@@ -380,7 +380,7 @@ class ClusterizerApp:
         from peaksjs_widget import PeaksJSWidget
         import qgrid
         df, label_set = self.segments_for(self.feature_name)
-
+        df.to_dict()
         w = PeaksJSWidget(array=self.db.signal[:], sr=self.sr, id_count=len(df),
                           layout=dict(margin="auto", max_width="1500px", width="100%"))
         empty = pd.DataFrame([])

@@ -1,6 +1,4 @@
 import os
-
-import pytest
 from assertpy import assert_that
 
 from .test_utils import tmp_db, TestARM

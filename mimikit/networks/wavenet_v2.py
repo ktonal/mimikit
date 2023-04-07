@@ -5,12 +5,11 @@ from typing import Optional, Tuple, Dict, List, Iterable, Set
 from itertools import accumulate, chain
 import operator as opr
 
-from .arm import ARM
-from ..config import NetworkConfig
+from .arm import ARM, NetworkConfig
 from ..io_spec import IOSpec
 from ..features.item_spec import ItemSpec, Step
 from ..modules.misc import Chunk, CausalPad, Transpose
-from ..modules.activations import GatingUnit, ActivationEnum, ActivationConfig
+from ..modules.activations import ActivationEnum, ActivationConfig
 
 __all__ = [
     "WNLayer",
@@ -175,6 +174,7 @@ class WaveNet(ARM, nn.Module):
         stride: int = 1
         bias: bool = True
         use_fast_generate: bool = False
+        tie_io_weights: bool = False
 
     @classmethod
     def get_layers(cls, config: "WaveNet.Config") -> List[WNLayer]:
@@ -214,6 +214,15 @@ class WaveNet(ARM, nn.Module):
                              .set(in_dim=h_dim)
                              .get()
                          for spec, h_dim in zip(config.io_spec.targets, all_dims)]
+        if config.tie_io_weights:
+            for i, o in zip(input_modules, output_module):
+                for name, m in i.named_modules():
+                    if isinstance(m, nn.Linear):
+                        try:
+                            m_o = o.get_submodule(name)
+                            m_o.weight = nn.Parameter(m.weight.transpose(0, 1))
+                        except AttributeError:
+                            continue
         return cls(config=config, layers=layers,
                    input_modules=input_modules, output_modules=output_module)
 
@@ -230,7 +239,6 @@ class WaveNet(ARM, nn.Module):
         self.transpose = Transpose(1, 2)
         self.layers: Iterable[WNLayer] = nn.ModuleList(layers)
         self.has_skips = config.skips_dim is not None
-        # output_modules[0][0][0].weight = nn.Parameter(input_modules[0][0][0].weight.transpose(1, 0))
         self.output_modules = nn.ModuleList(output_modules)
         self.eval_slice = slice(-1, None) if config.pad_side == 1 else slice(0, 1)
         self._gen_context = {}

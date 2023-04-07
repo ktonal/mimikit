@@ -28,10 +28,12 @@ class LoggingHooks(LightningModule):
         self._ep_metrics = {}
         self._batch_count = {}
 
+    def on_before_backward(self, loss: torch.Tensor) -> None:
+        if torch.isnan(loss.detach()) or torch.isinf(loss.detach().abs()):
+            raise RuntimeError(f"loss is {loss.detach()}")
+
     def log_output(self, out):
         for metric, val in out.items():
-            if torch.isnan(val.detach()):
-                raise RuntimeError(f"metric {metric} is nan")
             if metric not in self._ep_metrics:
                 self._ep_metrics.setdefault(metric, val.detach())
                 self._batch_count[metric] = 0

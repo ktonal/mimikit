@@ -9,10 +9,13 @@ from .test_utils import TestDB, tmp_db
 
 from mimikit.networks.sample_rnn_v2 import SampleRNN
 from mimikit.checkpoint import Checkpoint
+from mimikit.io_spec import IOSpec
 
 
 def test_should_instantiate_from_default_config():
-    given_config = SampleRNN.Config(io_spec=SampleRNN.qx_io())
+    given_config = SampleRNN.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig()
+    ))
 
     under_test = SampleRNN.from_config(given_config)
 
@@ -24,23 +27,27 @@ def test_should_take_n_unfolded_inputs():
     given_frame_sizes = (16, 4, 2,)
     given_config = SampleRNN.Config(
         frame_sizes=given_frame_sizes,
-        io_spec=SampleRNN.qx_io(),
+        io_spec=IOSpec.mulaw_io(
+            IOSpec.MuLawIOConfig()
+        ),
         inputs_mode='sum',
     )
-    given_inputs = (torch.arange(128).reshape(2, 64), )
+    given_inputs = (torch.arange(128).reshape(2, 64),)
     # given_inputs[1] -= 64
     under_test = SampleRNN.from_config(given_config)
     outputs = under_test(given_inputs)
 
     assert_that(type(outputs)).is_equal_to(tuple)
     assert_that(outputs[0].shape).is_equal_to(
-        (2, given_inputs[0].size(1)-given_frame_sizes[0],
+        (2, given_inputs[0].size(1) - given_frame_sizes[0],
          given_config.io_spec.inputs[0].elem_type.class_size)
     )
 
 
 def test_should_load_when_saved(tmp_path_factory):
-    given_config = SampleRNN.Config(io_spec=SampleRNN.qx_io())
+    given_config = SampleRNN.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig()
+    ))
     root = str(tmp_path_factory.mktemp("ckpt"))
     srnn = SampleRNN.from_config(given_config)
     ckpt = Checkpoint(id="123", epoch=1, root_dir=root)
@@ -58,7 +65,9 @@ def test_should_load_when_saved(tmp_path_factory):
 def test_generate(
         given_temp
 ):
-    given_config = SampleRNN.Config(io_spec=SampleRNN.qx_io())
+    given_config = SampleRNN.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig()
+    ))
     q_levels = given_config.io_spec.inputs[0].elem_type.class_size
     srnn = SampleRNN.from_config(given_config)
 
@@ -78,15 +87,17 @@ def test_generate(
 
 
 def test_generate_loop_integration(tmp_db):
-    given_config = SampleRNN.Config(io_spec=SampleRNN.qx_io())
+    given_config = SampleRNN.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig()
+    ))
     srnn = SampleRNN.from_config(given_config)
 
     db: TestDB = tmp_db("gen-test.h5")
 
     loop = GenerateLoopV2.from_config(
         GenerateLoopV2.Config(
-            prompts_length_sec=512/16000,
-            output_duration_sec=512/16000,
+            prompts_length_sec=512 / 16000,
+            output_duration_sec=512 / 16000,
             prompts_position_sec=(None, None,),
             batch_size=2,
             parameters=dict(temperature=(1.,))

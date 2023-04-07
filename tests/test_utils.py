@@ -10,7 +10,7 @@ import h5mapper as h5m
 from torch import nn
 
 from mimikit import ARM, IOSpec
-from mimikit.config import NetworkConfig
+from mimikit.networks.arm import NetworkConfig
 
 __all__ = [
     "TestDB",
@@ -45,11 +45,11 @@ def tmp_db(tmp_path):
 
     def create_func(filename) -> TestDB:
         TestDB.create(
-            root / filename,
+            str(root / filename),
             sources=tuple(map(str, range(2))),
             mode="w", keep_open=False, parallelism='none'
         )
-        return TestDB(root / filename)
+        return TestDB(str(root / filename))
 
     return create_func
 

@@ -1,6 +1,6 @@
 import abc
 import dataclasses as dtc
-from typing import Optional
+from typing import Optional, Protocol
 
 try:
     from functools import cached_property
@@ -13,7 +13,8 @@ import torch.nn as nn
 import h5mapper as h5m
 import os
 
-from .config import Config, Configurable, TrainingConfig, NetworkConfig
+from .config import Config, Configurable
+from .networks.arm import NetworkConfig
 from .features.dataset import DatasetConfig
 
 __all__ = [
@@ -26,6 +27,20 @@ class ConfigurableModule(Configurable, nn.Module, abc.ABC):
     @property
     @abc.abstractmethod
     def config(self) -> NetworkConfig:
+        ...
+
+
+class TrainingConfig(Protocol):
+    @property
+    def dataset(self) -> DatasetConfig:
+        ...
+
+    @property
+    def network(self) -> NetworkConfig:
+        ...
+
+    @property
+    def training(self) -> Config:
         ...
 
 
@@ -105,7 +120,7 @@ class Checkpoint:
 
     @cached_property
     def dataset_config(self) -> DatasetConfig:
-        return Config.deserialize(self.bank.attrs["data"])
+        return Config.deserialize(self.bank.attrs["dataset"], as_type=DatasetConfig)
 
     @cached_property
     def network_config(self) -> NetworkConfig:
@@ -114,7 +129,7 @@ class Checkpoint:
     @cached_property
     def training_config(self) -> TrainingConfig:
         bank = CheckpointBank(self.os_path, 'r')
-        return Config.deserialize(bank.attrs["training"])
+        return Config.deserialize(bank.attrs["training"], as_type=TrainingConfig)
 
     @cached_property
     def network(self) -> ConfigurableModule:

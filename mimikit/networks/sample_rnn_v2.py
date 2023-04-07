@@ -4,8 +4,7 @@ import dataclasses as dtc
 import torch
 import torch.nn as nn
 
-from .arm import ARMWithHidden
-from ..config import NetworkConfig
+from .arm import ARMWithHidden, NetworkConfig
 from ..io_spec import IOSpec
 from ..features.functionals import *
 from ..features.item_spec import ItemSpec

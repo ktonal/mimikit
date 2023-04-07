@@ -6,7 +6,7 @@ import torch
 from pytorch_lightning import LightningModule, Trainer
 import os
 
-from torch.optim import Optimizer
+from torch.optim import Optimizer, Adam
 
 import h5mapper as h5m
 
@@ -15,9 +15,9 @@ from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint
 from .samplers import TBPTTSampler
 from .generate import GenerateLoopV2
 from ..features.dataset import DatasetConfig
-from ..features.item_spec import ItemSpec, Step
-from ..networks.arm import ARM
-from ..config import Config, NetworkConfig
+from ..features.item_spec import ItemSpec
+from ..networks.arm import ARM, NetworkConfig
+from ..config import Config
 
 __all__ = [
     "TrainARMConfig",
@@ -63,38 +63,6 @@ class ARMHP(Config):
     dataset: DatasetConfig
     network: NetworkConfig
     training: TrainARMConfig
-
-
-class EMAOpt(Optimizer):
-
-    def __init__(self, params, lr=1e-3, betas=.999):
-        defaults = dict(lr=lr, momentum=betas, mix=.5)
-        super().__init__(params, defaults)
-
-    def step(self, closure=None):
-        loss = None
-        if closure is not None:
-            with torch.enable_grad():
-                loss = closure()
-        with torch.no_grad():
-            for group in self.param_groups:
-                lr, beta, mix = group["lr"], group["momentum"], group["mix"]
-                for p in group['params']:
-                    if p.grad is not None:
-                        state = self.state[p]
-                        if len(state) == 0:
-                            state['step'] = torch.tensor(0.)
-                            # Exponential moving average of gradient values
-                            state['exp_avg'] = p.grad.clone()
-                        step_t = state["step"]
-                        exp_avg = state['exp_avg']
-                        grad = p.grad
-
-                        step_t += 1
-                        exp_avg.mul_(beta).add_(grad, alpha=1 - beta)
-                        # upd = exp_avg.mul(1-mix).add(grad, alpha=mix)
-                        p.add_(exp_avg, alpha=-torch.rand(1).item()*lr)
-        return loss
 
 
 # noinspection PyCallByClass
@@ -150,7 +118,7 @@ class TrainARMLoop(LoggingHooks,
 
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
-        opt = EMAOpt(net.parameters(), lr=cfg.max_lr, betas=cfg.betas[0])
+        opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
         sched = torch.optim.lr_scheduler.OneCycleLR(
             opt,
             steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),

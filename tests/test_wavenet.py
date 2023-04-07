@@ -110,7 +110,9 @@ def test_layer_should_support_various_graphs(
 
 
 def test_should_instantiate_from_default_config():
-    given_config = WaveNet.Config(io_spec=WaveNet.qx_io())
+    given_config = WaveNet.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig(input_module_type="embedding")
+    ))
 
     under_test = WaveNet.from_config(given_config)
 
@@ -119,7 +121,9 @@ def test_should_instantiate_from_default_config():
 
 
 def test_should_load_when_saved(tmp_path_factory):
-    given_config = WaveNet.Config(io_spec=WaveNet.qx_io())
+    given_config = WaveNet.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig(input_module_type="embedding")
+    ))
     root = str(tmp_path_factory.mktemp("ckpt"))
     wn = WaveNet.from_config(given_config)
     ckpt = Checkpoint(id="123", epoch=1, root_dir=root)
@@ -137,7 +141,9 @@ def test_should_load_when_saved(tmp_path_factory):
 def test_generate(
         given_temp
 ):
-    given_config = WaveNet.Config(io_spec=WaveNet.qx_io())
+    given_config = WaveNet.Config(io_spec=IOSpec.mulaw_io(
+        IOSpec.MuLawIOConfig(input_module_type="embedding")
+    ))
     q_levels = given_config.io_spec.inputs[0].elem_type.class_size
     wn = WaveNet.from_config(given_config)
 

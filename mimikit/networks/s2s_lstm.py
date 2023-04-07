@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Optional
 
-from ..config import NetworkConfig
+from .arm import NetworkConfig
 from ..networks.arm import ARMWithHidden
 from ..io_spec import IOSpec
 from ..networks.parametrized_gaussian import ParametrizedGaussian

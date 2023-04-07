@@ -2,7 +2,7 @@ import abc
 import sys
 from copy import deepcopy
 from omegaconf import OmegaConf, ListConfig, DictConfig
-from typing import List, Tuple, Union, Dict, Any, Protocol
+from typing import List, Tuple, Union, Dict, Any
 import dataclasses as dtc
 from functools import reduce, partial
 
@@ -10,8 +10,6 @@ __all__ = [
     "private_runtime_field",
     "Config",
     "Configurable",
-    "NetworkConfig",
-    "TrainingConfig",
 ]
 
 
@@ -142,24 +140,3 @@ class Configurable(abc.ABC):
         ...
 
 
-@dtc.dataclass
-class NetworkConfig(Config, abc.ABC):
-
-    @property
-    @abc.abstractmethod
-    def io_spec(self) -> "IOSpec":
-        ...
-
-
-class TrainingConfig(Protocol):
-    @property
-    def dataset(self) -> "DatasetConfig":
-        ...
-
-    @property
-    def network(self) -> NetworkConfig:
-        ...
-
-    @property
-    def training(self) -> Config:
-        ...

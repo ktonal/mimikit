@@ -7,11 +7,12 @@ from assertpy import assert_that
 
 import mimikit as mmk
 import mimikit.config
+import mimikit.networks.arm
 
 
 class MyCustom(mimikit.config.Configurable, nn.Module):
     @dtc.dataclass
-    class CustomConfig(mmk.NetworkConfig):
+    class CustomConfig(mimikit.networks.arm.NetworkConfig):
         io_spec: mmk.IOSpec = mmk.IOSpec(
             inputs=(mmk.InputSpec(
                 extractor_name="signal",

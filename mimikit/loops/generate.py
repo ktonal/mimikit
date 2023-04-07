@@ -230,8 +230,10 @@ class GenerateLoopV2:
             prompt_idx: torch.Tensor,
             **template_vars
     ):
-        if self.logger is None or \
-                (not self.config.write_waveform and not self.config.display_waveform):
+        if (self.logger is None or (
+                not self.config.write_waveform and
+                not self.config.display_waveform)
+        ) and not self.config.yield_inversed_outputs:
             return
         features = self.network.config.io_spec.targets
         outputs = tuple(feature.inv(out) for feature, out in zip(features, final_outputs))

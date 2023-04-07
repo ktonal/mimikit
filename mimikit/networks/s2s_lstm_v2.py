@@ -5,7 +5,7 @@ import torch.nn as nn
 from typing import *
 
 from ..networks.arm import ARMWithHidden
-from ..config import NetworkConfig
+from .arm import NetworkConfig
 from ..io_spec import IOSpec
 from ..utils import AutoStrEnum
 from ..modules import LinearResampler

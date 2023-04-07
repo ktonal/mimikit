@@ -1,22 +1,18 @@
-from typing import Optional, Union, Set, Tuple, Generator
+from typing import Optional, Union, Generator
 
-import h5mapper as h5m
 import torch.nn as nn
 import torch
 from pprint import pprint
 import dataclasses as dtc
 
-from ..config import NetworkConfig
 from ..networks import ARM
 from ..features.functionals import Resample
-from ..features.item_spec import ItemSpec
-from ..loops import GenerateLoop, GenerateLoopV2
+from ..loops import GenerateLoopV2
 from ..checkpoint import Checkpoint
 from .nnn import NearestNextNeighbor
 
-
 __all__ = [
-    "Ensemble"
+    "EnsembleGenerator"
 ]
 
 
@@ -27,7 +23,7 @@ class VotingEnsemble(nn.Module):
         super(VotingEnsemble, self).__init__()
         self.nets = nn.ModuleList(networks)
         N = len(networks)
-        W = [1/N for _ in range(N)] if weights is None else weights
+        W = [1 / N for _ in range(N)] if weights is None else weights
         if len(W) != N:
             raise ValueError(f"Expected `weights` to be of length {N} but got {len(W)}")
         self.weights = torch.tensor(W) / sum(W)
@@ -60,100 +56,90 @@ class Event:
     temperature: Optional[float] = None
 
 
-class Ensemble(ARM):
+class EnsembleGenerator:
     """
     generate form a prompt by chaining checkpoints/models
     """
-    class Config(NetworkConfig):
-        io_spec = None
-        max_seconds: float = 10.
-        base_sr: int = 22050
-        stream: Generator = ()
-        print_events: bool = False
-
-    @classmethod
-    def from_config(cls, config: Config):
-        return Ensemble(config.max_seconds, config.base_sr,
-                        config.stream, config.print_events)
-
-    @property
-    def config(self) -> NetworkConfig:
-        return self.Config()
-
-    @property
-    def rf(self):
-        return None
-
-    def train_batch(self, item_spec: ItemSpec) -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
-        pass
-
-    def test_batch(self, item_spec: ItemSpec) -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
-        pass
-
-    def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
-        pass
-
-    def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
-        pass
-
-    @property
-    def generate_params(self) -> Set[str]:
-        return {}
 
     def __init__(self,
-                 max_seconds,
-                 base_sr,
-                 stream,  # a pbind stream of events
-                 print_events=False
+                 prompt: torch.Tensor,
+                 max_seconds: float = 10.,
+                 base_sr: int = 22050,
+                 stream: Generator = (),
+                 print_events: bool = False,
+                 device="cuda" if torch.cuda.is_available() else "cpu"
                  ):
-        super(Ensemble, self).__init__()
+        super(EnsembleGenerator, self).__init__()
+        self.prompt = prompt.to(device)
         self.max_seconds = max_seconds
         self.base_sr = base_sr
         self.stream = stream
         self.print_events = print_events
+        self.device = device
         # just to make self.device settable/gettable
         self._param = nn.Parameter(torch.ones(1))
 
-    def generate_step(self, t, inputs, ctx):
-        """called from outer GenerateLoop"""
+    def run(self):
+        prompt_length = t = self.prompt.size(-1)
+        n_samples = int(self.max_seconds * self.base_sr)
+        output = torch.zeros(self.prompt.size(0), n_samples,
+                             dtype=self.prompt.dtype).to(self.device)
+        output[:, :t] = self.prompt
+        while t < n_samples:
+            prompt = output[:, t-prompt_length:t]
+            step_output = self.generate_step(t, prompt)
+            if step_output is None:
+                break
+            output[:, t:t+step_output.size(1)] = step_output
+            t += step_output.size(1)
+        return output
+
+    def generate_step(self, t, inputs):
         if t >= int(self.max_seconds * self.base_sr):
             return None
         event, net, n_steps, params = self.next_event()
         if hasattr(net, 'to'):
-            net = net.to("cuda")
-        if hasattr(net, "use_fast_generate"):
-            net.use_fast_generate = False
+            net = net.to(self.device)
 
         if (t / self.base_sr + event.seconds) < self.max_seconds:
             if self.print_events:
                 e = dtc.asdict(event)
                 e.update({"start": t / self.base_sr})
                 pprint(e)
-            out = self.run_event(inputs[0], net, n_steps, params)
+            out = self.run_event(inputs, net, n_steps, params)
             return out
-        return torch.zeros(1, int(self.max_seconds * self.base_sr - t)).to("cuda")
+        return torch.zeros(inputs.size(0), int(self.max_seconds * self.base_sr - t)).to("cuda")
 
-    def run_event(self, inputs, net, feature, n_steps, params):
-        resample = Resample(self.base_sr, feature.sr)
+    def run_event(self,
+                  inputs: torch.Tensor,
+                  net: ARM,
+                  n_steps: int,
+                  params: dict
+                  ):
+        network_sr = net.config.io_spec.sr
+        resample = Resample(self.base_sr, network_sr)
         inputs_resampled = resample(inputs)
-        prompt = feature.t(inputs_resampled)
+        prompt = tuple(in_spec.transform(inputs_resampled) for in_spec in net.config.io_spec.inputs)
         n_input_samples = inputs.shape[1]
 
         cfg = GenerateLoopV2.Config(
-            parameters=params
+            parameters=params,
+            display_waveform=False,
+            write_waveform=False,
+            yield_inversed_outputs=True
         )
         loop = GenerateLoopV2(
             cfg,
             network=net,
             n_steps=n_steps,
-            dataloader=[(prompt,)],
-            logger=None
+            # the loop needs the indices of the prompt before the prompt for logging...
+            dataloader=[[torch.ones(1), *prompt]],
+            logger=None,
         )
         for outputs in loop.run():
-            inv_resample = Resample(feature.sr, self.base_sr)
+            inv_resample = Resample(network_sr, self.base_sr)
             # prompt + generated in base_sr :
-            y = feature.inv(outputs[0])
-            out = inv_resample(y)
+            out = inv_resample(outputs[0])
             return out[:, n_input_samples:]
 
     def next_event(self):
