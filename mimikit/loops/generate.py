@@ -105,6 +105,7 @@ class GenerateLoopV2:
         unit = io_spec.unit
         output_n_samples = int(sr * config.output_duration_sec)
         if isinstance(unit, Frame):
+            # TODO: DOESN'T TAKE INTO ACCOUNT THE HOP OF S2S
             hop_length = unit.hop_length
             return output_n_samples // hop_length
         else:
@@ -212,8 +213,8 @@ class GenerateLoopV2:
                 for tensor, out in zip(tensors, outputs):
                     # let the net return None when ignoring this step
                     if out is not None:
-                        n_out = out.size(1)
-                        tensor.data[:, t:t + n_out] = out
+                        n_out = min(out.size(1), tensor.size(1)-t)
+                        tensor.data[:, t:t + n_out] = out[:, :n_out]
                         until = t + n_out
 
             # wrap up

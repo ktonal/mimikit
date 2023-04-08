@@ -211,7 +211,6 @@ class TrainARMLoop(LoggingHooks,
             self.train_cfg
         )
         self.opt = None
-        self.avgs = {}
 
     def configure_optimizers(self):
         self.opt = self.get_optimizer(self.net, self.loader, self.config.training)
@@ -233,13 +232,6 @@ class TrainARMLoop(LoggingHooks,
 
     def on_train_epoch_end(self, *args):
         super(TrainARMLoop, self).on_train_epoch_end(*args)
-        opt: Optimizer = self.opt[0][0]
-        data = []
-        for g in opt.param_groups:
-            for p in g["params"]:
-                s = opt.state[p]
-                data += [torch.norm(s["exp_avg"]).item()]
-        self.avgs[self.current_epoch] = data
 
     def run(self):
         os.makedirs(self.root_dir, exist_ok=True)

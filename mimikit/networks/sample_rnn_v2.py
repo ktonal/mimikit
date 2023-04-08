@@ -160,7 +160,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         modules = []
         for in_spec in config.io_spec.inputs:
             if isinstance(in_spec.elem_type, Discrete):
-                params = dict(class_size=in_spec.elem_type.class_size)
+                params = dict(class_size=in_spec.elem_type.size)
                 if isinstance(in_spec.module, FramedLinearIO):
                     module_type = FramedConv1dIO
                 else:

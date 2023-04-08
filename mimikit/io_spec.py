@@ -86,9 +86,9 @@ class InputSpec(_FeatureSpec, type_field=False):
         super(InputSpec, self).bind_to(extractor)
         # wire feature -> module
         if isinstance(self.elem_type, Discrete):
-            self.module.set(class_size=self.elem_type.class_size)
+            self.module.set(class_size=self.elem_type.size)
         elif isinstance(self.elem_type, Continuous):
-            self.module.set(in_dim=self.elem_type.vector_size)
+            self.module.set(in_dim=self.elem_type.size)
         return self
 
 
@@ -136,10 +136,10 @@ class TargetSpec(_FeatureSpec, type_field=False):
         sampler = self.objective.get_sampler()
         if self.objective.objective_type == "reconstruction":
             assert isinstance(self.elem_type, Continuous)
-            self.module.set(out_dim=self.elem_type.vector_size)
+            self.module.set(out_dim=self.elem_type.size)
         elif self.objective.objective_type == "categorical_dist":
             assert isinstance(self.elem_type, Discrete)
-            self.module.set(out_dim=self.elem_type.class_size,
+            self.module.set(out_dim=self.elem_type.size,
                             sampler=sampler)
         self.criterion = self.objective.get_criterion()
         return self

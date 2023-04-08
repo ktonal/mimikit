@@ -170,6 +170,7 @@ class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
                           with_tbptt=cfg.with_tbptt)
         dec = DecoderLSTM(cfg.model_dim, cfg.num_layers, cfg.bottleneck,
                           bias=cfg.bias, weight_norm=(cfg.weight_norm,) * 2)
+
         return cls(cfg, input_module=None, output_module=None, encoder=enc, decoder=dec)
 
     def __init__(self,

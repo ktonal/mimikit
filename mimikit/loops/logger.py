@@ -59,6 +59,7 @@ class LoggingHooks(LightningModule):
             self.logger.log_metrics(to_log, self.current_epoch)
 
     def on_train_epoch_end(self, *args):
+        super(LoggingHooks, self).on_train_epoch_end(*args)
         if self.trainer.val_dataloaders is not None and any(self.trainer.val_dataloaders):
             # wait until validation end
             return

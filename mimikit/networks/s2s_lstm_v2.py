@@ -1,19 +1,21 @@
 from enum import auto
-
+import dataclasses as dtc
+import h5mapper as h5m
 import torch
 import torch.nn as nn
 from typing import *
 
+from ..features.item_spec import ItemSpec
 from ..networks.arm import ARMWithHidden
 from .arm import NetworkConfig
 from ..io_spec import IOSpec
 from ..utils import AutoStrEnum
-from ..modules import LinearResampler
-
+from ..modules import LinearResampler, ZipReduceVariables
 
 __all__ = [
     "EncoderLSTM",
     "DecoderLSTM",
+    "Seq2SeqLSTMNetwork"
 ]
 
 
@@ -40,8 +42,8 @@ class H0Init(AutoStrEnum):
 def _reset_hidden(lstm, x, h):
     if h is None or x.size(0) != h[0].size(1):
         B = x.size(0)
-        h0 = torch.zeros(2, B, lstm.output_dim).to(x.device)
-        c0 = torch.zeros(2, B, lstm.output_dim).to(x.device)
+        h0 = torch.randn(2, B, lstm.output_dim).to(x.device) * .01
+        c0 = torch.randn(2, B, lstm.output_dim).to(x.device) * .01
         return h0, c0
     else:
         return tuple(h_.detach() for h_ in h)
@@ -57,7 +59,8 @@ class EncoderLSTM(nn.Module):
                  output_dim: int = 512,
                  num_layers: int = 1,
                  hop: int = 4,
-                 apply_residuals: bool = False
+                 apply_residuals: bool = False,
+                 weight_norm: bool = False
                  ):
         super().__init__()
         self.downsampling = downsampling
@@ -77,17 +80,24 @@ class EncoderLSTM(nn.Module):
              ])
         if downsampling == "linear_resample":
             self.fc = LinearResampler(output_dim, 1 / hop, 1)
-        self.fc_out = nn.Linear(output_dim, output_dim)
+        self.fc_out = nn.Linear(output_dim, output_dim, bias=False)
         self.hidden = [None] * num_layers
+        if weight_norm:
+            for module in self.modules():
+                if isinstance(module, nn.ModuleList) or list(module.children()) != []:
+                    continue
+                for name in dict(module.named_parameters()):
+                    nn.utils.weight_norm(module, name)
 
     def forward(self, x):
         assert x.size(1) == self.hop
         for n, lstm in enumerate(self.lstm):
-            y, self.hidden[n] = lstm(x, self.reset_hidden(x, self.hidden[n]))
+            lstm.flatten_parameters()
+            y, self.hidden[n] = lstm(x,)
             # sum forward and backward nets
             y = y.view(*y.size()[:-1], self.output_dim, 2).sum(dim=-1)
             if n > 0 and self.apply_residuals:
-                x += y
+                x = x + y
             else:
                 x = y
         ds = self.downsampling
@@ -112,11 +122,12 @@ class DecoderLSTM(nn.Module):
                  model_dim: int = 512,
                  num_layers: int = 1,
                  hop: int = 4,
-                 apply_residuals: bool = False
+                 apply_residuals: bool = False,
+                 weight_norm: bool = False
                  ):
         super().__init__()
         self.upsampling = upsampling
-        self.model_dim = model_dim
+        self.output_dim = self.model_dim = model_dim
         self.num_layers = num_layers
         self.hop = hop
         self.apply_residuals = apply_residuals
@@ -132,6 +143,12 @@ class DecoderLSTM(nn.Module):
         if upsampling == "linear_resample":
             self.fc = LinearResampler(model_dim, hop, 1)
         self.hidden = [None] * num_layers
+        if weight_norm:
+            for module in self.modules():
+                if isinstance(module, nn.ModuleList) or list(module.children()) != []:
+                    continue
+                for name in dict(module.named_parameters()):
+                    nn.utils.weight_norm(module, name)
 
     def forward(self, x, hidden=None):
         assert x.size(1) == 1
@@ -148,11 +165,12 @@ class DecoderLSTM(nn.Module):
         # (!= to prev impl: all decoder got last encoder hidden)
         self.hidden[0] = hidden
         for n, lstm in enumerate(self.lstm):
-            y, self.hidden[n] = lstm(x, self.reset_hidden(x, self.hidden[n]))
+            lstm.flatten_parameters()
+            y, self.hidden[n] = lstm(x, self.reset_hidden(x, hidden))
             # sum forward and backward nets
             y = y.view(*y.size()[:-1], self.model_dim, 2).sum(dim=-1)
             if self.apply_residuals:
-                x += y
+                x = x + y
             else:
                 x = y
         return x
@@ -162,31 +180,44 @@ class DecoderLSTM(nn.Module):
 
 
 class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
+    @dtc.dataclass
     class Config(NetworkConfig):
         io_spec: IOSpec = None
-        input_dim: int = 513
         model_dim: int = 1024
-        num_layers: int = 1
-        n_lstm: int = 1
-        bottleneck: str = "add"
-        n_fc: int = 1
+        enc_downsampling: DownSampling = "edge_sum"
+        enc_n_lstm: int = 1
+        enc_apply_residuals: bool = False
+        enc_weight_norm: bool = False
+        dec_upsampling: UpSampling = "linear_resample"
+        dec_n_lstm: int = 1
+        dec_apply_residuals: bool = False
+        dec_weight_norm: bool = False
         hop: int = 8
-        bias: Optional[bool] = False
-        weight_norm: bool = False
-        input_module: Optional[nn.Module] = None
-        output_module: Optional[nn.Module] = None
-        with_tbptt: bool = False
-        with_sampler: bool = True
 
     @classmethod
     def from_config(cls, cfg: "Seq2SeqLSTMNetwork.Config"):
-        enc = EncoderLSTM(cfg.input_dim,
-                          cfg.model_dim, cfg.num_layers, cfg.n_lstm, cfg.bottleneck, cfg.n_fc,
-                          bias=cfg.bias, weight_norm=cfg.weight_norm, hop=cfg.hop,
-                          with_tbptt=cfg.with_tbptt)
-        dec = DecoderLSTM(cfg.model_dim, cfg.num_layers, cfg.bottleneck,
-                          bias=cfg.bias, weight_norm=(cfg.weight_norm,) * 2)
-        return cls(cfg, input_module=None, output_module=None, encoder=enc, decoder=dec)
+        enc = EncoderLSTM(
+            downsampling=cfg.enc_downsampling,
+            input_dim=cfg.model_dim,
+            # input_dim=cfg.io_spec.inputs[0].elem_type.size,
+            output_dim=cfg.model_dim, num_layers=cfg.enc_n_lstm,
+            weight_norm=cfg.enc_weight_norm, hop=cfg.hop, apply_residuals=cfg.enc_apply_residuals
+        )
+        dec = DecoderLSTM(
+            upsampling=cfg.dec_upsampling, model_dim=cfg.model_dim, num_layers=cfg.dec_n_lstm,
+            hop=cfg.hop, apply_residuals=cfg.dec_apply_residuals, weight_norm=cfg.dec_apply_residuals
+        )
+        input_modules = [spec.module.copy()
+                             .set(out_dim=cfg.model_dim)
+                             .module()
+                         for spec in cfg.io_spec.inputs]
+        input_module = ZipReduceVariables(mode="sum", modules=input_modules)
+        output_modules = [spec.module.copy()
+                              .set(in_dim=cfg.model_dim)
+                              .module()
+                          for spec in cfg.io_spec.targets]
+        output_module = ZipReduceVariables(mode="sum", modules=output_modules)
+        return cls(cfg, input_module=input_module, output_module=output_module, encoder=enc, decoder=dec)
 
     def __init__(self,
                  config: "Seq2SeqLSTMNetwork.Config",
@@ -197,37 +228,68 @@ class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
                  ):
         super(Seq2SeqLSTMNetwork, self).__init__()
         self._config = config
-        self.inpt_mod = input_module
+        self.input_module = input_module
+        # self.input_module = sum
         self.enc = encoder
         self.dec = decoder
-        if config.with_sampler:
-            self.sampler = ParametrizedGaussian(config.model_dim, config.model_dim, bias=config.bias)
-        self.outpt_mod = output_module
+        self.output_module = output_module
         self.output_length = lambda n: n
 
-    def forward(self, x, temperature=None):
-        x = self.inpt_mod(x)
+    def forward(self, x: Tuple, temperature=None):
+        x = self.input_module(x)
         coded, (h_enc, c_enc) = self.enc(x)
         return self.decode(coded, h_enc, c_enc, temperature)
 
     def decode(self, x, h_enc, c_enc, temperature=None):
-        coded = tile((x.unsqueeze(1) if len(x.shape) < 3 else x), 1, self.hp.hop)
-        if self.hp.with_sampler:
-            residuals, _, _ = self.sampler(coded)
-            coded = coded + residuals
-        output, (_, _) = self.dec(coded, h_enc, c_enc)
-        return self.outpt_mod(output, *((temperature,) if temperature is not None else ()))
+        output = self.dec(x, (h_enc, c_enc))
+        return self.output_module((output,), *((temperature,) if temperature is not None else ()))
 
     def reset_hidden(self):
-        self.enc.hidden = None
+        self.enc.hidden = [None] * self._config.enc_n_lstm
+        self.dec.hidden = [None] * self._config.dec_n_lstm
 
-    def before_generate(self, loop, batch, batch_idx):
+    def before_generate(self, prompts: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         self.reset_hidden()
-        self.forward(*batch)
-        return {}
+        # self.forward(*prompts)
+        return
 
-    def generate_step(self, t, inputs, ctx):
-        return self.forward(*inputs)
+    def generate_step(self, inputs: Tuple[torch.Tensor, ...], *, t: int = 0, **parameters: Dict[str, torch.Tensor]) -> \
+    Tuple[torch.Tensor, ...]:
+        return self.forward(inputs)
 
-    def after_generate(self, outputs, ctx, batch_idx):
+    def after_generate(self, final_outputs: Tuple[torch.Tensor, ...], batch_index: int) -> None:
         self.reset_hidden()
+
+    @property
+    def config(self) -> NetworkConfig:
+        return self._config
+
+    @property
+    def rf(self):
+        return self._config.hop
+
+    def train_batch(self, item_spec: ItemSpec) -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
+        hop = self._config.hop
+        return tuple(
+            spec.to_batch_item(
+                ItemSpec(shift=0, length=hop, unit=item_spec.unit)
+            )
+            for spec in self.config.io_spec.inputs
+        ), tuple(
+            spec.to_batch_item(
+                ItemSpec(shift=hop, length=hop, unit=item_spec.unit)
+            )
+            for spec in self.config.io_spec.targets
+        )
+
+    def test_batch(self, item_spec: ItemSpec) -> Tuple[Tuple[h5m.Input, ...], Tuple[h5m.Input, ...]]:
+        return tuple(
+            spec.to_batch_item(
+                item_spec
+            )
+            for spec in self.config.io_spec.inputs
+        ), ()
+
+    @property
+    def generate_params(self) -> Set[str]:
+        return set()

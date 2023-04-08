@@ -41,7 +41,7 @@ def test_should_take_n_unfolded_inputs():
     assert_that(type(outputs)).is_equal_to(tuple)
     assert_that(outputs[0].shape).is_equal_to(
         (2, given_inputs[0].size(1) - given_frame_sizes[0],
-         given_config.io_spec.inputs[0].elem_type.class_size)
+         given_config.io_spec.inputs[0].elem_type.size)
     )
 
 
@@ -69,7 +69,7 @@ def test_generate(
     given_config = SampleRNN.Config(io_spec=IOSpec.mulaw_io(
         IOSpec.MuLawIOConfig()
     ))
-    q_levels = given_config.io_spec.inputs[0].elem_type.class_size
+    q_levels = given_config.io_spec.inputs[0].elem_type.size
     srnn = SampleRNN.from_config(given_config)
 
     given_prompt = (torch.randint(0, q_levels, (1, 32,)),)

@@ -67,13 +67,12 @@ Q_LEVELS = 256
 class Continuous:
     min_value: Union[float, int]
     max_value: Union[float, int]
-    vector_size: int
+    size: int
 
 
 @dtc.dataclass
 class Discrete:
-    class_size: int
-    vector_size: int
+    size: int
 
 
 EventType = Union[Continuous, Discrete]
@@ -318,7 +317,7 @@ class MuLawCompress(Functional):
 
     @property
     def elem_type(self) -> Optional[EventType]:
-        return Discrete(self.q_levels, 1)
+        return Discrete(self.q_levels)
 
     def np_func(self, inputs):
         # librosa's mu_compress is not correctly centered...
@@ -409,7 +408,7 @@ class ALawCompress(Functional):
 
     @property
     def elem_type(self) -> Optional[EventType]:
-        return Discrete(self.q_levels, 1)
+        return Discrete(self.q_levels)
 
     def np_func(self, inputs):
         if np.any(inputs < -1) or np.any(inputs > 1):

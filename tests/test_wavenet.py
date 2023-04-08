@@ -147,7 +147,7 @@ def test_generate(
     given_config = WaveNet.Config(io_spec=IOSpec.mulaw_io(
         IOSpec.MuLawIOConfig(input_module_type="embedding")
     ))
-    q_levels = given_config.io_spec.inputs[0].elem_type.class_size
+    q_levels = given_config.io_spec.inputs[0].elem_type.size
     wn = WaveNet.from_config(given_config)
 
     given_prompt = torch.randint(0, q_levels, (1, 128,))
@@ -212,10 +212,15 @@ def test_should_support_multiple_io():
     assert_that(outputs[0].size()).is_equal_to(outputs[1].size())
 
 
-def test_should_train(tmp_db, tmp_path):
-    given_config = WaveNet.Config(io_spec=IOSpec.mulaw_io(
-        IOSpec.MuLawIOConfig(input_module_type="embedding"),
-    ), blocks=(3,))
+@pytest.mark.parametrize(
+    "given_io",
+    [
+        IOSpec.magspec_io(IOSpec.MagSpecIOConfig()),
+        IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="embedding"))
+    ]
+)
+def test_should_train(tmp_db, tmp_path, given_io):
+    given_config = WaveNet.Config(io_spec=given_io, blocks=(3,))
     wn = WaveNet.from_config(given_config)
     db = tmp_db("train-loop.h5")
     config = TrainARMConfig(
