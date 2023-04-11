@@ -3,7 +3,8 @@ import dataclasses as dtc
 import h5mapper as h5m
 import torch
 import torch.nn as nn
-from typing import *
+from typing import Tuple, Set, Dict
+from typing_extensions import Literal
 
 from ..features.item_spec import ItemSpec
 from ..networks.arm import ARMWithHidden

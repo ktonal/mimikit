@@ -4,18 +4,13 @@
 
 ### necessary
 
-- TEST EnsembleGenerator
-- Seq2Seq
-- Notebooks
+- TEST Notebooks
     - FreqNet
     - SampleRNN
     - Seq2Seq
     - Generate from Checkpoint
     - Ensemble
-- packaging
-    - publish PeaksJSWidget
-    - new build tools...?
-    - dependencies
+    - Clusterizer App
 - Colab TESTS
 
 ### nice to have
@@ -23,12 +18,10 @@
 - TEST M1 Support
 - Ensemble / Generate nb
     - Prompt UI
-    - AudioLogger methods (batch, spectrogram...)
 - Ensemble
     - working nearest neighbour generator
     - Generator classes (average from several models?, ...)
     - parameters (fade-in/out?, gain?, noise?, ...)
-- Clusterizer App
 - Eval checkpoint Notebook
 - Segmentation Notebook
 - PocoNet / poco Wavenet
