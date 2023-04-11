@@ -182,7 +182,8 @@ class AudioLogger:
         self.display_html(audio, **template_params)
 
     def display_batch(self, audio, **template_params):
-        pass
+        for y in audio:
+            self.display(y, **template_params)
 
     def display_spectrogram(self, audio, **template_params):
         pass

@@ -4,11 +4,14 @@ import re
 __all__ = [
     "AutoStrEnum",
     "SOUND_FILE_REGEX",
+    "CHECKPOINT_REGEX",
+    "DATASET_REGEX",
     "default_device"
 ]
 
 
 SOUND_FILE_REGEX = re.compile(r"wav$|aif$|aiff$|mp3$|mp4$|m4a$|webm$")
+CHECKPOINT_REGEX = DATASET_REGEX = re.compile(r".*\.h5$")
 
 
 class AutoStrEnum(str, Enum):

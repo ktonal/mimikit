@@ -1,5 +1,5 @@
 from .srnn import *
-from .s2s import *
+from .seq2seq import *
 from .freqnet import *
 from .generate_from_checkpoint import *
 

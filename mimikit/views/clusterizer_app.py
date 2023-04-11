@@ -5,7 +5,8 @@ import h5mapper
 from ipywidgets import widgets as W
 import numpy as np
 import pandas as pd
-
+from peaksjs_widget import PeaksJSWidget, Segment
+import qgrid
 
 from ..config import Config
 from ..extract.clusters import *
@@ -18,26 +19,9 @@ from .functionals import *
 __all__ = [
     'ComposeTransformWidget',
     'ClusterWidget',
-    'Segment',
     'ClusterizerApp'
 ]
 
-
-@dtc.dataclass
-class Segment:
-    startTime: float
-    endTime: float
-    id: int
-    color: str = '#ff640e'
-    labelText: str = ""
-    editable: bool = True
-    duration: float = dtc.field(init=False)
-
-    def __post_init__(self):
-        self.duration = self.endTime - self.startTime
-
-    def dict(self):
-        return dtc.asdict(self)
 
 
 @dtc.dataclass
@@ -377,8 +361,6 @@ class ClusterizerApp:
         )
 
     def label_view(self):
-        from peaksjs_widget import PeaksJSWidget
-        import qgrid
         df, label_set = self.segments_for(self.feature_name)
         df.to_dict()
         w = PeaksJSWidget(array=self.db.signal[:], sr=self.sr, id_count=len(df),
@@ -429,19 +411,16 @@ class ClusterizerApp:
                 # df.loc[i] = {**new_seg}
             else:
                 g.df = pd.DataFrame.from_dict([new_seg]).set_index("id", drop=True)
-            w.segments = [*w.segments, new_seg]
 
         def on_edit_segment(wdg, seg):
             for k, v in seg.items():
                 if k == "id": continue
                 g.edit_cell(seg["id"], k, v)
                 # df.loc[seg["id"], k] = v
-            w.segments = [s if s["id"] != seg["id"] else seg for s in w.segments]
             g.change_selection([seg["id"]])
 
         def on_remove_segment(wdg, seg):
             g.remove_row([seg["id"]])
-            w.segments = [*filter(lambda s: s["id"] != seg["id"], w.segments)]
             # df.drop(seg["id"], inplace=True)
 
         def segments_changed(ev):
@@ -450,8 +429,11 @@ class ClusterizerApp:
 
         w.observe(segments_changed, "segments")
         w.on_new_segment(on_new_segment)
+        w.on_new_segment(PeaksJSWidget.add_segment)
         w.on_edit_segment(on_edit_segment)
+        w.on_edit_segment(PeaksJSWidget.edit_segment)
         w.on_remove_segment(on_remove_segment)
+        w.on_remove_segment(PeaksJSWidget.remove_segment)
 
         # g.on("selection_changed", on_selection_changed)
         # g.on("cell_edited", on_edited_cell)

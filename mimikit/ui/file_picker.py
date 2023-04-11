@@ -3,7 +3,7 @@ import re
 from ipywidgets import widgets as W
 from functools import partial
 
-from ..utils import SOUND_FILE_REGEX
+from ..utils import SOUND_FILE_REGEX, CHECKPOINT_REGEX, DATASET_REGEX
 
 __all__ = [
     "FilePicker",
@@ -121,5 +121,5 @@ class FilePicker:
 
 
 SoundFilePicker = partial(FilePicker, pattern=SOUND_FILE_REGEX)
-CheckpointPicker = partial(FilePicker, pattern=re.compile(r".*\.h5$"))
-DatasetPicker = partial(FilePicker, pattern=re.compile(r".*\.h5$"), multiple=False)
+CheckpointPicker = partial(FilePicker, pattern=CHECKPOINT_REGEX)
+DatasetPicker = partial(FilePicker, pattern=DATASET_REGEX, multiple=False)

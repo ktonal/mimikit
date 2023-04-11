@@ -143,7 +143,7 @@ class Checkpoint:
         return net
 
     @cached_property
-    def dataset(self):
+    def dataset(self) -> h5m.TypedFile:
         dataset: DatasetConfig = self.dataset_config
         if os.path.exists(dataset.filename):
             return dataset.get(mode="r")

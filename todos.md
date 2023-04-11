@@ -32,10 +32,13 @@
 - Eval checkpoint Notebook
 - Segmentation Notebook
 - PocoNet / poco Wavenet
-
     
+
 ### long term...
 
+- Transformer
+- support for TBPTT in freq domain
+- SampleRNN in freq domain (tier_i ==> n_fft instead of frame_size)
 - flexible IO declaration (fft, signal+segments, learnable fft, ...)
 - more audio features
     - class ClusterLabel(Feature):

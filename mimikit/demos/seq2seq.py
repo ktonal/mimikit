@@ -10,7 +10,7 @@ def demo():
     sources = tuple(h5m.FileWalker(mmk.SOUND_FILE_REGEX, "./"))
     SAMPLE_RATE = 22050
 
-    db_path = "train-freqnet.h5"
+    db_path = "train-seq2seq.h5"
     if os.path.exists(db_path):
         os.remove(db_path)
 
@@ -44,22 +44,19 @@ def demo():
 
     # NETWORK
 
-    net = mmk.WaveNet.from_config(
-        mmk.WaveNet.Config(
+    net = mmk.Seq2SeqLSTMNetwork.from_config(
+        mmk.Seq2SeqLSTMNetwork.Config(
             io_spec=io,
-            kernel_sizes=(2,),
-            blocks=(3,),
-            dims_dilated=(2048,),
-            apply_residuals=False,
-            residuals_dim=None,
-            skips_dim=None,
-            groups=8,
-            act_f="Tanh",
-            act_g="Sigmoid",
-            pad_side=0,
-            bias=True,
-            use_fast_generate=False,
-            tie_io_weights=False
+            model_dim=512,
+            hop=4,
+            enc_downsampling="edge_sum",
+            enc_n_lstm=2,
+            enc_apply_residuals=True,
+            enc_weight_norm=False,
+            dec_upsampling="repeat",
+            dec_n_lstm=2,
+            dec_apply_residuals=True,
+            dec_weight_norm=False,
         ))
 
     """### Configure Training"""
@@ -75,8 +72,8 @@ def demo():
                            prompt_length_sec=3.,
                            batch_size=16,
                            tbptt_chunk_length=None,
-                           batch_length=64,
-                           downsampling=64,
+                           batch_length=net.config.hop,  # <-- !important
+                           downsampling=net.config.io_spec.hop_length//2,
                            limit_train_batches=10000,
                            max_epochs=300,
                            every_n_epochs=10,

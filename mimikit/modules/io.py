@@ -211,6 +211,7 @@ class MLPIO(IOModule):
             bias=self.bias, dropout=self.dropout, dropout1d=self.dropout1d,
             min_temperature=self.min_temperature
         )
+        self.activation = None
         return self.wrap(mod)
 
 

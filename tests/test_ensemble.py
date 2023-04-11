@@ -31,8 +31,6 @@ def checkpoints(tmp_path):
 
 def test_should_generate(tmp_db, checkpoints):
 
-    """# !! DON'T FORGET TO `%pip install pypbind` FIRST !!"""
-
     BASE_SR = 22050
 
     db = tmp_db("ensemble-test.h5")

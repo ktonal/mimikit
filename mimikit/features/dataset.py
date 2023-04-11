@@ -25,13 +25,13 @@ class DatasetConfig(Config, type_field=False):
     def schema(self):
         return {e.name: e for e in self.extractors}
 
-    def create(self, **kwargs):
+    def create(self, **kwargs) -> h5m.TypedFile:
         cls = self._typed_file_class()
         db = cls.create(self.filename, self.sources, **kwargs)
         db.attrs["config"] = self.serialize()
         return db
 
-    def get(self, **kwargs):
+    def get(self, **kwargs) -> h5m.TypedFile:
         cls = self._typed_file_class()
         return cls(self.filename, **kwargs)
 

@@ -8,7 +8,7 @@ from typing import *
 from ..features.item_spec import ItemSpec
 from ..networks.arm import ARMWithHidden
 from .arm import NetworkConfig
-from ..io_spec import IOSpec
+from ..io_spec import IOSpec, Continuous
 from ..utils import AutoStrEnum
 from ..modules import LinearResampler, ZipReduceVariables
 
@@ -94,6 +94,7 @@ class EncoderLSTM(nn.Module):
         for n, lstm in enumerate(self.lstm):
             lstm.flatten_parameters()
             y, self.hidden[n] = lstm(x,)
+            # y, self.hidden[n] = lstm(x, self.reset_hidden(x, self.hidden[n]))
             # sum forward and backward nets
             y = y.view(*y.size()[:-1], self.output_dim, 2).sum(dim=-1)
             if n > 0 and self.apply_residuals:
@@ -166,7 +167,8 @@ class DecoderLSTM(nn.Module):
         self.hidden[0] = hidden
         for n, lstm in enumerate(self.lstm):
             lstm.flatten_parameters()
-            y, self.hidden[n] = lstm(x, self.reset_hidden(x, hidden))
+            y, self.hidden[n] = lstm(x, hidden)
+            # y, self.hidden[n] = lstm(x, self.reset_hidden(x, self.hidden[n]))
             # sum forward and backward nets
             y = y.view(*y.size()[:-1], self.model_dim, 2).sum(dim=-1)
             if self.apply_residuals:
@@ -196,10 +198,20 @@ class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
 
     @classmethod
     def from_config(cls, cfg: "Seq2SeqLSTMNetwork.Config"):
+        if isinstance(cfg.io_spec.inputs[0].elem_type, Continuous):
+            input_dim = cfg.io_spec.inputs[0].elem_type.size
+            input_module = sum
+        else:
+            input_dim = cfg.model_dim
+            input_modules = [spec.module.copy()
+                                 .set(out_dim=cfg.model_dim)
+                                 .module()
+                             for spec in cfg.io_spec.inputs]
+            input_module = ZipReduceVariables(mode="sum", modules=input_modules)
+
         enc = EncoderLSTM(
             downsampling=cfg.enc_downsampling,
-            input_dim=cfg.model_dim,
-            # input_dim=cfg.io_spec.inputs[0].elem_type.size,
+            input_dim=input_dim,
             output_dim=cfg.model_dim, num_layers=cfg.enc_n_lstm,
             weight_norm=cfg.enc_weight_norm, hop=cfg.hop, apply_residuals=cfg.enc_apply_residuals
         )
@@ -207,11 +219,6 @@ class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
             upsampling=cfg.dec_upsampling, model_dim=cfg.model_dim, num_layers=cfg.dec_n_lstm,
             hop=cfg.hop, apply_residuals=cfg.dec_apply_residuals, weight_norm=cfg.dec_apply_residuals
         )
-        input_modules = [spec.module.copy()
-                             .set(out_dim=cfg.model_dim)
-                             .module()
-                         for spec in cfg.io_spec.inputs]
-        input_module = ZipReduceVariables(mode="sum", modules=input_modules)
         output_modules = [spec.module.copy()
                               .set(in_dim=cfg.model_dim)
                               .module()
@@ -261,6 +268,10 @@ class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
         self.reset_hidden()
 
     @property
+    def generate_params(self) -> Set[str]:
+        return {p for m in getattr(self.output_module, "heads", []) for p in getattr(m, "sampling_params", {})}
+
+    @property
     def config(self) -> NetworkConfig:
         return self._config
 
@@ -290,6 +301,3 @@ class Seq2SeqLSTMNetwork(ARMWithHidden, nn.Module):
             for spec in self.config.io_spec.inputs
         ), ()
 
-    @property
-    def generate_params(self) -> Set[str]:
-        return set()
