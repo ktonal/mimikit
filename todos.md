@@ -25,7 +25,7 @@
 - Eval checkpoint Notebook
 - Segmentation Notebook
 - PocoNet / poco Wavenet
-    
+- Train notebook(s) with UI
 
 ### long term...
 

@@ -273,7 +273,7 @@ class IOSpec(Config, type_field=False):
                 transform=MagSpec(c.n_fft, c.hop_length, center=False, window='hann'),
                 module=ChunkedLinearIO(n_chunks=1,
                                        activation=ActivationConfig(
-                                           act="Abs",
+                                           act=c.activation,
                                        )),
                 objective=Objective("reconstruction")
             ).bind_to(extractor),))

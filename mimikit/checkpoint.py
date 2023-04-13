@@ -110,7 +110,7 @@ class Checkpoint:
 
     @property
     def os_path(self):
-        return os.path.join(self.root_dir, f"{self.id}/epoch={self.epoch}.h5")
+        return os.path.join(self.root_dir, f"{self.id}/epoch={self.epoch}.ckpt")
 
     def delete(self):
         os.remove(self.os_path)

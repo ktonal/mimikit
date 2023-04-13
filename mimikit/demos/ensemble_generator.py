@@ -1,7 +1,9 @@
 def demo():
+    """### imports"""
+
     import h5mapper as h5m
     import mimikit as mmk
-    from pbind import *
+    from pbind import Pseq, Pbind, Pwhite, inf
 
     """### Get some checkpoints"""
     ROOT_DIR = './'
@@ -65,3 +67,6 @@ def demo():
     outputs = ensemble.run()
     logger = mmk.AudioLogger(sr=OUTPUT_SR)
     logger.display_batch(outputs)
+
+
+    """----------------------------"""

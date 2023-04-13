@@ -50,12 +50,11 @@ kwargs = {
         "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
     ],
     "keywords": "audio music sound deep-learning",
-    'python_requires': '>=3.6',
+    'python_requires': '>=3.7',
     'install_requires': REQUIRES,
     'extras_require': {
       "torch": torch_requires,

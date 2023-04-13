@@ -1,4 +1,3 @@
-import pytest
 import dataclasses as dtc
 
 import torch
@@ -6,7 +5,6 @@ import torch.nn as nn
 from assertpy import assert_that
 
 import mimikit as mmk
-import mimikit.config
 import mimikit.networks.arm
 
 

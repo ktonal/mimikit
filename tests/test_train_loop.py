@@ -44,7 +44,7 @@ def test_should_run(tmp_db, tmp_path):
     loop.run()
 
     content = os.listdir(os.path.join(str(tmp_path), loop.hash_))
-    assert_that(content).contains("hp.yaml", "outputs", "epoch=1.h5")
+    assert_that(content).contains("hp.yaml", "outputs", "epoch=1.ckpt")
 
     outputs = os.listdir(os.path.join(str(tmp_path), loop.hash_, "outputs"))
     assert_that([os.path.splitext(o)[-1] for o in outputs]).contains(".mp3")

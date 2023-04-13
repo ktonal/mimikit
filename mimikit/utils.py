@@ -11,7 +11,8 @@ __all__ = [
 
 
 SOUND_FILE_REGEX = re.compile(r"wav$|aif$|aiff$|mp3$|mp4$|m4a$|webm$")
-CHECKPOINT_REGEX = DATASET_REGEX = re.compile(r".*\.h5$")
+DATASET_REGEX = re.compile(r".*\.h5$")
+CHECKPOINT_REGEX = re.compile(r".*\.ckpt$")
 
 
 class AutoStrEnum(str, Enum):

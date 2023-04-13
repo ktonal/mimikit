@@ -2,12 +2,21 @@
 
 The MusIc ModelIng toolKIT (`mimikit`) is a python package that does Machine Learning with audio data.
 
-Currently, it focuses on 
-- training auto-regressive neural networks to generate audio 
+Currently, it focuses on training auto-regressive neural networks to generate audio.
 
-but it does also contain code to perform
-- basic & experimental clustering of audio data  
-- segmentation of audio files
+but it does also contain an app to perform basic & experimental clustering of audio data in a notebook.
+
+## Installation
+
+you can install with pip
+```shell script
+pip install mimikit[torch]
+```
+or with 
+```shell script
+pip install --upgrade mimikit[torch]
+```
+if you are looking for the latest version
  
 
 ## Usage 

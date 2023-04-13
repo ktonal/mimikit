@@ -3,7 +3,8 @@ import dataclasses as dtc
 import h5mapper as h5m
 import torch.nn as nn
 import torch
-from torch.nn import Transformer, TransformerEncoder, TransformerEncoderLayer
+from torch.nn import Transformer, TransformerEncoder, TransformerEncoderLayer,\
+    TransformerDecoder, TransformerDecoderLayer
 import math
 
 __all__ = [
@@ -77,12 +78,12 @@ class SimpleTransformer(ARM, nn.Module):
 
     @classmethod
     def from_config(cls, config: Config):
-        layer = TransformerEncoderLayer(d_model=config.model_dim,
+        layer = TransformerDecoderLayer(d_model=config.model_dim,
                                         nhead=config.n_heads,
                                         dim_feedforward=config.feedforward_dim,
                                         dropout=config.dropout,
                                         activation="relu")
-        model = TransformerEncoder(layer, num_layers=config.num_layers,
+        model = TransformerDecoder(layer, num_layers=config.num_layers,
                                    norm=None if not config.with_layer_norm
                                    else nn.LayerNorm(config.model_dim))
         input_modules = [spec.module.copy()
@@ -112,7 +113,7 @@ class SimpleTransformer(ARM, nn.Module):
             for spec in self.config.io_spec.inputs
         ), tuple(
             spec.to_batch_item(
-                ItemSpec(shift=self.rf+1, length=-self.rf, unit=Step()) + item_spec
+                ItemSpec(shift=1, length=0, unit=Step()) + item_spec
             )
             for spec in self.config.io_spec.targets
         )
@@ -155,6 +156,7 @@ class SimpleTransformer(ARM, nn.Module):
         self.output_modules = nn.ModuleList(output_modules)
         self.dp1d = nn.Dropout1d(config.input_dropout)
         self.src_mask = None
+        self.tgt_padding_mask = None
         # self.pe = PositionalEncoding(config.model_dim, dropout=0., max_len=config.rf+2)
 
     def forward(self, src: Tuple, **parameters):
@@ -164,12 +166,15 @@ class SimpleTransformer(ARM, nn.Module):
         src = src.permute(1, 0, 2).contiguous()
         device = src.device
         if self.src_mask is None or self.src_mask.size(0) != len(src):
-            mask = self._generate_square_context_mask(len(src)).to(device)
+            mask = self._generate_square_subsequent_mask(len(src)).to(device)
             self.src_mask = mask
-        out = self.model(src, self.src_mask).permute(1, 0, 2).contiguous()
-        if self.training:
-            out = out[:, self.rf:]
-        else:
+            self.tgt_padding_mask = torch.zeros(src.size(1), len(src), dtype=torch.bool, device=src.device)
+            self.tgt_padding_mask[0] = True
+        out = self.model(tgt=src, memory=src,
+                         tgt_mask=self.src_mask,
+                         memory_mask=self.src_mask,
+                         )\
+            .permute(1, 0, 2).contiguous()
+        if not self.training:
             out = out[:, -1:]
-        # return out,
         return tuple(mod(out, **parameters) for mod in self.output_modules)

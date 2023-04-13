@@ -1,6 +1,6 @@
 import dataclasses as dtc
 import hashlib
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 import torch
 from pytorch_lightning import LightningModule, Trainer
@@ -56,6 +56,7 @@ class TrainARMConfig(Config):
     prompt_length_sec: float = .5
     outputs_duration_sec: float = 1.
     temperature: Optional[Tuple[float, ...]] = None
+    trainer_kwargs: Dict = dtc.field(default_factory=dict)
 
 
 # implements TrainingConfig structurally
@@ -254,6 +255,7 @@ class TrainARMLoop(LoggingHooks,
             num_sanity_val_steps=0,
             accelerator=default_device(),
             gpus=torch.cuda.device_count() if torch.cuda.is_available() else 0,
+            **self.config.training.trainer_kwargs
         )
         self.trainer.fit(self)
         try:
