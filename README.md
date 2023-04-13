@@ -18,6 +18,10 @@ pip install --upgrade mimikit[torch]
 ```
 if you are looking for the latest version
  
+for an editable install, you'll need
+```shell script
+pip install -e . --config-settings editable_mode=compat
+```
 
 ## Usage 
 
