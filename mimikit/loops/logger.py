@@ -1,10 +1,10 @@
 from time import time, gmtime
 import dataclasses as dtc
-from typing import Optional
+from typing import Optional, Union
+from matplotlib import pyplot as plt
+import IPython.display as ipd
 
-import ffmpeg
-import h5mapper
-import soundfile as sf
+import pydub
 import numpy as np
 import os
 
@@ -18,21 +18,22 @@ __all__ = [
     "LoggingHooks",
     "LossLogger",
     'AudioLogger',
-    'convert_to_mp3'
 ]
 
 
 class LoggingHooks(LightningModule):
 
-    def on_epoch_start(self):
+    def on_train_epoch_start(self):
         # convenience to have printing of the loss at the end of the epoch
         self._ep_metrics = {}
         self._batch_count = {}
 
+    def on_before_backward(self, loss: torch.Tensor) -> None:
+        if torch.isnan(loss.detach()) or torch.isinf(loss.detach().abs()):
+            raise RuntimeError(f"loss is {loss.detach()}")
+
     def log_output(self, out):
         for metric, val in out.items():
-            if torch.isnan(val.detach()):
-                raise KeyboardInterrupt(f"metric {metric} is nan")
             if metric not in self._ep_metrics:
                 self._ep_metrics.setdefault(metric, val.detach())
                 self._batch_count[metric] = 0
@@ -58,6 +59,7 @@ class LoggingHooks(LightningModule):
             self.logger.log_metrics(to_log, self.current_epoch)
 
     def on_train_epoch_end(self, *args):
+        super(LoggingHooks, self).on_train_epoch_end(*args)
         if self.trainer.val_dataloaders is not None and any(self.trainer.val_dataloaders):
             # wait until validation end
             return
@@ -134,49 +136,66 @@ class LossLogger(LightningLoggerBase):
 @dtc.dataclass
 class AudioLogger:
     sr: int = 16000
-    hop_length: int = 512
-    filename_template: Optional[str] = None
-    target_dir: Optional[str] = None
-    id_template: Optional[str] = None
-    proxy_template: Optional[str] = None
-    target_bank: Optional[h5mapper.TypedFile] = None
+    file_template: Optional[str] = None  # file or title template
+    title_template: Optional[str] = None
+
+    figsize = (30, 4)
+
+    def __post_init__(self):
+        if self.file_template is not None:
+            self.target_dir = os.path.dirname(self.file_template)
+            self.format = os.path.splitext(self.file_template)[-1][1:]
 
     @staticmethod
     def format_template(template, **parameters):
-        exec(f"out = f'{template}'", {}, parameters)
-        return parameters["out"]
+        exec(f"__out__ = f'{template}'", {}, parameters)
+        return parameters["__out__"]
 
-    def log_mp3(self, audio, **params):
-        filename = self.format_template(self.filename_template, **params)
-        if '.wav' not in filename:
-            filename += '.wav'
-        if self.target_dir:
-            os.makedirs(self.target_dir, exist_ok=True)
-            if self.target_dir not in filename:
-                filename = os.path.join(self.target_dir, filename)
+    @staticmethod
+    def to_numpy(audio: Union[np.ndarray, torch.Tensor]) -> np.ndarray:
+        if audio.ndim > 1:
+            raise ValueError(f"Expected `audio` array to have a single dimension, got {audio.ndim}.")
         if isinstance(audio, torch.Tensor):
             audio = audio.squeeze().detach().cpu().numpy()
-        sf.write(filename, audio, self.sr, 'PCM_24')
-        convert_to_mp3(filename)
+        return audio
 
-    def log_h5(self, audio, **params):
-        if isinstance(audio, torch.Tensor):
-            audio = audio.squeeze().detach().cpu().numpy()
-        src = self.format_template(self.id_template, **params)
-        proxy = self.format_template(self.proxy_template, **params)
-        self.target_bank.add(src, {proxy: audio})
-        self.target_bank.flush()
+    def write(self, audio: Union[np.ndarray, torch.Tensor], **template_params):
+        audio = self.to_numpy(audio)
+        filename = self.format_template(self.file_template, **template_params)
+        os.makedirs(self.target_dir, exist_ok=True)
+        # normalize
+        y = np.int16(audio * 2 ** 15)
+        segment = pydub.AudioSegment(y.tobytes(),
+                                     frame_rate=self.sr,
+                                     sample_width=2,
+                                     channels=1)
+        params = dict(bitrate="320k")
+        with open(filename, "wb") as f:
+            segment.export(f, format=self.format,
+                           **(params if self.format in {"mp3", "mp4", "m4a"} else {}))
 
-    def write(self, audio, **params):
-        if self.filename_template and self.target_dir:
-            self.log_mp3(audio, **params)
-        if self.id_template and self.proxy_template and self.target_bank:
-            self.log_h5(audio, **params)
+    def write_batch(self, audio, **template_params):
+        pass
 
+    def display(self, audio, **template_params):
+        self.display_waveform(audio, **template_params)
+        self.display_html(audio, **template_params)
 
-def convert_to_mp3(file_path, exists_ok=True):
-    if exists_ok and os.path.isfile(os.path.splitext(file_path)[0] + ".mp3"):
-        os.remove(os.path.splitext(file_path)[0] + ".mp3")
-    stream = ffmpeg.input(file_path)
-    stream.output(os.path.splitext(file_path)[0] + ".mp3").run(quiet=True)
-    os.remove(file_path)
+    def display_batch(self, audio, **template_params):
+        for y in audio:
+            self.display(y, **template_params)
+
+    def display_spectrogram(self, audio, **template_params):
+        pass
+
+    def display_waveform(self, audio, **template_params):
+        audio = self.to_numpy(audio)
+        plt.figure(figsize=self.figsize)
+        plt.plot(audio)
+        if template_params:
+            plt.title(self.format_template(self.title_template, **template_params))
+        plt.show(block=False)
+
+    def display_html(self, audio, **template_params):
+        audio = self.to_numpy(audio)
+        ipd.display(ipd.Audio(audio, rate=self.sr))

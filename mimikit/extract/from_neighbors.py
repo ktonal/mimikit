@@ -1,14 +1,14 @@
 import torch
 import numpy as np
 
-from ..modules import angular_distance
+from ..modules import AngularDistance
 
 
 def nearest_neighbor(X, Y):
     """
     computes nearest neighbor by angular distance
     """
-    D_xy = angular_distance(X, Y)
+    D_xy = AngularDistance()(X, Y)
     dists, nn = torch.min(D_xy, dim=-1)
     return dists, nn
 

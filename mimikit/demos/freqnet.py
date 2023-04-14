@@ -4,95 +4,93 @@ def demo():
     import h5mapper as h5m
     import os
 
+    # DATA
 
     # list of files or directories to use as data ("./" is the cwd of the notebook)
-    sources = ['./data']
-    # audio sample rate
-    sr = 22050
-    # the size of the stft
-    n_fft = 2048
-    # hop_length of the stft
-    hop_length = n_fft // 4
+    sources = tuple(h5m.FileWalker(mmk.SOUND_FILE_REGEX, "./"))
+    SAMPLE_RATE = 22050
 
-    db_path = "train.h5"
+    db_path = "train-freqnet.h5"
     if os.path.exists(db_path):
         os.remove(db_path)
 
-    class SoundBank(h5m.TypedFile):
-        snd = h5m.Sound(sr=sr, mono=True, normalize=True)
+    signal = mmk.Extractor(
+        "signal",
+        mmk.Compose(mmk.FileToSignal(SAMPLE_RATE), mmk.RemoveDC(), mmk.Normalize()))
+    ds = mmk.DatasetConfig(sources=sources,
+                           filename=db_path,
+                           extractors=(signal,))
+    ds.create(mode="w")
+    dataset = ds.get(mode="r", keep_open=True)
 
-    SoundBank.create(db_path, sources)
-    soundbank = SoundBank(db_path, mode='r', keep_open=True)
+    N = dataset.signal.shape[0]
+    print(f"Dataset length in minutes is: {(N / SAMPLE_RATE) / 60:.2f}")
+    print("Extracted following files:")
+    for f in dataset.index:
+        print("\t", f)
 
-    """### Configure and run training"""
+    """### Configure Network"""
 
     # INPUT / TARGET
-
-    feature = mmk.Spectrogram(
-        sr=SoundBank.snd.sr,
-        n_fft=n_fft,
-        hop_length=hop_length,
-        coordinate='mag',
-        center=False
+    io = mmk.IOSpec.magspec_io(
+        mmk.IOSpec.MagSpecIOConfig(
+            sr=SAMPLE_RATE,
+            n_fft=2048,
+            hop_length=512,
+            activation="Identity"
+        ),
+        signal
     )
 
     # NETWORK
 
-    net = mmk.WaveNetFFT(
-        feature=feature,
-        input_heads=1,
-        output_heads=1,
-        scaled_activation=False,
+    net = mmk.WaveNet.from_config(
+        mmk.WaveNet.Config(
+            io_spec=io,
+            kernel_sizes=(2,),
+            blocks=(3,),
+            dims_dilated=(2048,),
+            apply_residuals=False,
+            residuals_dim=None,
+            skips_dim=None,
+            groups=8,
+            act_f="Tanh",
+            act_g="Sigmoid",
+            pad_side=0,
+            bias=True,
+            use_fast_generate=False,
+            tie_io_weights=False
+        ))
 
-        # number of layers (per block)
-        blocks=(4,),
-        # dimension of the layers
-        dims_dilated=(1024,),
-        groups=2,
-        pad_side=0,
-
-    )
-    net.use_fast_generate = False
+    """### Configure Training"""
 
     # OPTIMIZATION LOOP
-
-    mmk.train(
-        soundbank,
+    loop = mmk.TrainARMLoop.from_config(
+        mmk.TrainARMConfig(max_lr=1e-3,
+                           betas=(0.9, 0.9),
+                           div_factor=1.,
+                           final_div_factor=1.,
+                           pct_start=0.0,
+                           n_examples=4,
+                           prompt_length_sec=3.,
+                           batch_size=16,
+                           tbptt_chunk_length=None,
+                           batch_length=64,
+                           downsampling=64,
+                           limit_train_batches=10000,
+                           max_epochs=300,
+                           every_n_epochs=10,
+                           outputs_duration_sec=60,
+                           MONITOR_TRAINING=True,
+                           OUTPUT_TRAINING=False,
+                           CHECKPOINT_TRAINING=True),
+        dataset,
         net,
-        root_dir="./",
-        input_feature=feature,
-        target_feature=feature,
-
-        # BATCH
-
-        batch_size=4,
-        batch_length=64,
-        downsampling=feature.hop_length // 1,
-        shift_error=0,
-
-        # OPTIM
-
-        max_epochs=100,
-        limit_train_batches=None,
-
-        max_lr=1e-3,
-        betas=(0.9, 0.9),
-        div_factor=3.,
-        final_div_factor=1.,
-        pct_start=0.,
-        cycle_momentum=False,
-        reset_optim=False,
-
-        # MONITORING / OUTPUTS
-
-        CHECKPOINT_TRAINING=True,
-        MONITOR_TRAINING=True,
-        OUTPUT_TRAINING="",
-
-        every_n_epochs=10,
-        n_examples=4,
-        prompt_length=64,
-        n_steps=int(12 * (feature.sr // feature.hop_length)),
     )
+
+    """### RUN"""
+
+    loop.run()
+    None
 
     """----------------------------"""

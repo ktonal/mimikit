@@ -1,27 +1,19 @@
-from functools import partial
+from typing import Tuple
+
 import torch.nn.functional as F
 from torch import nn
 import torch
 
-from .homs import hom, HOM, Maybe, Sum
 
 __all__ = [
-    'Abs',
     'Chunk',
     'Flatten',
     'Transpose',
     'CausalPad',
-    'ScaledActivation',
-    'ScaledSigmoid',
-    'ScaledTanh',
-    'ScaledAbs'
+    'Unsqueeze',
+    'Unfold',
+    'ShapeWrap'
 ]
-
-
-class Abs(nn.Module):
-
-    def forward(self, x):
-        return x.abs_()
 
 
 class Transpose(nn.Module):
@@ -42,7 +34,7 @@ class CausalPad(nn.Module):
     def int_to_lr(i):
         return (i, 0) if i >= 0 else (0, abs(i))
 
-    def __init__(self, pad, **kwargs):  # TODO: learn=True
+    def __init__(self, pad, **kwargs):
         super().__init__()
         # for whatever reason torch decided dimensions should be in the reversed order...
         self.pad = tuple(i for p in reversed(pad) for i in self.int_to_lr(p))
@@ -52,52 +44,69 @@ class CausalPad(nn.Module):
         return F.pad(x, self.pad, **self.kwargs)
 
 
-class ScaledActivation(nn.Module):
-    def __init__(self, activation, dim, with_range=True):
-        super(ScaledActivation, self).__init__()
-        self.activation = activation
-        # self.scales = nn.Parameter(torch.rand(dim, ) * 100, )
-        self.scales = nn.Linear(dim, dim)
+class Chunk(nn.Module):
+    def __init__(
+            self,
+            chunks: int,
+            dim: int = -1,
+            sum_outputs: bool = False
+    ):
+        super(Chunk, self).__init__()
+        self.chunks = chunks
+        self.dim = dim
+        self.sum_outputs = sum_outputs
+
+    def forward(self, x):
+        x = torch.chunk(x, chunks=self.chunks, dim=self.dim)
+        if self.sum_outputs:
+            return sum(x)
+        return x
+
+
+class Flatten(nn.Module):
+    """flatten `n_dims` dimensions of a tensor (firsts n if n_dims > 0, else n lasts)"""
+
+    def __init__(self, n_dims):
+        super(Flatten, self).__init__()
+        self.n_dims = n_dims
+
+    def forward(self, x):
+        if self.n_dims < 0:
+            return x.reshape(*x.shape[:self.n_dims], -1)
+        else:
+            return x.reshape(-1, *x.shape[self.n_dims:])
+
+
+class Unsqueeze(nn.Module):
+
+    def __init__(self, dim):
+        super(Unsqueeze, self).__init__()
         self.dim = dim
 
     def forward(self, x):
-        # s = self.scales.to(x).view(*(d if d == self.dim else 1 for d in x.size()))
-        # return self.activation(self.rg * x / self.scales) * self.scales
-        return self.activation(x) / self.activation(self.scales(x))
+        return x.unsqueeze(self.dim)
 
 
-class ScaledSigmoid(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledSigmoid, self).__init__(nn.Sigmoid(), dim, with_range)
+class Unfold(nn.Module):
+
+    def __init__(self, dim=-1, size=1, step=1):
+        super(Unfold, self).__init__()
+        self.params = (dim, size, step)
+
+    def forward(self, x):
+        return x.unfold(*self.params)
 
 
-class ScaledTanh(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledTanh, self).__init__(nn.Tanh(), dim, with_range)
+class ShapeWrap(nn.Module):
+    def __init__(self, module: nn.Module,
+                 in_view: Tuple[int, ...],
+                 out_view: Tuple[int, ...]):
+        super(ShapeWrap, self).__init__()
+        self.m = module
+        self.in_view = in_view
+        self.out_view = out_view
 
-
-class ScaledAbs(ScaledActivation):
-    def __init__(self, dim, with_range=True):
-        super(ScaledAbs, self).__init__(Abs(), dim, with_range)
-
-
-class Chunk(HOM):
-    def __init__(self, mod: nn.Module, chunks, dim=-1, sig_in="x", sum_out=False):
-        out_vars = ", ".join(["x" + str(i) for i in range(chunks)])
-        super(Chunk, self).__init__(
-            f"{sig_in} -> {out_vars if not sum_out else 'out'}",
-            (mod, f"{sig_in} -> _tmp_"),
-            (partial(torch.chunk, chunks=chunks, dim=dim), f"_tmp_ -> {out_vars}"),
-            *Maybe(sum_out,
-                   Sum(f"{out_vars} -> out"))
-        )
-
-
-class Flatten(HOM):
-    """flatten `n_dims` dimensions of a tensor counting from the last"""
-
-    def __init__(self, n_dims):
-        super(Flatten, self).__init__(
-            "x -> x",
-            (lambda x: x.view(*x.shape[:-n_dims], -1), 'x -> x')
-        )
+    def forward(self, x):
+        B = x.size(0)
+        x = self.m(x.view(*self.in_view)).squeeze()
+        return x.view(B, *self.out_view)

@@ -5,7 +5,7 @@ this package exposes helper classes for processing, interacting & modeling audio
 
 .. py:currentmodule:: mimikit.audios.fmodules
 
-.. autoclass:: FModule
+.. autoclass:: Functional
     :special-members: __call__
     :members:
 

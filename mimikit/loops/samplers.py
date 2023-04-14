@@ -26,7 +26,7 @@ class TBPTTSampler(Sampler):
         self.chunk_length = min(chunk_length, n_samples)
         self.seq_len = seq_len
         self.n_chunks = max(1, self.n_samples // self.chunk_length - int(oversampling > 1))
-        self.remainder = self.n_samples % self.chunk_length
+        self.remainder = max(self.n_samples % self.chunk_length, 1)
         self.n_per_chunk = self.chunk_length // self.seq_len
         self.batch_size = batch_size
         self.oversampling = oversampling
@@ -70,18 +70,8 @@ class IndicesSampler(Sampler):
             self.indices = self.draw_indices(self.N, self._indices)
 
     def draw_indices(self, N, indices):
-        n_idx = len(indices)
-        if N == 0 and n_idx == 0:
-            raise ValueError("`indices` can not be empty if `N` == 0")
-        elif N > 0 and n_idx == 0:
-            # only random
-            return torch.randint(self.min_i, self.max_i, (N,))
-        elif N == 0 and n_idx > 0:
-            # only static
-            return indices
-        elif N > 0 and 0 < n_idx < N:
-            # complete statics with randoms
-            return [*indices, *torch.randint(self.min_i, self.max_i, (N,))]
+        if isinstance(indices, tuple):
+            return tuple(torch.randint(self.min_i, self.max_i, (1,)).item() if i is None else i
+                         for i in indices)
         else:
-            # N <= n_idx -> only statics
-            return indices
+            return torch.randint(self.min_i, self.max_i, (N,))

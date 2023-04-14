@@ -3,23 +3,22 @@ import torch
 import numpy as np
 
 from . import IndicesSampler, GenerateLoop
-from ..models import Checkpoint
-from ..extract.from_neighbors import nearest_neighbor, cum_entropy
-from ..utils import audio
+from ..checkpoint import Checkpoint
+from ..extract import nearest_neighbor, cum_entropy
 
 __all__ = [
     "eval_checkpoint"
 ]
 
 
-def eval_checkpoint(ckpt: Checkpoint, soundbank: h5m.SoundBank):
+def eval_checkpoint(ckpt: Checkpoint, soundbank: h5m.TypedFile):
     net = ckpt.network
     feature = ckpt.feature
     saved = {}
 
     def process_outputs(outputs, bidx):
         outputs = outputs[0]
-        y = feature.transform(soundbank.snd[:])
+        y = feature.t(soundbank.snd[:])
         y = torch.from_numpy(y).to(outputs)
         nn = torch.stack([nearest_neighbor(out, y)[1] for out in outputs])
         hx = torch.stack([cum_entropy(n, neg_diff=False) for n in nn]).detach().cpu().numpy()
