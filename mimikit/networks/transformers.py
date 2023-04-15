@@ -45,8 +45,8 @@ class PositionalEncoding(nn.Module):
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0).transpose(0, 1)
-        self.pe = nn.Parameter(pe)
-        # self.register_buffer('pe', pe)
+        # self.pe = nn.Parameter(pe)
+        self.register_buffer('pe', pe)
 
     def forward(self, x):
         r"""Inputs of forward function
@@ -140,14 +140,6 @@ class SimpleTransformer(ARM, nn.Module):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
-    def _generate_square_context_mask(self, sz, k=8):
-        mask = torch.zeros(sz, sz)
-        rg = torch.arange(k)
-        for i in range(sz):
-            mask[i, torch.clamp(rg + i - (2 // k), min=0, max=sz - 1)] = 1.
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        return mask
-
     def __init__(self, config: Config, transformer, input_module, output_modules):
         super(SimpleTransformer, self).__init__()
         self._config = config
@@ -157,13 +149,15 @@ class SimpleTransformer(ARM, nn.Module):
         self.dp1d = nn.Dropout1d(config.input_dropout)
         self.src_mask = None
         self.tgt_padding_mask = None
-        # self.pe = PositionalEncoding(config.model_dim, dropout=0., max_len=config.rf+2)
+        self.pe = PositionalEncoding(config.model_dim, dropout=0., max_len=2048)
 
+    # TODO: generate_step with query: (N, 1, D) and keys/values: (N, RF, D)
     def forward(self, src: Tuple, **parameters):
         src = self.input_module(src)
         if self.training:
             src = self.dp1d(src)
         src = src.permute(1, 0, 2).contiguous()
+        src = self.pe(src)
         device = src.device
         if self.src_mask is None or self.src_mask.size(0) != len(src):
             mask = self._generate_square_subsequent_mask(len(src)).to(device)
