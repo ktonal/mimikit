@@ -1,17 +1,14 @@
 # Todos
 
-## v0.4.0
+## v0.4.4
 
 ### necessary
 
-- TEST Notebooks
-    - FreqNet
-    - SampleRNN
-    - Seq2Seq
-    - Generate from Checkpoint
-    - Ensemble
-    - Clusterizer App
-- Colab TESTS
+- remove Clusterizer app from Colab Notebook
+- SamplerTransformer
+    - notebook
+- integrate generate_chunks to GenerateLoop/Ensemble?
+- ?? relative paths in configs ??
 
 ### nice to have
 
@@ -26,10 +23,27 @@
 - Segmentation Notebook
 - PocoNet / poco Wavenet
 - Train notebook(s) with UI
+- display waveforms with peaksjs and add metadata (prompt end, prompt position, temperature, event, ...)
+
+
+### Experiment
+
+- SamplerTransformer
+    - faster generate (cached attention + single query)
+    - Context Encoder (Encoder -> Decoder == context_seq -> generate_seq ~ hidden...)
+- GMeans and batches
+- TiedAE 
+    - and batches
+    - and residuals blocks
+    - ==> SoundStream Logic (downsampling encoder)
+- GMeans Layers
+- TiedAE + GMeans
+- SRNN, optimize first hidden in before_generate
+- FreqNet and input/output Dropout when generating
+
 
 ### long term...
 
-- Transformer
 - support for TBPTT in freq domain
 - SampleRNN in freq domain (tier_i ==> n_fft instead of frame_size)
 - flexible IO declaration (fft, signal+segments, learnable fft, ...)

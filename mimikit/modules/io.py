@@ -121,7 +121,7 @@ class LinearIO(IOModule):
 class FramedLinearIO(IOModule):
 
     def module(self) -> nn.Module:
-        self.not_none("frame_size", "hop_length", "out_dim")
+        self.not_none("frame_size", "hop_length", "out_dim", "class_size")
         mod = nn.Linear(self.frame_size, self.out_dim)
         self.with_linearizer = True
         self.with_unfold = True

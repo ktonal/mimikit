@@ -3,6 +3,12 @@ import numpy as np
 
 from ..modules import AngularDistance
 
+__all__ = [
+    "nearest_neighbor",
+    "cum_entropy",
+    "repeat_rate"
+]
+
 
 def nearest_neighbor(X, Y):
     """
