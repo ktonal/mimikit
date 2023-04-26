@@ -41,6 +41,7 @@ def dataset_view(cfg: DatasetConfig):
                                         RemoveDC(),
                                         Normalize()
                                     )),)
+        cfg.filename = save_as_txt.value
         out.clear_output()
         with out:
             db = cfg.create(mode='w')

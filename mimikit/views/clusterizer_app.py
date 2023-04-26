@@ -278,6 +278,7 @@ class ClusterizerApp:
                 db.flush()
                 db.close()
             self.build_load_view(self.db)
+            self.results_buttons.value = self.feature_name
 
         compute.children[0].on_click(on_submit)
 

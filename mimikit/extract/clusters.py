@@ -14,7 +14,6 @@ import torch.nn as nn
 from ..modules.loss_functions import AngularDistance
 from ..features.functionals import Functional, Identity
 
-
 __all__ = [
     "QCluster",
     "GCluster",
@@ -27,7 +26,6 @@ __all__ = [
 
 @dtc.dataclass
 class QCluster(Functional):
-
     cores_prop: float = .5
     n_neighbors: int = 8
     core_neighborhood_size: int = 8
@@ -236,23 +234,22 @@ class KMeans(Functional):
     n_init: int = 2
     max_iter: int = 100
     random_seed: int = 42
+    _est = None
 
-    def __post_init__(self):
-        self.est = C.KMeans(
+    def fit(self, X):
+        self._est = C.KMeans(
             n_clusters=self.n_clusters,
             n_init=self.n_init,
             max_iter=self.max_iter,
             random_state=self.random_seed,
             copy_x=False
         )
-
-    def fit(self, X):
-        self.est.fit(np.ascontiguousarray(X))
+        self._est.fit(np.ascontiguousarray(X))
         return self
 
     def np_func(self, inputs):
         self.fit(inputs)
-        return self.est.labels_
+        return self._est.labels_
 
     def torch_func(self, inputs):
         pass
@@ -269,9 +266,10 @@ class SpectralClustering(Functional):
     n_init: int = 10
     n_neighbors: int = 10
     random_seed: int = 42
+    _est = None
 
-    def __post_init__(self):
-        self.est = C.SpectralClustering(
+    def fit(self, X):
+        self._est = C.SpectralClustering(
             n_clusters=self.n_clusters,
             n_init=self.n_init,
             n_neighbors=self.n_neighbors,
@@ -280,14 +278,12 @@ class SpectralClustering(Functional):
             eigen_solver="amg",
             assign_labels="discretize",
         )
-
-    def fit(self, X):
-        self.est.fit(X)
+        self._est.fit(X)
         return self
 
     def np_func(self, inputs):
         self.fit(inputs)
-        return self.est.labels_
+        return self._est.labels_
 
     def torch_func(self, inputs):
         pass
@@ -308,7 +304,6 @@ def distance_matrices(X, metric="euclidean", n_neighbors=1, radius=1e-3):
 
 
 def cluster(X, estimator="argmax", **parameters):
-
     estimators = {
 
         "argmax": partial(ArgMax),
