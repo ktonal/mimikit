@@ -1,13 +1,13 @@
 def demo():
     """### Launch the app"""
-    try:
-        from google.colab import output
-        output.enable_custom_widget_manager()
-    except ImportError:
-        pass
     import mimikit as mmk
     from ipywidgets import widgets as W
     import IPython.display as ipd
+
+    # *************** MacOS user with M1 *****************
+    # if creating a dataset hang, uncomment the next 2 lines:
+    # import multiprocess as mp
+    # mp.set_start_method("spawn")
 
     ipd.display(mmk.MMK_STYLE_SHEET)
     ipd.display(W.HTML(

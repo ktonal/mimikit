@@ -7,7 +7,7 @@ import torchaudio.transforms as T
 import numpy as np
 from scipy.signal import lfilter
 from scipy.interpolate import interp1d
-from sklearn.decomposition import PCA as skPCA,\
+from sklearn.decomposition import PCA as skPCA, \
     FactorAnalysis as skFactorAnalysis, NMF as skNMF
 from sklearn.preprocessing import StandardScaler
 from numba import njit, prange, float32, intp
@@ -555,6 +555,11 @@ class MagSpec(Functional):
     pad_mode: str = "constant"
 
     @property
+    def stft(self):
+        return STFT(self.n_fft, self.hop_length, "mag",
+                    self.center, self.window, self.pad_mode)
+
+    @property
     def unit(self) -> Optional[Unit]:
         return Frame(self.n_fft, self.hop_length, padding=self.center)
 
@@ -562,19 +567,11 @@ class MagSpec(Functional):
     def elem_type(self) -> Optional[EventType]:
         return Continuous(0., float("inf"), 1 + self.n_fft // 2)
 
-    def __post_init__(self):
-        self.stft = STFT(self.n_fft, self.hop_length, "mag",
-                         self.center, self.window, self.pad_mode)
-
     def np_func(self, inputs):
         return self.stft.np_func(inputs)
 
     def torch_func(self, inputs):
         return self.stft.torch_func(inputs)
-
-    @property
-    def functions(self):
-        return self.stft.functions
 
     @property
     def inv(self):
@@ -766,9 +763,10 @@ class Envelop(Functional):
     normalize: bool = True
     interp_to_time_domain: bool = True
 
-    def __post_init__(self):
-        self.fft = MagSpec(self.n_fft, self.hop_length, center=True,
-                           window="hann", pad_mode="reflect")
+    @property
+    def fft(self):
+        return MagSpec(self.n_fft, self.hop_length, center=True,
+                       window="hann", pad_mode="reflect")
 
     @property
     def unit(self) -> Optional[Unit]:
@@ -802,9 +800,10 @@ class EnvelopBank(Functional):
     hop_length: Tuple[int] = (HOP_LENGTH,)
     normalize: bool = True
 
-    def __post_init__(self):
+    @property
+    def envelops(self):
         # always interp to time domain!
-        self.envelops = tuple(
+        return tuple(
             Envelop(n_fft, hop, self.normalize, True)
             for n_fft, hop in zip(self.n_fft, self.hop_length)
         )

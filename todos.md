@@ -4,11 +4,9 @@
 
 ### necessary
 
-- remove Clusterizer app from Colab Notebook
 - SamplerTransformer
     - notebook
 - integrate generate_chunks to GenerateLoop/Ensemble?
-- ?? relative paths in configs ??
 
 ### nice to have
 

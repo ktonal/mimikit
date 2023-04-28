@@ -40,6 +40,7 @@ class QCluster(Functional):
         self.K_ = None
 
     def fit(self, x):
+        self.__post_init__()
         N = x.shape[0]
         if self.n_neighbs is None:
             self.n_neighbs = int(np.sqrt(N))
@@ -113,6 +114,7 @@ class GCluster(Functional):
         self.losses_ = None
 
     def fit(self, x):
+        self.__post_init__()
         X = torch.from_numpy(x)
         H = nn.Parameter(X[torch.randint(0, X.shape[0], (self.n_means,))].clone())
         opt = torch.optim.Adam([H], lr=self.lr, betas=self.betas)
