@@ -880,7 +880,7 @@ class Interpolate(Functional):
                                                N, mode="linear").squeeze()
 
 
-@njit(float32[:](float32[:], intp), fastmath=True, cache=True)
+@njit(float32[:](float32[:], intp), fastmath=True, cache=False)
 def odd_reflect_pad_1d(x, k):
     """1d version of calling np.pad with **{mode='reflect', reflect_type='odd'}"""
     k_half = k // 2
@@ -892,7 +892,7 @@ def odd_reflect_pad_1d(x, k):
     return y
 
 
-@njit(float32[:](float32[:], intp), fastmath=True, cache=True, parallel=False)
+@njit(float32[:](float32[:], intp), fastmath=True, cache=False, parallel=False)
 def derivative_np_1d(y, max_lag):
     grads = np.zeros(y.shape, dtype=np.float32)
     for lag in prange(1, max_lag + 1):
@@ -904,7 +904,7 @@ def derivative_np_1d(y, max_lag):
     return grads
 
 
-@njit(float32[:, :](float32[:, :], intp), fastmath=True, cache=True, parallel=True)
+@njit(float32[:, :](float32[:, :], intp), fastmath=True, cache=False, parallel=True)
 def derivative_np_2d(y, max_lag):
     grads = np.zeros(y.shape, dtype=np.float32)
     for i in prange(y.shape[0]):

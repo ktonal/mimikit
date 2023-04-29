@@ -11,8 +11,7 @@ import os
 import torch
 from pytorch_lightning import LightningModule
 from pytorch_lightning.utilities import rank_zero_only
-from pytorch_lightning.loggers import LightningLoggerBase
-from pytorch_lightning.loggers.base import rank_zero_experiment
+from pytorch_lightning.loggers import Logger
 
 __all__ = [
     "LoggingHooks",
@@ -34,6 +33,7 @@ class LoggingHooks(LightningModule):
 
     def log_output(self, out):
         for metric, val in out.items():
+            self.log(metric, val, prog_bar=True)
             if metric not in self._ep_metrics:
                 self._ep_metrics.setdefault(metric, val.detach())
                 self._batch_count[metric] = 0
@@ -85,7 +85,7 @@ class LoggingHooks(LightningModule):
             self.logger.log_hyperparams(self.hparams)
 
 
-class LossLogger(LightningLoggerBase):
+class LossLogger(Logger):
 
     def __init__(self, logs_file):
         super(LossLogger, self).__init__()
@@ -96,10 +96,7 @@ class LossLogger(LightningLoggerBase):
         return 'LossLogger'
 
     @property
-    @rank_zero_experiment
-    def experiment(self):
-        # Return the experiment object associated with this logger.
-        return None
+    
 
     @property
     def version(self):

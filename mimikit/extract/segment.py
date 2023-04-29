@@ -18,7 +18,7 @@ def optimal_path(x, y):
     return dtw(C=pwd(abs(x), abs(y), metric='cosine'), subseq=True)[1][::-1]
 
 
-@njit(float64[:, :](float64[:, :], intp), fastmath=True, cache=True, parallel=True)
+@njit(float64[:, :](float64[:, :], intp), fastmath=True, cache=False, parallel=True)
 def pwdk_cosine(X, k):
     """
     pairwise distance within a kernel size - cosine version
@@ -59,7 +59,7 @@ def pwdk_cosine(X, k):
     return dist
 
 
-@njit(float64[:](float64[:, :], float64[:, :]), fastmath=True, cache=True, parallel=True)
+@njit(float64[:](float64[:, :], float64[:, :]), fastmath=True, cache=False, parallel=True)
 def convolve_diagonals(diagonals, kernel):
     """
     convolve `diagonals` with `kernel`
