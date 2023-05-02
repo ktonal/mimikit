@@ -19,7 +19,7 @@ jobs:
         python -m pip install --quiet --upgrade pip
         pip install -r requirements.txt
         pip install -r requirements-test.txt
-        pip install -r requirements-torch.txt
+        pip install -r requirements-torch.txt -f https://download.pytorch.org/whl/torch_stable.html
         pip install --quiet hatch==0.23.1
         pip list | grep torch
 
