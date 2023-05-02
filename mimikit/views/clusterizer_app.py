@@ -23,7 +23,6 @@ __all__ = [
 ]
 
 
-
 @dtc.dataclass
 class Meta:
     config_class: Type

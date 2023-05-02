@@ -761,12 +761,13 @@ class Envelop(Functional):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     normalize: bool = True
+    window: str = "hann"
     interp_to_time_domain: bool = True
 
     @property
     def fft(self):
         return MagSpec(self.n_fft, self.hop_length, center=True,
-                       window="hann", pad_mode="reflect")
+                       window=self.window, pad_mode="reflect")
 
     @property
     def unit(self) -> Optional[Unit]:

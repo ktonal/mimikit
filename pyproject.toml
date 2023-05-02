@@ -1,8 +1,110 @@
-[requires]
-python_version = ['3.7', 'pypy', 'pypy3']
-
 [build-system]
-requires = ['setuptools', 'wheel']
+requires = [
+    "hatchling>=1.0.0",
+]
+build-backend = "hatchling.build"
+
+[project]
+name = "mimikit"
+description = "Python package for generating audio with neural networks"
+readme = "README.md"
+license-files = { paths = ["LICENSE"] }
+requires-python = ">=3.7"
+authors = [
+    { name = "Antoine Daurat", email = "ktonalberlin@gmail.com" },
+]
+keywords = [
+    "audio",
+    "deep-learning",
+    "music",
+    "sound",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Other Audience",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Topic :: Multimedia :: Sound/Audio :: Analysis",
+    "Topic :: Multimedia :: Sound/Audio :: Sound Synthesis",
+]
+dependencies = [
+    "ffmpeg-python",
+    "h5mapper>=0.3.1",
+    "ipywidgets==7.7.1",
+    "librosa>=0.9.1",
+    "matplotlib",
+    "numba",
+    "numpy>=1.19.1",
+    "omegaconf>=2.3.0",
+    "pandas>=1.1.3",
+    "peaksjs_widget",
+    "pyamg",
+    "pydub",
+    "pypbind",
+    "qgrid",
+    "scikit-learn>=1.0.0",
+    "scipy>=1.4.1",
+    "soundfile>=0.10.2",
+    "soxr",
+    "tables>=3.6",
+    "test-tube>=0.7.5",
+    "tqdm>=4.48.0",
+]
+dynamic = [
+    "version",
+]
+
+[project.optional-dependencies]
+colab = [
+    "torch==1.13.1+cu116; platform_system == 'Windows' or platform_system == 'Linux'",
+    "torch==1.13.1; platform_system == 'Darwin'",
+    "torchaudio==0.13.1",
+    "pytorch-lightning==1.6.5",
+]
+torch = [
+    "pytorch-lightning==1.6.5",
+    "torch>=1.13.0,<2.0.0",
+    "torchaudio>=0.13.0",
+]
+test = [
+    "assertpy==1.1",
+    "pytest"
+]
+
+[project.scripts]
+segment = "mimikit.extract.segment:segment"
+stretch = "mimikit.extract.segment:re_stretch"
+
+[project.urls]
+Download = "https://github.com/ktonal/mimikit"
+Homepage = "https://github.com/ktonal/mimikit"
 
 [tool.hatch.commands]
-prerelease = 'hatch build'
+prerelease = "hatch build"
+
+[tool.hatch.version]
+path = "./mimikit/__init__.py"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.sdist]
+packages = ["mimikit/"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["mimikit/"]
+
+[tool.hatch.envs.default.env-vars]
+PIP_EXTRA_INDEX_URL = "https://download.pytorch.org/whl/cu116 https://pypi.org/simple/"
+
+
+[requires]
+python_version = [
+    "3.7",
+    "pypy",
+    "pypy3",
+]

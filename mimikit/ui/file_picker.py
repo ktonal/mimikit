@@ -19,7 +19,9 @@ class FilePicker:
                  multiple=True,
                  show_hidden=False,
                  pattern=".*",
-                 n_columns=5):
+                 n_columns=5,
+                 grid_height="200px"
+                 ):
         self.root = root
         self.n_columns = n_columns
         self.show_hidden = show_hidden
@@ -46,7 +48,7 @@ class FilePicker:
                                                             self.n_columns,
                                       grid_auto_rows="min-content",
                                       width="98%",
-                                      height="200px",
+                                      height=grid_height,
                                       margin='8px 0')),
             W.Text(disabled=True,
                    layout=W.Layout(display="none"))
@@ -69,13 +71,14 @@ class FilePicker:
                  .add_class("picker-button")
              for path in sorted(os.listdir(self.root)) if self.show_path(path)
              ]
-
-        for button in self.widget.children[1].children:
-            button.add_class("picker-button")
-            #             print(button.description, self.selected)
+        self.widget.children[1].children[0].on_click(self.click_path)
+        for button in self.widget.children[1].children[1:]:
+            # button.add_class("picker-button")
             if button.tooltip is not None and self.selected is not None and \
                     os.path.join(self.root, button.tooltip) in self.selected:
                 button.add_class("selected-button")
+            else:
+                button.remove_class("selected-button")
             button.on_click(self.click_path)
 
     def show_path(self, path):
@@ -99,7 +102,6 @@ class FilePicker:
             self.root = os.path.abspath(
                 os.path.join(self.root, desc.strip('\U0001F4C1 ')))
             self.widget.children[0].children[1].value = self.root
-            self.update()
         else:
             desc = os.path.join(self.root, desc)
             if self.multiple:
@@ -118,7 +120,7 @@ class FilePicker:
                     self.selected = desc
             self.widget.children[-1].value = os.path.split(self.selected)[-1] \
                 if not self.multiple else "<$>".join([os.path.split(p)[-1] for p in self.selected])
-
+        self.update()
 
 SoundFilePicker = partial(FilePicker, pattern=SOUND_FILE_REGEX)
 CheckpointPicker = partial(FilePicker, pattern=CHECKPOINT_REGEX)

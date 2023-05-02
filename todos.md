@@ -11,7 +11,7 @@
 ### nice to have
 
 - TEST M1 Support
-- Ensemble / Generate nb
+- Ensemble
     - Prompt UI
 - Ensemble
     - working nearest neighbour generator
