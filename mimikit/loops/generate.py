@@ -221,7 +221,7 @@ class GenerateLoopV2:
             final_outputs = tuple(x.data for x in tensors)
             self.network.after_generate(final_outputs, prompt_idx)
 
-            final_outputs = self.process_outputs(tuple(x.cpu() for x in final_outputs), prompt_idx, **self.template_vars)
+            final_outputs = self.process_outputs(tuple(x for x in final_outputs), prompt_idx, **self.template_vars)
             yield final_outputs
             if self.config.callback is not None:
                 self.config.callback(final_outputs)

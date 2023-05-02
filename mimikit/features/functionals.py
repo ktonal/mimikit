@@ -483,6 +483,8 @@ class STFT(Functional):
         return S
 
     def torch_func(self, inputs):
+        if inputs.device == "mps":
+            inputs = inputs.cpu()
         S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
                        center=self.center,
                        window=torch.hann_window(self.n_fft, device=inputs.device),
@@ -531,6 +533,8 @@ class ISTFT(Functional):
         return y
 
     def torch_func(self, inputs):
+        if inputs.device == "mps":
+            inputs = inputs.cpu()
         if self.coordinate == 'pol':
             inputs = inputs[..., 0] * torch.exp(1j * inputs[..., 1])
         elif self.coordinate == 'car':
@@ -600,6 +604,8 @@ class GLA(Functional):
         return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center)
 
     def torch_func(self, inputs):
+        if inputs.device == "mps":
+            inputs = inputs.cpu()
         # TODO : pull request for center=False support?
         gla = T.GriffinLim(n_fft=self.n_fft, hop_length=self.hop_length, power=1.,
                            wkwargs=dict(device=inputs.device))
