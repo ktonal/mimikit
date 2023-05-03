@@ -1,3 +1,3 @@
-torch>=2.0.0+cpu
-torchaudio>=2.0.0+cpu
+torch==2.0.0+cu118
+torchaudio==2.0.1+cu118
 pytorch-lightning>=2.0.2
