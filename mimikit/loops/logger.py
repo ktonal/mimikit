@@ -1,6 +1,8 @@
 from time import time, gmtime
 import dataclasses as dtc
 from typing import Optional, Union
+
+from lightning_fabric.loggers.logger import rank_zero_experiment
 from matplotlib import pyplot as plt
 import IPython.display as ipd
 
@@ -32,8 +34,9 @@ class LoggingHooks(LightningModule):
             raise RuntimeError(f"loss is {loss.detach()}")
 
     def log_output(self, out):
+        if "loss" in out:
+            self.log("loss", out["loss"], prog_bar=True, on_step=True, on_epoch=False)
         for metric, val in out.items():
-            self.log(metric, val, prog_bar=True)
             if metric not in self._ep_metrics:
                 self._ep_metrics.setdefault(metric, val.detach())
                 self._batch_count[metric] = 0
@@ -42,11 +45,13 @@ class LoggingHooks(LightningModule):
             self._batch_count[metric] += 1
         return out
 
-    def training_step_end(self, out):
-        return self.log_output(out)
+    def on_train_batch_end(self, outputs, batch, batch_idx: int) -> None:
+        return self.log_output(outputs)
 
-    def validation_step_end(self, out):
-        return self.log_output(out)
+    def on_validation_batch_end(
+        self, outputs, batch, batch_idx: int, dataloader_idx: int = 0
+    ) -> None:
+        return self.log_output(outputs)
 
     def _flush_ep_metrics(self):
         to_print = "Epoch %i " % self.current_epoch
@@ -96,7 +101,10 @@ class LossLogger(Logger):
         return 'LossLogger'
 
     @property
-    
+    @rank_zero_experiment
+    def experiment(self):
+        # Return the experiment object associated with this logger.
+        return None
 
     @property
     def version(self):
