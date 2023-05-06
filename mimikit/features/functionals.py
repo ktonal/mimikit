@@ -455,6 +455,7 @@ class STFT(Functional):
     center: bool = True
     window: Optional[str] = "hann"
     pad_mode: str = "constant"
+    alignment: Optional[str] = "end"
 
     @property
     def unit(self) -> Optional[Unit]:
@@ -464,7 +465,17 @@ class STFT(Functional):
     def elem_type(self) -> Optional[EventType]:
         return Continuous(0., float("inf"), 1 + self.n_fft // 2)
 
+    def _align(self, inputs):
+        if self.alignment is None:
+            return inputs
+        elif self.alignment == "end":
+            return inputs[inputs.shape[0] % self.hop_length:]
+        elif self.alignment == "start":
+            return inputs[:-(inputs.shape[0] % self.hop_length)]
+        return inputs
+
     def np_func(self, inputs):
+        inputs = self._align(inputs)
         # returned shape is (time x freq)
         S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
                          center=self.center,
@@ -479,7 +490,7 @@ class STFT(Functional):
             S = abs(S)
         elif self.coordinate == 'angle':
             S = np.angle(S)
-        S = _add_metadata(S, n_samples=inputs.shape[0], **_to_dict(inputs.dtype.metadata))
+        # S = _add_metadata(S, n_samples=inputs.shape[0], **_to_dict(inputs.dtype.metadata))
         return S
 
     def torch_func(self, inputs):
@@ -553,11 +564,12 @@ class MagSpec(Functional):
     center: bool = True
     window: Optional[str] = "hann"
     pad_mode: str = "constant"
+    alignment: Optional[str] = "end"
 
     @property
     def stft(self):
         return STFT(self.n_fft, self.hop_length, "mag",
-                    self.center, self.window, self.pad_mode)
+                    self.center, self.window, self.pad_mode, alignment=self.alignment)
 
     @property
     def unit(self) -> Optional[Unit]:
