@@ -5,6 +5,7 @@ import torch
 from pprint import pprint
 import dataclasses as dtc
 
+from ..features.item_spec import convert, Sample
 from ..utils import default_device
 from ..networks import ARM
 from ..features.functionals import Resample
@@ -119,7 +120,8 @@ class EnsembleGenerator:
         resample = Resample(self.base_sr, network_sr)
         inputs_resampled = resample(inputs)
         prompt = tuple(in_spec.transform(inputs_resampled) for in_spec in net.config.io_spec.inputs)
-        n_input_samples = inputs.shape[1]
+        # ffts use LESS input samples than provided:
+        n_prompt_samples = convert(prompt[0].shape[1], net.config.io_spec.targets[0].unit, Sample(sr=network_sr), True)
 
         cfg = GenerateLoopV2.Config(
             parameters=params,
@@ -138,8 +140,8 @@ class EnsembleGenerator:
         for outputs in loop.run():
             inv_resample = Resample(network_sr, self.base_sr)
             # prompt + generated in base_sr :
-            out = inv_resample(outputs[0])
-            return out[:, n_input_samples:]
+            out = inv_resample(outputs[0][:, n_prompt_samples:])
+            return out
 
     def next_event(self):
         event = Event(**next(self.stream))

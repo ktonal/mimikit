@@ -19,7 +19,7 @@ from .logger import AudioLogger
 from ..utils import default_device
 
 from ..config import Config
-from ..features.item_spec import ItemSpec, Second, Frame
+from ..features.item_spec import ItemSpec, Second, Frame, convert, Sample
 from ..networks.arm import ARM
 from .samplers import IndicesSampler
 
@@ -105,9 +105,8 @@ class GenerateLoopV2:
         unit = io_spec.unit
         output_n_samples = int(sr * config.output_duration_sec)
         if isinstance(unit, Frame):
-            # TODO: DOESN'T TAKE INTO ACCOUNT THE HOP OF S2S
-            hop_length = unit.hop_length
-            return output_n_samples // hop_length
+            tmp = convert(output_n_samples, Sample(1), unit, as_length=True)
+            return tmp + 1
         else:
             return output_n_samples
 
@@ -239,6 +238,8 @@ class GenerateLoopV2:
         ) and not self.config.yield_inversed_outputs:
             return final_outputs
         features = self.network.config.io_spec.targets
+        # torch.griffinlim has no center=False option -> this messes up the output lengths!
+        # todo: figure out if we need to do the istft on cpu
         outputs = tuple(feature.inv(out) for feature, out in zip(features, final_outputs))
         for output in outputs:
             for example, idx in zip(output, prompt_idx):

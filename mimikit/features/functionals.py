@@ -14,7 +14,7 @@ from numba import njit, prange, float32, intp
 import dataclasses as dtc
 import abc
 
-from .item_spec import Sample, Frame, Unit
+from .item_spec import Sample, Frame, Unit, convert
 from ..config import Config
 
 __all__ = [
@@ -465,17 +465,28 @@ class STFT(Functional):
     def elem_type(self) -> Optional[EventType]:
         return Continuous(0., float("inf"), 1 + self.n_fft // 2)
 
-    def _align(self, inputs):
+    def _fix_length(self, inputs):
+        n = len(inputs.shape)
         if self.alignment is None:
             return inputs
-        elif self.alignment == "end":
-            return inputs[inputs.shape[0] % self.hop_length:]
-        elif self.alignment == "start":
-            return inputs[:-(inputs.shape[0] % self.hop_length)]
+        target_length = convert(
+            convert(inputs.shape[n-1], Sample(1), self.unit, as_length=True) + int(self.center),
+            self.unit, Sample(1), as_length=True
+        )
+        if self.alignment == "end":
+            if n == 1:
+                return inputs[-target_length:]
+            else:
+                return inputs[:, -target_length:]
+        if self.alignment == "start":
+            if n == 1:
+                return inputs[:target_length]
+            else:
+                return inputs[:, :target_length]
         return inputs
 
     def np_func(self, inputs):
-        inputs = self._align(inputs)
+        inputs = self._fix_length(inputs)
         # returned shape is (time x freq)
         S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
                          center=self.center,
@@ -494,6 +505,7 @@ class STFT(Functional):
         return S
 
     def torch_func(self, inputs):
+        inputs = self._fix_length(inputs)
         S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
                        center=self.center,
                        window=torch.hann_window(self.n_fft, device=inputs.device),
@@ -608,12 +620,17 @@ class GLA(Functional):
         return Continuous(-1., 1., 1)
 
     def np_func(self, inputs):
+        if len(inputs.shape) == 2:
         # inputs is of shape (time x freq)
-        return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center)
-
+            return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center)
+        else:
+            return np.stack(tuple(
+                librosa.griffinlim(x.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center) for x in inputs
+            ))
     def torch_func(self, inputs):
         # TODO : pull request for center=False support?
         gla = T.GriffinLim(n_fft=self.n_fft, hop_length=self.hop_length, power=1.,
+                           # length=convert(inputs.shape[1], Frame(self.n_fft, self.hop_length, self.center), Sample(None), True),
                            wkwargs=dict(device=inputs.device))
         # inputs is of shape (time x freq)
         return gla(inputs.transpose(-1, -2).contiguous())

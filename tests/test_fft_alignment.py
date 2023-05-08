@@ -25,6 +25,49 @@ def test_should_fail_with_magspec():
         assert_that(np.allclose(x[-y.shape[0]:], y)).is_true()
 
 
+def test_convert_should_match_inverse():
+    n_fft, hop_length, center = 2048, 512, False
+    alignment = "end"
+    fft = mmk.STFT(n_fft, hop_length, center=center, alignment=alignment)
+    ifft = fft.inv
+
+    n_frames = 8
+    extra = 104
+    x = mmk.Normalize()(np.random.randn((n_fft-hop_length)+(n_frames*hop_length)+extra))
+
+    S = fft(x)
+
+    assert_that(S.shape[0]).is_equal_to(n_frames)
+
+    n_samples = mmk.convert(S.shape[0], fft.unit, mmk.Sample(sr=1), as_length=True)
+
+    y = ifft(S)
+
+    assert_that(n_samples).is_equal_to(y.shape[0])
+
+
+def test_convert_should_match_inverse_with_center_true():
+    n_fft, hop_length, center = 2048, 512, True
+    alignment = "end"
+    fft = mmk.STFT(n_fft, hop_length, center=center, alignment=alignment)
+    ifft = fft.inv
+
+    n_frames = 8
+    extra = 104
+    x = mmk.Normalize()(np.random.randn((n_frames-1)*hop_length+extra))
+
+    S = fft(x)
+
+    assert_that(S.shape[0]).is_equal_to(n_frames)
+
+    n_samples = mmk.convert(S.shape[0], fft.unit, mmk.Sample(sr=1), as_length=True)
+
+    y = ifft(S)
+
+    assert_that(n_samples).is_equal_to(y.shape[0])
+
+
+
 def test_should_end_align_with_center_true():
     n_fft, hop_length, center = 2048, 512, True
     alignment = "end"

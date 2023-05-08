@@ -8,7 +8,8 @@ __all__ = [
     "Step",
     "Second",
     "Unit",
-    "ItemSpec"
+    "ItemSpec",
+    "convert"
 ]
 
 
@@ -76,6 +77,8 @@ def convert(
     if from_ is Sample:
         if to_ is Frame:
             fs, hl = to_unit.frame_size, to_unit.hop_length
+            # has_padding = to_unit.padding is not None and to_unit.padding
+            # x -= int(has_padding)
             x -= _get_extra(to_unit)
             return int(x // hl)
         elif to_ is Second:
@@ -85,6 +88,8 @@ def convert(
 
     elif from_ is Frame:
         fs, hl = from_unit.frame_size, from_unit.hop_length
+        has_padding = from_unit.padding is not None and from_unit.padding
+        x -= int(has_padding)
         if to_ is Sample:
             return int(x * hl) + _get_extra(from_unit)
         elif to_ is Second:
