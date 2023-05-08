@@ -17,7 +17,7 @@ jobs:
       run: |
         sudo apt-get install -y libsndfile-dev ffmpeg
         python -m pip install --quiet --upgrade pip
-        cd mimikit/ && pip install .[torch, test]
+        cd mimikit/ && pip install ".[torch, test]"
         pip install --quiet hatch
         pip list | grep torch
 
