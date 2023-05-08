@@ -60,15 +60,15 @@ dynamic = [
 
 [project.optional-dependencies]
 colab = [
-    "torch==1.13.1+cu116; platform_system == 'Windows' or platform_system == 'Linux'",
-    "torch==1.13.1; platform_system == 'Darwin'",
-    "torchaudio==0.13.1",
-    "pytorch-lightning==1.6.5",
+    "torchaudio==2.0.1+cu118",
+    "pytorch-lightning>=2.0.2",
 ]
 torch = [
-    "pytorch-lightning==1.6.5",
-    "torch>=1.13.0,<2.0.0",
-    "torchaudio>=0.13.0",
+    "torch==2.0.0+cu118; platform_system == 'Windows' or platform_system == 'Linux'",
+    "torch==2.0.0; platform_system == 'Darwin'",
+    "torchaudio==2.0.1+cu118; platform_system == 'Windows' or platform_system == 'Linux'",
+    "torchaudio==2.0.1; platform_system == 'Darwin'",
+    "pytorch-lightning>=2.0.2",
 ]
 test = [
     "assertpy==1.1",

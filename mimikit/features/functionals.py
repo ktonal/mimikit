@@ -505,6 +505,8 @@ class STFT(Functional):
         return S
 
     def torch_func(self, inputs):
+        if inputs.device == "mps":
+            inputs = inputs.cpu()
         inputs = self._fix_length(inputs)
         S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
                        center=self.center,
@@ -554,6 +556,8 @@ class ISTFT(Functional):
         return y
 
     def torch_func(self, inputs):
+        if inputs.device == "mps":
+            inputs = inputs.cpu()
         if self.coordinate == 'pol':
             inputs = inputs[..., 0] * torch.exp(1j * inputs[..., 1])
         elif self.coordinate == 'car':
@@ -628,6 +632,8 @@ class GLA(Functional):
                 librosa.griffinlim(x.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center) for x in inputs
             ))
     def torch_func(self, inputs):
+        if inputs.device == "mps":
+            inputs = inputs.cpu()
         # TODO : pull request for center=False support?
         gla = T.GriffinLim(n_fft=self.n_fft, hop_length=self.hop_length, power=1.,
                            # length=convert(inputs.shape[1], Frame(self.n_fft, self.hop_length, self.center), Sample(None), True),
@@ -910,7 +916,7 @@ class Interpolate(Functional):
                                                N, mode="linear").squeeze()
 
 
-@njit(float32[:](float32[:], intp), fastmath=True, cache=True)
+@njit(float32[:](float32[:], intp), fastmath=True, cache=False)
 def odd_reflect_pad_1d(x, k):
     """1d version of calling np.pad with **{mode='reflect', reflect_type='odd'}"""
     k_half = k // 2
@@ -922,7 +928,7 @@ def odd_reflect_pad_1d(x, k):
     return y
 
 
-@njit(float32[:](float32[:], intp), fastmath=True, cache=True, parallel=False)
+@njit(float32[:](float32[:], intp), fastmath=True, cache=False, parallel=False)
 def derivative_np_1d(y, max_lag):
     grads = np.zeros(y.shape, dtype=np.float32)
     for lag in prange(1, max_lag + 1):
@@ -934,7 +940,7 @@ def derivative_np_1d(y, max_lag):
     return grads
 
 
-@njit(float32[:, :](float32[:, :], intp), fastmath=True, cache=True, parallel=True)
+@njit(float32[:, :](float32[:, :], intp), fastmath=True, cache=False, parallel=True)
 def derivative_np_2d(y, max_lag):
     grads = np.zeros(y.shape, dtype=np.float32)
     for i in prange(y.shape[0]):
