@@ -17,10 +17,7 @@ jobs:
       run: |
         sudo apt-get install -y libsndfile-dev ffmpeg
         python -m pip install --quiet --upgrade pip
-        pip install -r requirements-ci.txt -f https://download.pytorch.org/whl/torch_stable.html
-        pip install -r requirements.txt
-        pip install -r requirements-test.txt
-        pip install -r requirements-torch.txt
+        pip install .[torch, test]
         pip install --quiet hatch
         pip list | grep torch
 

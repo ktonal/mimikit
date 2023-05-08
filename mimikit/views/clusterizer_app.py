@@ -262,7 +262,7 @@ class ClusterizerApp:
             self.feature_name = save_as.children[1].value
             pipeline = Compose(
                 *self.pre_pipeline.transforms, self.clusters.cfg,
-                Interpolate(mode="previous", length=db.signal.shape[0])
+                # Interpolate(mode="previous", length=db.signal.shape[0])
             )
             if self.feature_name in db.handle():
                 db.handle().pop(self.feature_name)
@@ -300,6 +300,10 @@ class ClusterizerApp:
     def sr(self):
         return self.db.config.extractors[0].functional.functionals[0].sr
 
+    @property
+    def hop_length(self):
+        return self.magspec_cfg.hop_length
+
     def segments_for(self, feature_name: str):
         db = self.db
         sr = self.sr
@@ -310,7 +314,9 @@ class ClusterizerApp:
         segments = [
             Segment(t, tp1, id=i, labelText=str(c)).dict()
             for i, (t, tp1, c) in enumerate(
-                zip(time_idx[:-1] / sr, time_idx[1:] / sr, cluster_idx[:-1]))
+                zip((self.hop_length * time_idx[:-1]) / sr,
+                    (self.hop_length * time_idx[1:] / sr),
+                    cluster_idx[:-1]))
         ]
         df = pd.DataFrame.from_dict(segments)
         df.set_index("id", drop=True, inplace=True)
@@ -319,11 +325,12 @@ class ClusterizerApp:
 
     def bounce(self, segments: List[Segment]):
         fft = self.magspec_cfg(self.db.signal[:])
-        sr, hop = self.sr, self.magspec_cfg.hop_length
+        sr, hop = self.sr, self.hop_length
 
         def t2f(t): return int(t * sr / hop)
 
-        filtered = np.concatenate([fft[slice(t2f(s.startTime), t2f(s.endTime) + 1)] for s in segments])
+        filtered = np.concatenate([fft[slice(t2f(s.startTime), t2f(s.endTime) + 1)]
+                                   for s in sorted(segments, key=lambda s: s.startTime)])
         return self.magspec_cfg.inv(filtered)
 
     def build_load_view(self, db):
@@ -346,8 +353,8 @@ class ClusterizerApp:
 
     def load_result(self, key: str):
         cfg = Config.deserialize(getattr(self.db, key).attrs["config"])
-        pre_pipeline = Compose(*cfg.functionals[:-2])
-        clustering = cfg.functionals[-2]
+        pre_pipeline = Compose(*cfg.functionals[:-1])
+        clustering = cfg.functionals[-1]
         self.display(pre_pipeline, clustering)
 
     def display(self, compose: Compose, clustering):
