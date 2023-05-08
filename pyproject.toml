@@ -64,8 +64,7 @@ colab = [
     "pytorch-lightning>=2.0.2",
 ]
 torch = [
-    "torch==2.0.0+cu118; platform_system == 'Windows' or platform_system == 'Linux'",
-    "torch==2.0.0; platform_system == 'Darwin'",
+    "torch==2.0.0",
     "torchaudio==2.0.1+cu118; platform_system == 'Windows' or platform_system == 'Linux'",
     "torchaudio==2.0.1; platform_system == 'Darwin'",
     "pytorch-lightning>=2.0.2",
