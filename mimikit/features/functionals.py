@@ -14,7 +14,7 @@ from numba import njit, prange, float32, intp
 import dataclasses as dtc
 import abc
 
-from .item_spec import Sample, Frame, Unit
+from .item_spec import Sample, Frame, Unit, convert
 from ..config import Config
 
 __all__ = [
@@ -455,6 +455,7 @@ class STFT(Functional):
     center: bool = True
     window: Optional[str] = "hann"
     pad_mode: str = "constant"
+    alignment: Optional[str] = "end"
 
     @property
     def unit(self) -> Optional[Unit]:
@@ -464,7 +465,28 @@ class STFT(Functional):
     def elem_type(self) -> Optional[EventType]:
         return Continuous(0., float("inf"), 1 + self.n_fft // 2)
 
+    def _fix_length(self, inputs):
+        n = len(inputs.shape)
+        if self.alignment is None:
+            return inputs
+        target_length = convert(
+            convert(inputs.shape[n-1], Sample(1), self.unit, as_length=True) + int(self.center),
+            self.unit, Sample(1), as_length=True
+        )
+        if self.alignment == "end":
+            if n == 1:
+                return inputs[-target_length:]
+            else:
+                return inputs[:, -target_length:]
+        if self.alignment == "start":
+            if n == 1:
+                return inputs[:target_length]
+            else:
+                return inputs[:, :target_length]
+        return inputs
+
     def np_func(self, inputs):
+        inputs = self._fix_length(inputs)
         # returned shape is (time x freq)
         S = librosa.stft(inputs, n_fft=self.n_fft, hop_length=self.hop_length,
                          center=self.center,
@@ -479,12 +501,13 @@ class STFT(Functional):
             S = abs(S)
         elif self.coordinate == 'angle':
             S = np.angle(S)
-        S = _add_metadata(S, n_samples=inputs.shape[0], **_to_dict(inputs.dtype.metadata))
+        # S = _add_metadata(S, n_samples=inputs.shape[0], **_to_dict(inputs.dtype.metadata))
         return S
 
     def torch_func(self, inputs):
         if inputs.device == "mps":
             inputs = inputs.cpu()
+        inputs = self._fix_length(inputs)
         S = torch.stft(inputs, self.n_fft, hop_length=self.hop_length, return_complex=True,
                        center=self.center,
                        window=torch.hann_window(self.n_fft, device=inputs.device),
@@ -557,11 +580,12 @@ class MagSpec(Functional):
     center: bool = True
     window: Optional[str] = "hann"
     pad_mode: str = "constant"
+    alignment: Optional[str] = "end"
 
     @property
     def stft(self):
         return STFT(self.n_fft, self.hop_length, "mag",
-                    self.center, self.window, self.pad_mode)
+                    self.center, self.window, self.pad_mode, alignment=self.alignment)
 
     @property
     def unit(self) -> Optional[Unit]:
@@ -600,14 +624,19 @@ class GLA(Functional):
         return Continuous(-1., 1., 1)
 
     def np_func(self, inputs):
+        if len(inputs.shape) == 2:
         # inputs is of shape (time x freq)
-        return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center)
-
+            return librosa.griffinlim(inputs.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center)
+        else:
+            return np.stack(tuple(
+                librosa.griffinlim(x.T, hop_length=self.hop_length, n_iter=self.n_iter, center=self.center) for x in inputs
+            ))
     def torch_func(self, inputs):
         if inputs.device == "mps":
             inputs = inputs.cpu()
         # TODO : pull request for center=False support?
         gla = T.GriffinLim(n_fft=self.n_fft, hop_length=self.hop_length, power=1.,
+                           # length=convert(inputs.shape[1], Frame(self.n_fft, self.hop_length, self.center), Sample(None), True),
                            wkwargs=dict(device=inputs.device))
         # inputs is of shape (time x freq)
         return gla(inputs.transpose(-1, -2).contiguous())
@@ -767,12 +796,13 @@ class Envelop(Functional):
     n_fft: int = N_FFT
     hop_length: int = HOP_LENGTH
     normalize: bool = True
+    window: str = "hann"
     interp_to_time_domain: bool = True
 
     @property
     def fft(self):
         return MagSpec(self.n_fft, self.hop_length, center=True,
-                       window="hann", pad_mode="reflect")
+                       window=self.window, pad_mode="reflect")
 
     @property
     def unit(self) -> Optional[Unit]:

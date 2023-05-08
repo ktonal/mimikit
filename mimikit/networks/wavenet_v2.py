@@ -274,8 +274,8 @@ class WaveNet(ARM, nn.Module):
         else:
             # repetitions of the same block
             if len(set(blocks)) == 1 and set(blocks).pop() == len(kernel_sizes):
-                dilation = accumulate([1, *kernel_sizes], opr.mul)
-                dilation = chain(*([dilation] * len(blocks)))
+                dilation = chain(*[list(accumulate([1, *kernel_sizes], opr.mul))
+                                   for _ in range(len(blocks))])
                 # broadcast!
                 kernel_sizes = chain(*([kernel_sizes] * len(blocks)))
             elif len(kernel_sizes) == sum(blocks):

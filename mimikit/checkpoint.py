@@ -101,7 +101,7 @@ class Checkpoint:
     @staticmethod
     def get_id_and_epoch(path):
         id_, epoch = path.split("/")[-2:]
-        return id_.strip("/"), int(epoch.split(".h5")[0].split("=")[-1])
+        return id_.strip("/"), int(epoch.split(".ckpt")[0].split("=")[-1])
 
     @staticmethod
     def from_path(path):
