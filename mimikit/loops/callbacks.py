@@ -57,7 +57,6 @@ class TrainingProgressBar(pl.callbacks.TQDMProgressBar):
         """Override this to customize the tqdm bar for training."""
         bar = tqdm(
             desc=self.train_description,
-            initial=self.train_batch_idx,
             position=int(is_notebook())*2,
             disable=self.is_disabled,
             leave=True,
@@ -83,12 +82,14 @@ class TrainingProgressBar(pl.callbacks.TQDMProgressBar):
         super(TrainingProgressBar, self).on_train_epoch_start(trainer)
         self._last_current = 0
 
-    def on_train_batch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", *_):
-        current = self.train_batch_idx + self._val_processed
-        if self._should_update(current, self.main_progress_bar.total):
-            self.main_progress_bar.update(current - self._last_current)
-            self.main_progress_bar.refresh()
-            self.main_progress_bar.set_postfix(self.get_metrics(trainer, pl_module))
+    def on_train_batch_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule", outputs, batch, batch_idx):
+        current = batch_idx
+        if self._should_update(current, self.train_progress_bar.total):
+            self.train_progress_bar.update(current - self._last_current)
+            self.train_progress_bar.refresh()
+            metrics = self.get_metrics(trainer, pl_module)
+            metrics.pop("v_num")
+            self.train_progress_bar.set_postfix(metrics)
             self._last_current = current
 
 
@@ -157,4 +158,3 @@ class GenerateCallback(pl.callbacks.Callback):
         self.loop.template_vars = dict(epoch=trainer.current_epoch+1)
         for _ in self.loop.run():
             continue
-

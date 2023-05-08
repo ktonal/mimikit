@@ -254,7 +254,7 @@ class TrainARMLoop(LoggingHooks,
             enable_checkpointing=False,
             num_sanity_val_steps=0,
             accelerator=default_device(),
-            gpus=torch.cuda.device_count() if torch.cuda.is_available() else 0,
+            devices=torch.cuda.device_count() if torch.cuda.is_available() else 1,
             **self.config.training.trainer_kwargs
         )
         self.trainer.fit(self)

@@ -12,14 +12,14 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.7'
+        python-version: '3.10'
     - name: Install dependencies
       run: |
         sudo apt-get install -y libsndfile-dev ffmpeg
         python -m pip install --quiet --upgrade pip
+        pip install -r requirements-ci.txt -f https://download.pytorch.org/whl/torch_stable.html
         pip install -r requirements.txt
         pip install -r requirements-test.txt
-        pip install -r requirements-torch.txt
         pip install --quiet hatch==0.23.1
         pip list | grep torch
 
