@@ -17,21 +17,21 @@ jobs:
       run: |
         sudo apt-get install -y libsndfile-dev ffmpeg
         python -m pip install --quiet --upgrade pip
-        pip install ".[torch, test]"
         pip install --quiet hatch
+        pip install ".[torch, test]"
         pip list | grep torch
 
     - name: Test
       env:
         CUDA_VISIBLE_DEVICES: ""
-      run: hatch test -nd
+      run: hatch -v run pytest .
 
     - name: Build dist and Publish on TestPypi
       env:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
       run: |
-        hatch grow pre
+        hatch version pre
         hatch clean
         hatch build
-        hatch release -t -u ${{ env.TWINE_USERNAME }}
+        hatch publish -r test -u ${{ env.TWINE_USERNAME }}
