@@ -249,6 +249,7 @@ class ClusterizerApp:
         self.clusters_widget = self.clusters.widget
         self.labels_widget = W.VBox(layout=dict(max_width="90vw", margin="auto"))
         self.feature_name = ''
+        self.selected_labels = set()
 
         save_as = W.HBox(children=(
             W.Label(value='Save clustering as: '), W.Text(value="labels")),
@@ -323,14 +324,14 @@ class ClusterizerApp:
         label_set = [*sorted(set(lbl))]
         return df, label_set
 
-    def bounce(self, segments: List[Segment]):
+    def bounce_selected_labels(self):
         fft = self.magspec_cfg(self.db.signal[:])
-        sr, hop = self.sr, self.hop_length
+        mask = np.zeros((fft.shape[0],), dtype=bool)
+        labels = getattr(self.db, self.feature_name)[:]
+        for label in self.selected_labels:
+            mask += labels == label
 
-        def t2f(t): return int(t * sr / hop)
-
-        filtered = np.concatenate([fft[slice(t2f(s.startTime), t2f(s.endTime) + 1)]
-                                   for s in sorted(segments, key=lambda s: s.startTime)])
+        filtered = fft[mask]
         return self.magspec_cfg.inv(filtered)
 
     def build_load_view(self, db):
@@ -343,6 +344,7 @@ class ClusterizerApp:
         def callback(ev):
             self.load_result(ev["new"])
             self.feature_name = ev["new"]
+            self.selected_labels = set()
             self.labels_widget.children = self.label_view()
 
         self.results_buttons.observe(callback, "value")
@@ -371,6 +373,7 @@ class ClusterizerApp:
         df, label_set = self.segments_for(self.feature_name)
         df.to_dict()
         w = PeaksJSWidget(array=self.db.signal[:], sr=self.sr, id_count=len(df),
+                          with_save_button=True,
                           layout=dict(margin="auto", max_width="1500px", width="100%"))
         empty = pd.DataFrame([])
         empty.index.name = "id"
@@ -380,13 +383,19 @@ class ClusterizerApp:
         labels_grid = W.GridBox(layout=dict(max_height='400px',
                                             margin="16px auto",
                                             grid_template_columns="1fr " * 10,
+                                            grid_gap="8px",
                                             overflow="scroll"))
         labels_w = []
 
         for i in label_set:
             btn = W.ToggleButton(value=False,
                                  description=str(i),
-                                 layout=dict(width="100px", margin="4px"))
+                                 layout=dict(width="100px",
+                                             min_height="30px",
+                                             padding="2px",
+                                             margin="auto",
+                                             overflow="clip !important"
+                                             ))
 
             def on_click(ev, widget=btn, index=i):
                 if ev["new"]:
@@ -394,11 +403,13 @@ class ClusterizerApp:
                         *w.segments, *df[df.labelText == str(index)].reset_index().T.to_dict().values()
                     ]
                     widget.button_style = "success"
+                    self.selected_labels.add(index)
                 else:
                     w.segments = [
                         s for s in w.segments if s["labelText"] != str(index)
                     ]
                     widget.button_style = ""
+                    self.selected_labels.remove(index)
                 if w.segments:
                     g.df = pd.DataFrame.from_dict(w.segments).sort_values(by="startTime").set_index("id", drop=True)
                 else:
@@ -448,17 +459,25 @@ class ClusterizerApp:
         # g.on("row_removed", on_row_removed)
 
         def on_bounce(ev):
-            bnc = self.bounce([Segment(s["startTime"], s["endTime"], s["id"]) for s in w.segments])
+            bnc = self.bounce_selected_labels()
             self.labels_widget.children = (*self.labels_widget.children,
-                                           PeaksJSWidget(array=bnc, sr=self.sr, id_count=0))
+                                           PeaksJSWidget(array=bnc, sr=self.sr, id_count=0, with_save_button=True))
 
         bounce = W.Button(description="Bounce Selection")
         bounce.on_click(on_bounce)
 
+        def on_reset_selected_labels(ev):
+            for w in labels_grid.children:
+                w.value = False
+            self.selected_labels = set()
+
+        reset_label_button = W.Button(description="Reset Selection")
+        reset_label_button.on_click(on_reset_selected_labels)
+
         return (
             w,
             W.HTML("<h4>Select Label(s): </h4>"),
-            labels_grid,
+            reset_label_button, labels_grid,
             W.HTML("<h4>Selected Labels Segments Table: </h4>"),
             g,
             bounce

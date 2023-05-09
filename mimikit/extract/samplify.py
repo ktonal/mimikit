@@ -178,7 +178,7 @@ class Periods:
 @dtc.dataclass
 class Samplifyer(Functional):
     filter_level: int = 0
-    sensitivity: float = .5
+    sensitivity: float = 0.
     levels_def: List[Dict] = dtc.field(default_factory=lambda: [{}])
 
     def __post_init__(self):

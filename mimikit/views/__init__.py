@@ -4,6 +4,7 @@ from .dataset import *
 from .functionals import *
 from .generate_from_checkpoint import *
 from .io_spec import *
+from .segment_selector import *
 from .timestamps_selector import *
 from .train_arm import *
 from .wavenet import *

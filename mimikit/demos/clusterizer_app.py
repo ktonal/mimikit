@@ -33,7 +33,7 @@ you can interact with the waveform/widgets with following shortcuts:
 - Navigation:
     * `Ctrl + wheel`: zoom
     * `SHIFT + dbl-click`: reset zoom
-    * `SHIFT + wheel`: scroll wvaveform
+    * `SHIFT + wheel`: scroll waveform
     * `arrow left/right`: move playhead left/right
     * `SHIFT + arrow left/right`: move playhead left/right a lot.
 - Controls:
