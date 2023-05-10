@@ -195,6 +195,8 @@ class TrainARMLoop(LoggingHooks,
                  loader: torch.utils.data.DataLoader,
                  net: ARM,
                  loss_fn,
+                 opt=None,
+                 resume_from_checkpoint=None
                  ):
         super().__init__()
         self._config = hp
@@ -202,7 +204,13 @@ class TrainARMLoop(LoggingHooks,
         self.root_dir, self.hash_, self.output_template = self.get_os_paths(hp)
         self.dataset = dataset
         self.loader = loader
-        self.net = net
+        if resume_from_checkpoint is None:
+            self.net = net
+        else:            
+            self.net = resume_from_checkpoint.network
+            # if the checkpoint has a saved optimizer state use it
+            if (resume_from_checkpoint.optimizer is not None) and (opt is None):
+                opt = resume_from_checkpoint = resume_from_checkpoint.optimizer            
         self.loss_fn = loss_fn
         self.tbptt_len = self.train_cfg.tbptt_chunk_length
         if self.tbptt_len is not None:
@@ -211,10 +219,24 @@ class TrainARMLoop(LoggingHooks,
             self.net, self.dataset, self.root_dir, self.output_template,
             self.train_cfg
         )
-        self.opt = None
+        self.resume_from_checkpoint = resume_from_checkpoint
+        self.opt = opt
 
+    def reset_lr_scheduler(self, max_lr, div_factor, final_div_factor, pct_start):
+        sched = torch.optim.lr_scheduler.OneCycleLR(
+            self.opt[0][0],
+            steps_per_epoch=len(self.loader),
+            epochs=100,
+            max_lr=0.00012,
+            div_factor=1.,
+            final_div_factor=1.,
+            pct_start=0.,
+            cycle_momentum=False)
+        self.opt = [self.opt[0], [dict(scheduler= sched, interval='step', frequency=1, reduce_on_plateau=False)]]
+    
     def configure_optimizers(self):
-        self.opt = self.get_optimizer(self.net, self.loader, self.config.training)
+        if self.opt is None:
+            self.opt = self.get_optimizer(self.net, self.loader, self.config.training)
         return self.opt
 
     def train_dataloader(self):
