@@ -122,11 +122,23 @@ class MMKCheckpoint(Callback):
         _class.deserialize(yaml)
         self.config = config
 
+    def on_train_start(self, trainer, pl_module: "TrainARMLoop") -> None:
+        # When training is resumed from a checkpoint the loop states are restored here
+        if pl_module.mmk_checkpoint:
+            state_dict = pl_module.mmk_checkpoint.loops
+            if state_dict:
+                trainer.fit_loop.load_state_dict(state_dict["fit_loop"])
+            pl_module.opt[0][0].load_state_dict(pl_module.mmk_checkpoint.optimizer_state)
+
     def on_train_epoch_end(self, trainer, pl_module, unused=None) -> None:
         epoch, global_step = trainer.current_epoch + 1, trainer.global_step
         if trainer.state == TrainerState.status.INTERRUPTED or \
                 epoch == trainer.max_epochs or self.should_save(epoch, global_step):
-            self.save_checkpoint(pl_module, epoch)
+            loop_dict = dict(fit_loop=trainer.fit_loop.state_dict(),
+                 validate_loop=trainer.validate_loop.state_dict(),
+                 test_loop=trainer.test_loop.state_dict(),
+                 predict_loop=trainer.predict_loop.state_dict())
+            self.save_checkpoint(pl_module, epoch, loop_dict)
 
     def should_save(self, epoch, step):
         if type(self.epochs) is int:
@@ -137,10 +149,14 @@ class MMKCheckpoint(Callback):
             return epoch in self.epochs
         return False
 
-    def save_checkpoint(self, pl_module, epoch):
+    def save_checkpoint(self, pl_module, epoch, loops):
         root_dir, training_id = os.path.split(self.root_dir)
+        if pl_module.save_optimizer:
+            opt = pl_module.opt[0][0]
+        else:
+            opt = None
         Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir)\
-            .create(pl_module.net, self.config, optimizer=None)
+            .create(pl_module.net, self.config, optimizer=opt, loops=loops)
 
 
 class GenerateCallback(pl.callbacks.Callback):

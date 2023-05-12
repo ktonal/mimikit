@@ -51,6 +51,7 @@ class TrainARMConfig(Config):
     MONITOR_TRAINING: bool = True
     OUTPUT_TRAINING: str = ''
 
+    save_optimizer: bool = False
     every_n_epochs: int = 2
     n_examples: int = 3
     prompt_length_sec: float = .5
@@ -119,9 +120,8 @@ class TrainARMLoop(LoggingHooks,
                              )
 
     @classmethod
-    def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
-        opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
-        sched = torch.optim.lr_scheduler.OneCycleLR(
+    def get_lr_scheduler(cls, net, opt, dl, cfg: TrainARMConfig):
+        return torch.optim.lr_scheduler.OneCycleLR(
             opt,
             steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
             epochs=cfg.max_epochs,
@@ -131,7 +131,13 @@ class TrainARMLoop(LoggingHooks,
             pct_start=cfg.pct_start,
             cycle_momentum=cfg.cycle_momentum
         )
-        return [opt], [{"scheduler": sched, "interval": "step", "frequency": 1}]
+        return [{"scheduler": sched, "interval": "step", "frequency": 1}]
+
+    @classmethod
+    def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
+        opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
+        sched = cls.get_lr_scheduler(net, opt, dl, cfg)
+        return [opt], [sched]
 
     @classmethod
     def get_callbacks(cls,
@@ -172,7 +178,7 @@ class TrainARMLoop(LoggingHooks,
         return callbacks
 
     @classmethod
-    def from_config(cls, train_cfg: TrainARMConfig, dataset, network: ARM):
+    def from_config(cls, train_cfg: TrainARMConfig, dataset, network: ARM, opt=None, checkpoint=None):
         dataloader = cls.get_dataloader(dataset, network, train_cfg)
         if not hasattr(dataset, "config"):
             ds_cfg = DatasetConfig(
@@ -183,7 +189,7 @@ class TrainARMLoop(LoggingHooks,
             ds_cfg = dataset.config
         hp = ARMHP(training=train_cfg, network=network.config, dataset=ds_cfg)
         return cls(hp, dataset, dataloader, network,
-                   network.config.io_spec.loss_fn)
+                   network.config.io_spec.loss_fn, opt, checkpoint)
 
     @property
     def config(self) -> ARMHP:
@@ -196,7 +202,7 @@ class TrainARMLoop(LoggingHooks,
                  net: ARM,
                  loss_fn,
                  opt=None,
-                 resume_from_checkpoint=None
+                 mmk_checkpoint=None
                  ):
         super().__init__()
         self._config = hp
@@ -204,39 +210,43 @@ class TrainARMLoop(LoggingHooks,
         self.root_dir, self.hash_, self.output_template = self.get_os_paths(hp)
         self.dataset = dataset
         self.loader = loader
-        if resume_from_checkpoint is None:
-            self.net = net
-        else:            
-            self.net = resume_from_checkpoint.network
-            # if the checkpoint has a saved optimizer state use it
-            if (resume_from_checkpoint.optimizer is not None) and (opt is None):
-                opt = resume_from_checkpoint = resume_from_checkpoint.optimizer            
         self.loss_fn = loss_fn
         self.tbptt_len = self.train_cfg.tbptt_chunk_length
         if self.tbptt_len is not None:
             self.tbptt_len //= self.train_cfg.batch_length
+        if mmk_checkpoint is None:
+            self.net = net
+        else:            
+            self.net = mmk_checkpoint.network
         self.callbacks = self.get_callbacks(
             self.net, self.dataset, self.root_dir, self.output_template,
             self.train_cfg
         )
-        self.resume_from_checkpoint = resume_from_checkpoint
+        self.save_optimizer = self.train_cfg.save_optimizer
+        self.mmk_checkpoint = mmk_checkpoint
         self.opt = opt
 
-    def reset_lr_scheduler(self, max_lr, div_factor, final_div_factor, pct_start):
+    def reset_lr_scheduler(self, max_lr, div_factor=None, final_div_factor=None, pct_start=None):
+        cfg = self.train_cfg
+        dl = self.loader
         sched = torch.optim.lr_scheduler.OneCycleLR(
-            self.opt[0][0],
-            steps_per_epoch=len(self.loader),
-            epochs=100,
-            max_lr=0.00012,
-            div_factor=1.,
-            final_div_factor=1.,
-            pct_start=0.,
-            cycle_momentum=False)
-        self.opt = [self.opt[0], [dict(scheduler= sched, interval='step', frequency=1, reduce_on_plateau=False)]]
-    
+            opt,
+            steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
+            epochs=cfg.max_epochs,
+            max_lr=cfg.max_lr,
+            div_factor=div_factor or cfg.div_factor,
+            final_div_factor=final_div_factor or cfg.final_div_factor,
+            pct_start=pct_start or cfg.pct_start,
+            cycle_momentum=cfg.cycle_momentum
+        )
+        sched = [{"scheduler": sched, "interval": "step", "frequency": 1}]
+        self.opt = self.opt[0], sched
+
     def configure_optimizers(self):
         if self.opt is None:
             self.opt = self.get_optimizer(self.net, self.loader, self.config.training)
+        else:
+            self.opt = self.opt, self.get_lr_scheduler(self.net, self.opt, self.loader, self.config.training)
         return self.opt
 
     def train_dataloader(self):
