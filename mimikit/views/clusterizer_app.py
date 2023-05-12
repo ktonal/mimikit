@@ -260,6 +260,7 @@ class ClusterizerApp:
         self.dataset_cfg = DatasetConfig()
         self.dataset_widget = dataset_view(self.dataset_cfg)
         self.labels_grid = None
+        self.bounced_container = W.VBox(layout=dict(width="100%"))
         self.labels_widget = W.VBox(layout=dict(max_width="90vw", margin="auto"))
         self.feature_name = ''
         self.selected_labels = set()
@@ -548,12 +549,26 @@ class ClusterizerApp:
         # g.on("row_removed", on_row_removed)
 
         def on_bounce(ev):
+            title = ", ".join(map(str, sorted(map(int, self.selected_labels))))
+            title = W.HTML(f"<h4>Clustering: '{self.feature_name}' - Labels: {title}</h4>")
             bnc = self.bounce_selected_labels()
-            self.labels_widget.children = (*self.labels_widget.children,
-                                           PeaksJSWidget(
-                                               array=bnc, sr=self.sr, id_count=0,
-                                               with_save_button=True, with_play_button=True
-                                           ))
+            peaks = PeaksJSWidget(
+                array=bnc, sr=self.sr, id_count=0,
+                with_save_button=True, with_play_button=True,
+
+            )
+            remove_w = W.Button(icon="fa-trash", layout=dict(width="50px"))
+            idx = len(self.bounced_container.children)
+
+            def on_remove(ev):
+                self.bounced_container.children = tuple(
+                    el for i, el in enumerate(self.bounced_container.children) if i != idx
+                )
+            remove_w.on_click(on_remove)
+            self.bounced_container.children = (
+                *self.bounced_container.children,
+                W.VBox(children=(W.HBox(children=(remove_w, title, )), peaks, ))
+            )
 
         bounce = W.Button(description="Bounce Selection")
         bounce.on_click(on_bounce)
