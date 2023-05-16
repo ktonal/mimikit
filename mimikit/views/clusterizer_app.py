@@ -410,7 +410,8 @@ class ClusterizerApp:
         return getattr(self.db, self.feature_name)
 
     @property
-    def segments(self):
+    def segments_from_clustering(self):
+        """segments inferred from the raw labels of the current clustering"""
         sr = self.sr
         lbl = self.labels[:]
         splits = (lbl[1:] - lbl[:-1]) != 0
@@ -425,6 +426,11 @@ class ClusterizerApp:
                     (self.hop_length * ends / sr),
                     cluster_idx))
         ]
+
+    @property
+    def segments(self):
+        """segments as currently edited by the user"""
+        return sorted(self.main_waveform.segments, key=lambda s: s['startTime'])
 
     def select(self, *labels: int):
         labels_str = {*map(str, labels)}
@@ -443,6 +449,7 @@ class ClusterizerApp:
         return self
 
     def bounce_selected_labels(self):
+        """bounce the segments for the selected labels ignoring user's updates"""
         fft = self.magspec_cfg(self.signal[:])
         mask = np.zeros((fft.shape[0],), dtype=bool)
         labels = self.labels[:]
@@ -452,8 +459,20 @@ class ClusterizerApp:
         filtered = fft[mask]
         return self.magspec_cfg.inv(filtered)
 
+    def bounce_segments(self):
+        """bounce the segments for the selected labels as updated by the user"""
+        segments = self.segments
+        fft = self.magspec_cfg(self.signal[:])
+        sr, hop = self.sr, self.hop_length
+
+        def t2f(t): return int(t * sr / hop)
+
+        filtered = np.concatenate([fft[slice(t2f(s['startTime']), t2f(s['endTime']) + 1)]
+                                   for s in segments])
+        return self.magspec_cfg.inv(filtered)
+
     def segments_df_and_labels_set(self):
-        df = pd.DataFrame.from_dict(self.segments)
+        df = pd.DataFrame.from_dict(self.segments_from_clustering)
         df.set_index("id", drop=True, inplace=True)
         label_set = [*map(str, sorted(map(int, pd.unique(df.labelText))))]
         return df, label_set
@@ -551,7 +570,7 @@ class ClusterizerApp:
         def on_bounce(ev):
             title = ", ".join(map(str, sorted(map(int, self.selected_labels))))
             title = W.HTML(f"<h4>Clustering: '{self.feature_name}' - Labels: {title}</h4>")
-            bnc = self.bounce_selected_labels()
+            bnc = self.bounce_segments()
             peaks = PeaksJSWidget(
                 array=bnc, sr=self.sr, id_count=0,
                 with_save_button=True, with_play_button=True,
