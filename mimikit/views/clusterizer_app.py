@@ -423,7 +423,7 @@ class ClusterizerApp:
             Segment(t, tp1, id=i, labelText=str(c)).dict()
             for i, (t, tp1, c) in enumerate(
                 zip((self.hop_length * starts) / sr,
-                    (self.hop_length * ends / sr),
+                    ((self.hop_length * ends) / sr),
                     cluster_idx))
         ]
 
@@ -465,9 +465,11 @@ class ClusterizerApp:
         fft = self.magspec_cfg(self.signal[:])
         sr, hop = self.sr, self.hop_length
 
-        def t2f(t): return int(t * sr / hop)
+        def t2f(t): return int(round((t * sr) / hop))
 
-        filtered = np.concatenate([fft[slice(t2f(s['startTime']), t2f(s['endTime']) + 1)]
+        filtered = np.concatenate([fft[slice(
+            t2f(s['startTime']),
+            t2f(s['endTime']))]  # segments_from_clustering already contains `+ 1`
                                    for s in segments])
         return self.magspec_cfg.inv(filtered)
 
@@ -583,10 +585,11 @@ class ClusterizerApp:
                 self.bounced_container.children = tuple(
                     el for i, el in enumerate(self.bounced_container.children) if i != idx
                 )
+
             remove_w.on_click(on_remove)
             self.bounced_container.children = (
                 *self.bounced_container.children,
-                W.VBox(children=(W.HBox(children=(remove_w, title, )), peaks, ))
+                W.VBox(children=(W.HBox(children=(remove_w, title,)), peaks,))
             )
 
         bounce = W.Button(description="Bounce Selection")
