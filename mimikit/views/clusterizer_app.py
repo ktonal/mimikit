@@ -542,6 +542,7 @@ class ClusterizerApp:
                 g.df = pd.DataFrame.from_dict([new_seg]).set_index("id", drop=True)
 
         def on_edit_segment(wdg, seg):
+            seg = Segment(**seg).dict()
             for k, v in seg.items():
                 if k == "id": continue
                 g.edit_cell(seg["id"], k, v)
@@ -579,17 +580,17 @@ class ClusterizerApp:
 
             )
             remove_w = W.Button(icon="fa-trash", layout=dict(width="50px"))
-            idx = len(self.bounced_container.children)
+            new_waveform = W.VBox(children=(W.HBox(children=(remove_w, title,)), peaks,))
 
             def on_remove(ev):
                 self.bounced_container.children = tuple(
-                    el for i, el in enumerate(self.bounced_container.children) if i != idx
+                    el for el in self.bounced_container.children if el is not new_waveform
                 )
 
             remove_w.on_click(on_remove)
             self.bounced_container.children = (
                 *self.bounced_container.children,
-                W.VBox(children=(W.HBox(children=(remove_w, title,)), peaks,))
+                new_waveform
             )
 
         bounce = W.Button(description="Bounce Selection")
