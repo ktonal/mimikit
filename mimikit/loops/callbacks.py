@@ -88,7 +88,8 @@ class TrainingProgressBar(pl.callbacks.TQDMProgressBar):
             self.train_progress_bar.update(current - self._last_current)
             self.train_progress_bar.refresh()
             metrics = self.get_metrics(trainer, pl_module)
-            metrics.pop("v_num")
+            if "v_num" in metrics:
+                metrics.pop("v_num")
             self.train_progress_bar.set_postfix(metrics)
             self._last_current = current
 

@@ -91,6 +91,7 @@ class GenerateLoopV2:
         prompts_position_sec: Tuple[Optional[float], ...] = (None,)  # random if None
         parameters: Optional[Dict[str, Any]] = None
         batch_size: int = 1
+        downsampling: int = 1
 
         output_name_template: Optional[str] = None
         display_waveform: bool = True
@@ -131,7 +132,9 @@ class GenerateLoopV2:
             sampler=IndicesSampler(N=len(indices),
                                    indices=indices,
                                    max_i=max_i,
-                                   redraw=True),
+                                   redraw=True,
+                                   sampling_stride=config.downsampling
+                                   ),
             shuffle=False,
             batch_size=config.batch_size
         )

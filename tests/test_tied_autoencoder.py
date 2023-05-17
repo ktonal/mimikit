@@ -1,17 +1,32 @@
+import pytest
+
 import mimikit as mmk
 from assertpy import assert_that
 import torch
 
 
-def test_forward():
+@pytest.mark.parametrize(
+    "given_kernel_sizes",
+    [
+        (3, 5, 7),
+        (7, 5, 3),
+        (3, 3, 3),
+    ]
+)
+@pytest.mark.parametrize(
+    "given_pad",
+    [True, False]
+)
+def test_forward(given_pad, given_kernel_sizes):
     under_test = mmk.TiedAE.from_config(
         mmk.TiedAE.Config(
             io_spec=mmk.IOSpec.magspec_io(
                 mmk.IOSpec.MagSpecIOConfig(),
             ),
-            kernel_sizes=(7, 5, 3),
+            kernel_sizes=given_kernel_sizes,
             dims=(64, 32, 8),
-            independence_reg=0.25
+            independence_reg=0.25,
+            causal_pad=given_pad
         )
     )
 
