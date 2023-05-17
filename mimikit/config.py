@@ -85,6 +85,8 @@ class Config:
     @staticmethod
     def deserialize(raw_yaml, as_type=None):
         cfg = OmegaConf.create(raw_yaml)
+        if as_type is None and hasattr(cfg, "type"):
+            as_type = _get_type_object(cfg.type)
         return Config.object(cfg, as_type)
 
     @staticmethod
