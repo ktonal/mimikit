@@ -149,7 +149,7 @@ class TrainARMLoop(LoggingHooks,
         sched = [{"scheduler": sched, "interval": "step", "frequency": 1}]
         self.opt = self.opt[0], sched
         return self
-    
+
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
         opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
