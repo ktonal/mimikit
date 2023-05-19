@@ -133,6 +133,23 @@ class TrainARMLoop(LoggingHooks,
         )
         return {"scheduler": sched, "interval": "step", "frequency": 1}
 
+    def reset_lr_scheduler(self, max_lr=None, div_factor=None, final_div_factor=None, pct_start=None):
+        cfg = self.train_cfg
+        dl = self.loader
+        sched = torch.optim.lr_scheduler.OneCycleLR(
+            self.opt[0][0],
+            steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
+            epochs=cfg.max_epochs,
+            max_lr=max_lr or cfg.max_lr,
+            div_factor=div_factor or cfg.div_factor,
+            final_div_factor=final_div_factor or cfg.final_div_factor,
+            pct_start=pct_start or cfg.pct_start,
+            cycle_momentum=cfg.cycle_momentum
+        )
+        sched = [{"scheduler": sched, "interval": "step", "frequency": 1}]
+        self.opt = self.opt[0], sched
+        return self
+    
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
         opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
