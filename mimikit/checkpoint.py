@@ -130,7 +130,7 @@ class Checkpoint:
     @cached_property
     def training_config(self) -> TrainingConfig:
         bank = CheckpointBank(self.os_path, 'r')
-        return Config.deserialize(bank.attrs["training"], as_type=TrainingConfig)
+        return Config.deserialize(bank.attrs["training"])
 
     @cached_property
     def network(self) -> ConfigurableModule:
