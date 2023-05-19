@@ -246,3 +246,31 @@ def test_should_train(tmp_db, tmp_path, given_io):
 
     outputs = os.listdir(os.path.join(str(tmp_path), loop.hash_, "outputs"))
     assert_that([os.path.splitext(o)[-1] for o in outputs]).contains(".mp3")
+
+
+@pytest.mark.parametrize(
+    "given_blocks",
+    [(3,), (1, 1, 1, 1, 1, 1, 1), (2, 2, 1), (1, 2, 2), (1, 1, 1, 1, 2)]
+)
+def test_rf_should_be_correct(given_blocks):
+    EXPECTED_RF = 8
+    given_io = IOSpec.magspec_io(IOSpec.MagSpecIOConfig())
+    given_config = WaveNet.Config(io_spec=given_io, blocks=given_blocks)
+    wn = WaveNet.from_config(given_config)
+
+    assert_that(wn.rf).is_equal_to(EXPECTED_RF)
+
+    x = inputs_(2, EXPECTED_RF, given_io.inputs[0].elem_type.size).transpose(-1, -2)
+    y = wn((x,))[0]
+
+    assert_that(y.size(1)).is_equal_to(1)
+
+    x = inputs_(2, EXPECTED_RF+1, given_io.inputs[0].elem_type.size).transpose(-1, -2)
+    y = wn((x,))[0]
+
+    assert_that(y.size(1)).is_equal_to(2)
+
+    x = inputs_(2, EXPECTED_RF-1, given_io.inputs[0].elem_type.size).transpose(-1, -2)
+    with pytest.raises(RuntimeError):
+        y = wn((x,))[0]
+

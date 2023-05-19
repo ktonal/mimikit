@@ -58,7 +58,7 @@ class CheckpointBank(h5m.TypedFile):
              network: ConfigurableModule,
              training_config: Optional[TrainingConfig] = None,
              optimizer: Optional[nn.Module] = None,
-             loop_dict: Optional[dict] = None
+             trainer_state: Optional[dict] = None
              ) -> "CheckpointBank":
 
         net_dict = network.state_dict()
@@ -85,8 +85,8 @@ class CheckpointBank(h5m.TypedFile):
             schema = {f.extractor_name: f.extractor for f in features}
             bank.attrs["dataset"] = DatasetConfig(filename="unknown", sources=(),
                                                   extractors=tuple(schema.values())).serialize()
-        if loop_dict is not None:
-            bank.attrs["loop_dict"] = OmegaConf.to_yaml(OmegaConf.structured(loop_dict))
+        if trainer_state is not None:
+            bank.attrs["trainer_state"] = OmegaConf.to_yaml(OmegaConf.structured(trainer_state))
         
         bank.flush()
         bank.close()
@@ -103,8 +103,8 @@ class Checkpoint:
                network: ConfigurableModule,
                training_config: Optional[TrainingConfig] = None,
                optimizer: Optional[nn.Module] = None,
-               loops: Optional[dict] = None):
-        CheckpointBank.save(self.os_path, network, training_config, optimizer, loops)
+               trainer_state: Optional[dict] = None):
+        CheckpointBank.save(self.os_path, network, training_config, optimizer, trainer_state)
         return self
 
     @staticmethod
@@ -139,7 +139,7 @@ class Checkpoint:
     @cached_property
     def training_config(self) -> TrainingConfig:
         bank = CheckpointBank(self.os_path, 'r')
-        return Config.deserialize(bank.attrs["training"], as_type=TrainingConfig)
+        return Config.deserialize(bank.attrs["training"])
 
     @cached_property
     def network(self) -> ConfigurableModule:
@@ -160,11 +160,15 @@ class Checkpoint:
 
     @cached_property
     def optimizer_state(self):
-        opt_state = torch.load(os.path.join(self.root_dir, f"{self.id}/epoch={self.epoch}.opt"))
-        return opt_state
+        opt_path = os.path.join(self.root_dir, f"{self.id}/epoch={self.epoch}.opt")
+        if os.path.isfile(opt_path):
+            return torch.load(opt_path)
+        return None
         
     @cached_property
-    def loops(self):
-        return OmegaConf.create(self.bank.attrs.get('loop_dict'))
-    
+    def trainer_state(self):
+        state = self.bank.attrs.get('trainer_state', None)
+        if state is not None:
+            return OmegaConf.create(state)
+        return None
     # Todo: method to add state_dict mul by weights -> def average(self, *others)

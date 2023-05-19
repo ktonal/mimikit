@@ -8,7 +8,6 @@ from IPython import get_ipython
 
 from ..checkpoint import Checkpoint
 
-
 __all__ = [
     'is_notebook',
     'EpochProgressBarCallback',
@@ -57,7 +56,7 @@ class TrainingProgressBar(pl.callbacks.TQDMProgressBar):
         """Override this to customize the tqdm bar for training."""
         bar = tqdm(
             desc=self.train_description,
-            position=int(is_notebook())*2,
+            position=int(is_notebook()) * 2,
             disable=self.is_disabled,
             leave=True,
             dynamic_ncols=True,
@@ -88,7 +87,8 @@ class TrainingProgressBar(pl.callbacks.TQDMProgressBar):
             self.train_progress_bar.update(current - self._last_current)
             self.train_progress_bar.refresh()
             metrics = self.get_metrics(trainer, pl_module)
-            metrics.pop("v_num")
+            if "v_num" in metrics:
+                metrics.pop("v_num")
             self.train_progress_bar.set_postfix(metrics)
             self._last_current = current
 
@@ -122,23 +122,11 @@ class MMKCheckpoint(Callback):
         _class.deserialize(yaml)
         self.config = config
 
-    def on_train_start(self, trainer, pl_module: "TrainARMLoop") -> None:
-        # When training is resumed from a checkpoint the loop states are restored here
-        if pl_module.mmk_checkpoint:
-            state_dict = pl_module.mmk_checkpoint.loops
-            if state_dict:
-                trainer.fit_loop.load_state_dict(state_dict["fit_loop"])
-            pl_module.opt[0][0].load_state_dict(pl_module.mmk_checkpoint.optimizer_state)
-
     def on_train_epoch_end(self, trainer, pl_module, unused=None) -> None:
         epoch, global_step = trainer.current_epoch + 1, trainer.global_step
         if trainer.state == TrainerState.status.INTERRUPTED or \
                 epoch == trainer.max_epochs or self.should_save(epoch, global_step):
-            loop_dict = dict(fit_loop=trainer.fit_loop.state_dict(),
-                 validate_loop=trainer.validate_loop.state_dict(),
-                 test_loop=trainer.test_loop.state_dict(),
-                 predict_loop=trainer.predict_loop.state_dict())
-            self.save_checkpoint(pl_module, epoch, loop_dict)
+            self.save_checkpoint(pl_module, epoch)
 
     def should_save(self, epoch, step):
         if type(self.epochs) is int:
@@ -149,14 +137,19 @@ class MMKCheckpoint(Callback):
             return epoch in self.epochs
         return False
 
-    def save_checkpoint(self, pl_module, epoch, loops):
+    def save_checkpoint(self, pl_module, epoch):
         root_dir, training_id = os.path.split(self.root_dir)
-        if pl_module.save_optimizer:
+        if pl_module.train_cfg.save_optimizer:
             opt = pl_module.opt[0][0]
         else:
             opt = None
-        Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir)\
-            .create(pl_module.net, self.config, optimizer=opt, loops=loops)
+        trainer = pl_module.trainer
+        trainer_state = dict(fit_loop=trainer.fit_loop.state_dict(),
+                             validate_loop=trainer.validate_loop.state_dict(),
+                             test_loop=trainer.test_loop.state_dict(),
+                             predict_loop=trainer.predict_loop.state_dict())
+        Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir) \
+            .create(pl_module.net, self.config, optimizer=opt, trainer_state=trainer_state)
 
 
 class GenerateCallback(pl.callbacks.Callback):
@@ -171,6 +164,6 @@ class GenerateCallback(pl.callbacks.Callback):
     def on_train_epoch_end(self, trainer: pl.Trainer, model):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
             return
-        self.loop.template_vars = dict(epoch=trainer.current_epoch+1)
+        self.loop.template_vars = dict(epoch=trainer.current_epoch + 1)
         for _ in self.loop.run():
             continue

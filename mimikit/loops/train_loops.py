@@ -121,7 +121,7 @@ class TrainARMLoop(LoggingHooks,
 
     @classmethod
     def get_lr_scheduler(cls, net, opt, dl, cfg: TrainARMConfig):
-        return torch.optim.lr_scheduler.OneCycleLR(
+        sched = torch.optim.lr_scheduler.OneCycleLR(
             opt,
             steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
             epochs=cfg.max_epochs,
@@ -131,7 +131,24 @@ class TrainARMLoop(LoggingHooks,
             pct_start=cfg.pct_start,
             cycle_momentum=cfg.cycle_momentum
         )
-        return [{"scheduler": sched, "interval": "step", "frequency": 1}]
+        return {"scheduler": sched, "interval": "step", "frequency": 1}
+
+    def reset_lr_scheduler(self, max_lr=None, div_factor=None, final_div_factor=None, pct_start=None):
+        cfg = self.train_cfg
+        dl = self.loader
+        sched = torch.optim.lr_scheduler.OneCycleLR(
+            self.opt[0][0],
+            steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
+            epochs=cfg.max_epochs,
+            max_lr=max_lr or cfg.max_lr,
+            div_factor=div_factor or cfg.div_factor,
+            final_div_factor=final_div_factor or cfg.final_div_factor,
+            pct_start=pct_start or cfg.pct_start,
+            cycle_momentum=cfg.cycle_momentum
+        )
+        sched = [{"scheduler": sched, "interval": "step", "frequency": 1}]
+        self.opt = self.opt[0], sched
+        return self
 
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
@@ -154,6 +171,7 @@ class TrainARMLoop(LoggingHooks,
                 prompts_position_sec=(None,) * cfg.n_examples,
                 parameters=dict(temperature=cfg.temperature),
                 batch_size=cfg.n_examples,
+                downsampling=cfg.downsampling,
                 output_name_template=filename_template,
                 display_waveform=cfg.MONITOR_TRAINING,
                 write_waveform=cfg.OUTPUT_TRAINING
@@ -178,7 +196,7 @@ class TrainARMLoop(LoggingHooks,
         return callbacks
 
     @classmethod
-    def from_config(cls, train_cfg: TrainARMConfig, dataset, network: ARM, opt=None, checkpoint=None):
+    def from_config(cls, train_cfg: TrainARMConfig, dataset, network: ARM, opt=None):
         dataloader = cls.get_dataloader(dataset, network, train_cfg)
         if not hasattr(dataset, "config"):
             ds_cfg = DatasetConfig(
@@ -189,7 +207,22 @@ class TrainARMLoop(LoggingHooks,
             ds_cfg = dataset.config
         hp = ARMHP(training=train_cfg, network=network.config, dataset=ds_cfg)
         return cls(hp, dataset, dataloader, network,
-                   network.config.io_spec.loss_fn, opt, checkpoint)
+                   network.config.io_spec.loss_fn, opt)
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint: "Checkpoint"):
+        dataset, network = checkpoint.dataset, checkpoint.network
+        train_cfg = checkpoint.training_config
+        optimizer_state = checkpoint.optimizer_state
+        dataloader = cls.get_dataloader(dataset, network, train_cfg)
+        opt = cls.get_optimizer(network, dataloader, train_cfg)
+        if optimizer_state is not None:
+            opt[0][0].load_state_dict(optimizer_state)
+        loop = cls(ARMHP(training=train_cfg, network=network.config, dataset=dataset.config),
+                   dataset, dataloader, network,
+                   network.config.io_spec.loss_fn, opt)
+        loop.trainer_state = checkpoint.trainer_state
+        return loop
 
     @property
     def config(self) -> ARMHP:
@@ -202,7 +235,6 @@ class TrainARMLoop(LoggingHooks,
                  net: ARM,
                  loss_fn,
                  opt=None,
-                 mmk_checkpoint=None
                  ):
         super().__init__()
         self._config = hp
@@ -214,39 +246,17 @@ class TrainARMLoop(LoggingHooks,
         self.tbptt_len = self.train_cfg.tbptt_chunk_length
         if self.tbptt_len is not None:
             self.tbptt_len //= self.train_cfg.batch_length
-        if mmk_checkpoint is None:
-            self.net = net
-        else:            
-            self.net = mmk_checkpoint.network
+        self.net = net
         self.callbacks = self.get_callbacks(
             self.net, self.dataset, self.root_dir, self.output_template,
             self.train_cfg
         )
-        self.save_optimizer = self.train_cfg.save_optimizer
-        self.mmk_checkpoint = mmk_checkpoint
         self.opt = opt
-
-    def reset_lr_scheduler(self, max_lr, div_factor=None, final_div_factor=None, pct_start=None):
-        cfg = self.train_cfg
-        dl = self.loader
-        sched = torch.optim.lr_scheduler.OneCycleLR(
-            opt,
-            steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
-            epochs=cfg.max_epochs,
-            max_lr=cfg.max_lr,
-            div_factor=div_factor or cfg.div_factor,
-            final_div_factor=final_div_factor or cfg.final_div_factor,
-            pct_start=pct_start or cfg.pct_start,
-            cycle_momentum=cfg.cycle_momentum
-        )
-        sched = [{"scheduler": sched, "interval": "step", "frequency": 1}]
-        self.opt = self.opt[0], sched
+        self.trainer_state = None
 
     def configure_optimizers(self):
         if self.opt is None:
             self.opt = self.get_optimizer(self.net, self.loader, self.config.training)
-        else:
-            self.opt = self.opt, self.get_lr_scheduler(self.net, self.opt, self.loader, self.config.training)
         return self.opt
 
     def train_dataloader(self):
@@ -282,13 +292,15 @@ class TrainARMLoop(LoggingHooks,
                 *epochs_bar,
                 TrainingProgressBar(),
                 *self.callbacks],
-            logger=None,
+            logger=False,
             enable_checkpointing=False,
             num_sanity_val_steps=0,
             accelerator=default_device(),
             devices=torch.cuda.device_count() if torch.cuda.is_available() else 1,
             **self.config.training.trainer_kwargs
         )
+        if self.trainer_state is not None:
+            self.trainer.fit_loop.load_state_dict(self.trainer_state['fit_loop'])
         self.trainer.fit(self)
         try:
             self.loader._iterator._shutdown_workers()

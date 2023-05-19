@@ -54,6 +54,7 @@ class IndicesSampler(Sampler):
                  min_i=0,
                  max_i=None,
                  redraw=True,
+                 sampling_stride=1,
                  ):
         super().__init__(None)
         self.N = N
@@ -61,6 +62,7 @@ class IndicesSampler(Sampler):
         self.min_i = min_i
         self.max_i = max_i
         self.redraw = redraw
+        self.sampling_stride = sampling_stride
         self.indices = self.draw_indices(N, indices)
 
     def __iter__(self):
@@ -71,7 +73,9 @@ class IndicesSampler(Sampler):
 
     def draw_indices(self, N, indices):
         if isinstance(indices, tuple):
-            return tuple(torch.randint(self.min_i, self.max_i, (1,)).item() if i is None else i
-                         for i in indices)
+            return tuple(
+                self.sampling_stride * (torch.randint(self.min_i, self.max_i, (1,)).item() // self.sampling_stride)
+                if i is None else i
+                for i in indices)
         else:
             return torch.randint(self.min_i, self.max_i, (N,))
