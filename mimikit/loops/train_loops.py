@@ -154,6 +154,7 @@ class TrainARMLoop(LoggingHooks,
                 prompts_position_sec=(None,) * cfg.n_examples,
                 parameters=dict(temperature=cfg.temperature),
                 batch_size=cfg.n_examples,
+                downsampling=cfg.downsampling,
                 output_name_template=filename_template,
                 display_waveform=cfg.MONITOR_TRAINING,
                 write_waveform=cfg.OUTPUT_TRAINING

@@ -24,7 +24,8 @@ def demo():
     ipd.display(
         app.dataset_widget,
         app.clustering_widget,
-        app.labels_widget
+        app.labels_widget,
+        app.bounced_container
     )
     """### Note"""
     """

@@ -14,6 +14,8 @@ __all__ = [
 ]
 
 
+# TODO: Reset prompts, destroy outputs, fix only one file selected class,
+#  reload everything after ckpt selection, time in prompt label
 # noinspection PyTypeChecker
 class GenerateFromCheckpointView:
 
@@ -31,17 +33,18 @@ class GenerateFromCheckpointView:
         self.prompt_length_w = W.FloatText(value=1., step=.01)
         self.outputs_length_w = W.FloatText(value=30., step=.01)
         self.batch_size_w = W.IntText(value=8)
+        self.downsampling = 1
         self.generate_w = W.Button(description="Generate")
 
         self.load_ckpt.on_click(self.load_callback)
+        self.container = W.VBox(children=(self.title,
+                                          self.picker.widget,
+                                          self.load_ckpt,
+                                          ))
 
     @property
     def widget(self):
-        return W.VBox(children=(
-            self.title,
-            self.picker.widget,
-            self.load_ckpt,
-        ))
+        return self.container
 
     def load_callback(self, ev):
         path = self.picker.selected
@@ -49,24 +52,26 @@ class GenerateFromCheckpointView:
             self.ckpt = Checkpoint.from_path(path)
             extractor = Config.deserialize(self.ckpt.dataset.attrs["config"], as_type=DatasetConfig).extractors[0]
             self.sr = extractor.functional.unit.sr
+            self.downsampling = self.ckpt.training_config.training.downsampling
             name = extractor.name
             self.prompt_selector = TimeStampsSelector(array=getattr(self.ckpt.dataset, name)[:], sr=self.sr)
             title = W.HTML(
                 """<h4>Select Prompts</h4>""",
                 layout=dict(margin='0 0 0 8px'))
-            ipd.display(
-                title,
-                self.prompt_selector.widget
-            )
-
             self.generate_w.on_click(self.generate_callback)
-            ipd.display(W.VBox(children=(
+            widgets = W.VBox(children=(
                 UI.Labeled("prompt lengt (sec.)", self.prompt_length_w),
                 UI.Labeled("output length (sec.)", self.outputs_length_w),
                 UI.Labeled("batch size", self.batch_size_w),
                 self.generate_w,
                 self.output_area
-            )))
+            ))
+            self.container.children = (
+                *self.container.children[:3],
+                title,
+                self.prompt_selector.widget,
+                widgets
+            )
 
     def generate_callback(self, ev):
         self.output_area.clear_output()
@@ -80,6 +85,8 @@ class GenerateFromCheckpointView:
             prompts_position_sec=tuple(t - self.prompt_length_w.value
                                        for t in self.prompt_selector.timestamps),
             batch_size=self.batch_size_w.value,
+            downsampling=self.downsampling
+            ,
             display_waveform=False,
             yield_inversed_outputs=True
         )
@@ -101,5 +108,5 @@ class GenerateFromCheckpointView:
                             editable=False,
                             labelText="Prompt",
                         )
-                    ], with_save_button=True, element_id=element_id))
+                    ], with_save_button=True, with_play_button=True, element_id=element_id))
                 self.n_outputs += 1

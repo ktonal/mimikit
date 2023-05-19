@@ -35,6 +35,7 @@ class ActivationEnum(AutoStrEnum):
     Sin = auto()
     Cos = auto()
     GLU = auto()
+    Softmax = auto()
 
 
 @dtc.dataclass
@@ -53,6 +54,8 @@ class ActivationConfig(Config, type_field=False):
             a = globals()[self.act]
         if self.act in ("PhaseA", "PhaseB"):
             return a(self.dim)
+        if self.act == "Softmax":
+            a = a(dim=-1)
         else:
             a = a()
         if self.scaled:

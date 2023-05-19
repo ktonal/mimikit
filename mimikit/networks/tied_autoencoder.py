@@ -11,6 +11,7 @@ __all__ = [
 ]
 
 from .arm import ARM, NetworkConfig
+from ..modules.misc import CausalPad
 from ..features.item_spec import ItemSpec
 from ..io_spec import IOSpec
 
@@ -22,6 +23,7 @@ class TiedAE(ARM, nn.Module):
         kernel_sizes: Tuple[int, ...] = (3,)
         dims: Tuple[int, ...] = (16,)
         non_negative_latent: bool = False
+        causal_pad: bool = False
         independence_reg: Optional[float] = None
 
     @classmethod
@@ -56,6 +58,9 @@ class TiedAE(ARM, nn.Module):
         indp_r = self._config.independence_reg
         indp_r = indp_r if indp_r is not None else 0
         for w, p in zip(self.weights, self.padding):
+            if self.config.causal_pad:
+                x = CausalPad((p*2,))(x)
+                p = 0
             x = F.conv1d(x, w, padding=p)
             if self._config.non_negative_latent:
                 x = x.abs()

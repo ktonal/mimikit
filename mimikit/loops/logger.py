@@ -35,7 +35,7 @@ class LoggingHooks(LightningModule):
 
     def log_output(self, out):
         if "loss" in out:
-            self.log("loss", out["loss"], prog_bar=True, on_step=True, on_epoch=False)
+            self.log("loss", out["loss"], prog_bar=True, on_step=True, on_epoch=False, batch_size=1)
         for metric, val in out.items():
             if metric not in self._ep_metrics:
                 self._ep_metrics.setdefault(metric, val.detach())

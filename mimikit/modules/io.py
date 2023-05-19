@@ -22,6 +22,7 @@ __all__ = [
     "EmbeddingConv1d",
     "FramedConv1dIO",
     "MLPIO",
+    "VectorMix",
     "IOModule",
     "ZipMode",
     "ZipReduceVariables"
@@ -80,6 +81,8 @@ class IOModule(Config, abc.ABC):
             before += [Unfold(-1, self.frame_size, self.hop_length)]
 
         after = []
+        if self.with_n_chunks is not None:
+            after += [Chunk(self.with_n_chunks, dim=-1, sum_outputs=True)]
         if self.activation is not None and self.activation.act != "Identity":
             if self.activation.scaled:
                 self.activation.dim = self.out_dim
@@ -88,8 +91,6 @@ class IOModule(Config, abc.ABC):
             after += [nn.Dropout(self.dropout)]
         if self.dropout1d > 0:
             after += [nn.Dropout1d(self.dropout1d)]
-        if self.with_n_chunks is not None:
-            after += [Chunk(self.with_n_chunks, dim=-1, sum_outputs=True)]
 
         if self.sampler is not None:
             return OutputWrapper(
@@ -213,6 +214,30 @@ class MLPIO(IOModule):
         )
         self.activation = None
         return self.wrap(mod)
+
+
+@dtc.dataclass
+class VectorMix(IOModule):
+    hidden_dim: int = 128
+    hidden_activation: ActivationConfig = ActivationConfig("Sigmoid")
+
+    def module(self):
+        h = self.hidden_dim
+        act = self.hidden_activation.get()
+
+        class _Vmix(nn.Module):
+            def __init__(self, in_dim, out_dim):
+                super(_Vmix, self).__init__()
+                self.fc = nn.Linear(in_dim, h * (2 if isinstance(act, nn.GLU) else 1))
+                self.v = nn.Parameter(torch.randn(h, out_dim))
+                self.act = act
+
+            def forward(self, x):
+                x = self.fc(x)
+                x = self.act(x)
+                return torch.matmul(x, self.v)
+
+        return _Vmix(self.in_dim, self.out_dim)
 
 
 class ZipMode(AutoStrEnum):

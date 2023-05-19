@@ -23,6 +23,7 @@ def main():
             *positions,
         ),
         batch_size=bs,
+        downsampling=ckpt.training_config.downsampling,
         display_waveform=False,
         yield_inversed_outputs=False,
         parameters=temperature
