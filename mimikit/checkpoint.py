@@ -2,6 +2,7 @@ import abc
 import dataclasses as dtc
 from typing import Optional
 from typing_extensions import Protocol
+from omegaconf import OmegaConf, ListConfig, DictConfig
 
 try:
     from functools import cached_property
@@ -10,6 +11,8 @@ except ImportError:  # python<3.8
         return property(f)
 
 import torch.nn as nn
+from torch.optim import Adam
+import torch
 
 import h5mapper as h5m
 import os
@@ -54,14 +57,15 @@ class CheckpointBank(h5m.TypedFile):
              filename: str,
              network: ConfigurableModule,
              training_config: Optional[TrainingConfig] = None,
-             optimizer: Optional[nn.Module] = None
+             optimizer: Optional[nn.Module] = None,
+             trainer_state: Optional[dict] = None
              ) -> "CheckpointBank":
 
         net_dict = network.state_dict()
         opt_dict = optimizer.state_dict() if optimizer is not None else {}
         cls.network.set_ds_kwargs(net_dict)
-        if optimizer is not None:
-            cls.optimizer.set_ds_kwargs(opt_dict)
+        #if optimizer is not None:
+        #    cls.optimizer.set_ds_kwargs(opt_dict)
         os.makedirs(os.path.split(filename)[0], exist_ok=True)
 
         bank = cls(filename, mode="w")
@@ -69,7 +73,9 @@ class CheckpointBank(h5m.TypedFile):
         bank.network.add("state_dict", h5m.TensorDict.format(net_dict))
 
         if optimizer is not None:
-            bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
+            #bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
+            torch.save(opt_dict, os.path.splitext(filename)[0] + ".opt")
+                        
         if training_config is not None:
             bank.attrs["dataset"] = training_config.dataset.serialize()
             bank.attrs["training"] = training_config.training.serialize()
@@ -79,7 +85,9 @@ class CheckpointBank(h5m.TypedFile):
             schema = {f.extractor_name: f.extractor for f in features}
             bank.attrs["dataset"] = DatasetConfig(filename="unknown", sources=(),
                                                   extractors=tuple(schema.values())).serialize()
-
+        if trainer_state is not None:
+            bank.attrs["trainer_state"] = OmegaConf.to_yaml(OmegaConf.structured(trainer_state))
+        
         bank.flush()
         bank.close()
         return bank
@@ -94,8 +102,9 @@ class Checkpoint:
     def create(self,
                network: ConfigurableModule,
                training_config: Optional[TrainingConfig] = None,
-               optimizer: Optional[nn.Module] = None):
-        CheckpointBank.save(self.os_path, network, training_config, optimizer)
+               optimizer: Optional[nn.Module] = None,
+               trainer_state: Optional[dict] = None):
+        CheckpointBank.save(self.os_path, network, training_config, optimizer, trainer_state)
         return self
 
     @staticmethod
@@ -149,4 +158,17 @@ class Checkpoint:
             return dataset.get(mode="r")
         return dataset.create(mode="w")
 
+    @cached_property
+    def optimizer_state(self):
+        opt_path = os.path.join(self.root_dir, f"{self.id}/epoch={self.epoch}.opt")
+        if os.path.isfile(opt_path):
+            return torch.load(opt_path)
+        return None
+        
+    @cached_property
+    def trainer_state(self):
+        state = self.bank.attrs.get('trainer_state', None)
+        if state is not None:
+            return OmegaConf.create(state)
+        return None
     # Todo: method to add state_dict mul by weights -> def average(self, *others)

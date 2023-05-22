@@ -8,7 +8,6 @@ from IPython import get_ipython
 
 from ..checkpoint import Checkpoint
 
-
 __all__ = [
     'is_notebook',
     'EpochProgressBarCallback',
@@ -57,7 +56,7 @@ class TrainingProgressBar(pl.callbacks.TQDMProgressBar):
         """Override this to customize the tqdm bar for training."""
         bar = tqdm(
             desc=self.train_description,
-            position=int(is_notebook())*2,
+            position=int(is_notebook()) * 2,
             disable=self.is_disabled,
             leave=True,
             dynamic_ncols=True,
@@ -140,8 +139,17 @@ class MMKCheckpoint(Callback):
 
     def save_checkpoint(self, pl_module, epoch):
         root_dir, training_id = os.path.split(self.root_dir)
-        Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir)\
-            .create(pl_module.net, self.config, optimizer=None)
+        if pl_module.train_cfg.save_optimizer:
+            opt = pl_module.opt[0][0]
+        else:
+            opt = None
+        trainer = pl_module.trainer
+        trainer_state = dict(fit_loop=trainer.fit_loop.state_dict(),
+                             validate_loop=trainer.validate_loop.state_dict(),
+                             test_loop=trainer.test_loop.state_dict(),
+                             predict_loop=trainer.predict_loop.state_dict())
+        Checkpoint(id=training_id, epoch=epoch, root_dir=root_dir) \
+            .create(pl_module.net, self.config, optimizer=opt, trainer_state=trainer_state)
 
 
 class GenerateCallback(pl.callbacks.Callback):
@@ -156,6 +164,6 @@ class GenerateCallback(pl.callbacks.Callback):
     def on_train_epoch_end(self, trainer: pl.Trainer, model):
         if (trainer.current_epoch + 1) % self.every_n_epochs != 0:
             return
-        self.loop.template_vars = dict(epoch=trainer.current_epoch+1)
+        self.loop.template_vars = dict(epoch=trainer.current_epoch + 1)
         for _ in self.loop.run():
             continue
