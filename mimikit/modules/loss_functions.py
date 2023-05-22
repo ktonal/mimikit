@@ -6,6 +6,12 @@ __all__ = [
     'Mean2dDiff',
     "CosineSimilarity",
     "AngularDistance",
+    "WeightedL1",
+    "DiffOverTime",
+    "DistanceOverTime",
+    "MaximizeStd",
+    "ScaledOutputsL1",
+    "MaximizeMagnitude"
 ]
 
 
@@ -28,6 +34,76 @@ class MeanL1Prop(nn.Module):
             raise RuntimeError("nan values in target_sums")
         L = (L / target_sums).mean()
         return L
+
+
+class WeightedL1(nn.Module):
+    def __init__(self, eps=1e-18):
+        super(WeightedL1, self).__init__()
+        self.eps = eps
+        self.l1loss = nn.L1Loss(reduction="none")
+
+    def forward(self, output, target):
+        L = self.l1loss(output, target)
+        target_sums = L.detach().sum(dim=1, keepdims=True)
+        # make the upcoming division safe
+        prop = target_sums / torch.maximum(target_sums.sum(dim=-1, keepdims=True), torch.tensor(self.eps).to(L.device))
+        L = (L * prop).sum()
+        return L
+
+
+class DiffOverTime(nn.Module):
+    def __init__(self, threshold=1e-4):
+        super(DiffOverTime, self).__init__()
+        self.threshold = threshold
+        self.l1loss = nn.L1Loss(reduction="mean")
+
+    def forward(self, output, target):
+        diff_output = torch.diff(output, dim=1)
+        diff_target = torch.diff(target, dim=1)
+        return self.l1loss(diff_output, diff_target)
+
+
+class DistanceOverTime(nn.Module):
+    def __init__(self):
+        super(DistanceOverTime, self).__init__()
+        self.l1loss = nn.L1Loss(reduction="none")
+
+    def forward(self, output, target):
+        dists = torch.cdist(output, output)
+        t_dists = torch.cdist(target, target)
+        L = self.l1loss(dists, t_dists).mean()
+        return L
+
+
+class MaximizeStd(nn.Module):
+    def __init__(self):
+        super(MaximizeStd, self).__init__()
+
+    def forward(self, output, target):
+        std = output.std(dim=1, keepdims=True)
+        L = -std.mean()
+        return L
+
+
+class MaximizeMagnitude(nn.Module):
+    def __init__(self):
+        super(MaximizeMagnitude, self).__init__()
+
+    def forward(self, output, target):
+        mag = output.mean()
+        return -mag
+
+
+class ScaledOutputsL1(nn.Module):
+    def __init__(self, min_a=0.95, max_a=1.05):
+        super(ScaledOutputsL1, self).__init__()
+        self.min_a = min_a
+        self.max_a = max_a
+        self.l1loss = MeanL1Prop()
+
+    def forward(self, output, target):
+        scales = torch.zeros(*target.shape[:-1], 1, device=target.device).uniform_(self.min_a, self.max_a)
+        return self.l1loss(output, scales*target)
 
 
 class Mean2dDiff(nn.Module):
@@ -57,6 +133,7 @@ class CosineSimilarity(nn.Module):
     The need for this function arises from the fact that torch.nn.CosineSimilarity only computes the
     diagonal of D_xy, as in cosine_sim(output, target)
     """
+
     def __init__(self, eps=1e-8):
         super(CosineSimilarity, self).__init__()
         if not isinstance(eps, torch.Tensor):

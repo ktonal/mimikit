@@ -10,13 +10,13 @@ __all__ = [
     "TiedAE"
 ]
 
-from .arm import ARM, NetworkConfig
+from .arm import AutoEncoder, NetworkConfig
 from ..modules.misc import CausalPad
 from ..features.item_spec import ItemSpec
 from ..io_spec import IOSpec
 
 
-class TiedAE(ARM, nn.Module):
+class TiedAE(AutoEncoder, nn.Module):
     @dtc.dataclass
     class Config(NetworkConfig):
         io_spec: IOSpec = None

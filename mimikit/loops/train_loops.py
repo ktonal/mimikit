@@ -13,7 +13,7 @@ import h5mapper as h5m
 from .logger import LoggingHooks
 from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint, TrainingProgressBar, is_notebook
 from .samplers import TBPTTSampler
-from .generate import GenerateLoopV2
+from .generate import GenerateLoopV2, EncodeDecodeLoop
 from ..utils import default_device
 from ..features.dataset import DatasetConfig
 from ..features.item_spec import ItemSpec
@@ -34,6 +34,7 @@ class TrainARMConfig(Config):
     batch_length: int = 32
     downsampling: int = 1
     oversampling: int = 1
+    sampling_jitter: int = 0
     shift_error: int = 0
     tbptt_chunk_length: Optional[int] = None
 
@@ -111,6 +112,7 @@ class TrainARMLoop(LoggingHooks,
         n_workers = max(os.cpu_count(), min(cfg.batch_size, os.cpu_count()))
         with_cuda = torch.cuda.is_available()
         return dataset.serve(batch,
+                             sampling_jitter=cfg.sampling_jitter,
                              num_workers=n_workers,
                              prefetch_factor=2,
                              pin_memory=with_cuda,
@@ -140,21 +142,7 @@ class TrainARMLoop(LoggingHooks,
                       root_dir,
                       filename_template,
                       cfg: TrainARMConfig):
-        # Gen Loop
-        gen_loop = GenerateLoopV2.from_config(
-            GenerateLoopV2.Config(
-                output_duration_sec=cfg.outputs_duration_sec,
-                prompts_length_sec=cfg.prompt_length_sec,
-                prompts_position_sec=(None,) * cfg.n_examples,
-                parameters=dict(temperature=cfg.temperature),
-                batch_size=cfg.n_examples,
-                downsampling=cfg.downsampling,
-                output_name_template=filename_template,
-                display_waveform=cfg.MONITOR_TRAINING,
-                write_waveform=cfg.OUTPUT_TRAINING
-            ),
-            network=net, dataset=dataset
-        )
+
         callbacks = []
 
         if cfg.CHECKPOINT_TRAINING:
@@ -162,13 +150,42 @@ class TrainARMLoop(LoggingHooks,
                 MMKCheckpoint(epochs=cfg.every_n_epochs, root_dir=root_dir)
             ]
         if cfg.MONITOR_TRAINING or cfg.OUTPUT_TRAINING:
+            if isinstance(net, ARM):
+                # Gen Loop
+                gen_loop = GenerateLoopV2.from_config(
+                    GenerateLoopV2.Config(
+                        output_duration_sec=cfg.outputs_duration_sec,
+                        prompts_length_sec=cfg.prompt_length_sec,
+                        prompts_position_sec=(None,) * cfg.n_examples,
+                        parameters=dict(temperature=cfg.temperature),
+                        batch_size=cfg.n_examples,
+                        downsampling=cfg.downsampling,
+                        output_name_template=filename_template,
+                        display_waveform=cfg.MONITOR_TRAINING,
+                        write_waveform=cfg.OUTPUT_TRAINING
+                    ),
+                    network=net, dataset=dataset
+                )
+            else:  # AutoEncoder Loop
+                gen_loop = EncodeDecodeLoop.from_config(
+                    EncodeDecodeLoop.Config(
+                        prompts_length_sec=max(cfg.prompt_length_sec, cfg.outputs_duration_sec),
+                        prompts_position_sec=(None,) * cfg.n_examples,
+                        parameters=dict(temperature=cfg.temperature),
+                        batch_size=cfg.n_examples,
+                        downsampling=cfg.downsampling,
+                        output_name_template=filename_template,
+                        display_waveform=cfg.MONITOR_TRAINING,
+                        write_waveform=cfg.OUTPUT_TRAINING
+                    )
+                )
             callbacks += [
                 GenerateCallback(
                     generate_loop=gen_loop,
                     every_n_epochs=cfg.every_n_epochs,
                 )]
 
-        gen_loop.plot_audios = gen_loop.play_audios = cfg.MONITOR_TRAINING
+            gen_loop.plot_audios = gen_loop.play_audios = cfg.MONITOR_TRAINING
 
         return callbacks
 
@@ -231,6 +248,18 @@ class TrainARMLoop(LoggingHooks,
         if not isinstance(output, tuple):
             output = output,
         return self.loss_fn(output, target)
+
+    def training_step_(self, batch, batch_idx):
+        batch, target = batch
+        L = {"loss": 0}
+        for n in range(2):
+            output = self.net.forward(batch)
+            if not isinstance(output, tuple):
+                output = output,
+            target = (target[0][:, -output[0].size(1):], )
+            L["loss"] += self.loss_fn(output, target)["loss"] * (1/(n+1))
+            batch = (output[0].detach(),)
+        return L
 
     def on_train_epoch_end(self, *args):
         super(TrainARMLoop, self).on_train_epoch_end(*args)

@@ -14,7 +14,7 @@ from .features.functionals import *
 from .modules.targets import *
 from .modules.io import *
 from .modules.activations import *
-from .modules.loss_functions import MeanL1Prop
+from .modules import loss_functions as lfuncs
 
 __all__ = [
     "InputSpec",
@@ -95,24 +95,24 @@ class InputSpec(_FeatureSpec, type_field=False):
 class ObjectiveType(AutoStrEnum):
     reconstruction = auto()
     categorical_dist = auto()
-    logistic_dist = auto()
-    gaussian_dist = auto()
-    laplace_dist = auto()
-    logistic_vector = auto()
-    gaussian_vector = auto()
-    laplace_vector = auto()
+    DiffOverTime = auto()
+    WeightedL1 = auto()
+    MaximizeMagnitude = auto()
 
 
 @dtc.dataclass
 class Objective(Config, type_field=False):
     objective_type: ObjectiveType
     params: Dict = dtc.field(default_factory=lambda: {})
+    weight: float = 1.
 
     def get_criterion(self):
         if self.objective_type == "reconstruction":
-            return MeanL1Prop(eps=1.)
+            return lfuncs.MeanL1Prop(**self.params)
         elif self.objective_type == "categorical_dist":
             return self.cross_entropy
+        elif hasattr(lfuncs, self.objective_type):
+            return getattr(lfuncs, self.objective_type)(**self.params)
 
     def get_sampler(self):
         if self.objective_type == "reconstruction":
@@ -129,6 +129,7 @@ class Objective(Config, type_field=False):
 @dtc.dataclass
 class TargetSpec(_FeatureSpec, type_field=False):
     objective: Objective
+    extra_loss_terms: Tuple[Objective, ...] = ()
 
     def bind_to(self, extractor: Extractor):
         super(TargetSpec, self).bind_to(extractor)
@@ -142,10 +143,13 @@ class TargetSpec(_FeatureSpec, type_field=False):
             self.module.set(out_dim=self.elem_type.size,
                             sampler=sampler)
         self.criterion = self.objective.get_criterion()
+        self.extra_terms = {obj.objective_type: (obj.get_criterion(), obj.weight) for obj in self.extra_loss_terms}
         return self
 
     def loss_fn(self, output, target):
-        return {"loss": self.criterion(output, target)}
+        L = {self.objective.objective_type: self.criterion(output, target) * self.objective.weight,
+             **{k: crit(output, target) * w for k, (crit, w) in self.extra_terms.items()}}
+        return {"loss": sum(L.values()), **L}
 
 
 @dtc.dataclass
@@ -194,8 +198,8 @@ class IOSpec(Config, type_field=False):
             for i, (spec, o, t) in enumerate(zip(self.targets, output, target)):
                 d = spec.loss_fn(o, t)
                 L += d["loss"]
-                out[f"output_{i}_{spec.objective.objective_type}"] = d["loss"]
-                # out.update(d)
+                d.pop("loss")
+                out.update(d)
             out["loss"] = L
             return out
 

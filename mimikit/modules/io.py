@@ -8,6 +8,7 @@ from torch import nn as nn
 from .activations import ActivationConfig
 from .resamplers import Conv1dResampler
 from .targets import OutputWrapper
+from ..networks.parametrized_gaussian import ParametrizedGaussian
 from ..networks.mlp import MLP
 from ..config import Config, private_runtime_field
 from ..modules.misc import Unsqueeze, Flatten, Chunk, Unfold, ShapeWrap
@@ -23,6 +24,7 @@ __all__ = [
     "FramedConv1dIO",
     "MLPIO",
     "VectorMix",
+    "Gaussian",
     "IOModule",
     "ZipMode",
     "ZipReduceVariables"
@@ -238,6 +240,21 @@ class VectorMix(IOModule):
                 return torch.matmul(x, self.v)
 
         return _Vmix(self.in_dim, self.out_dim)
+
+
+@dtc.dataclass
+class Gaussian(IOModule):
+    bias: bool = False
+    min_std: float = 1e-4
+
+    def module(self) -> nn.Module:
+        return ParametrizedGaussian(
+            input_dim=self.in_dim,
+            z_dim=self.out_dim,
+            bias=self.bias,
+            min_std=self.min_std,
+            return_params=False
+        )
 
 
 class ZipMode(AutoStrEnum):

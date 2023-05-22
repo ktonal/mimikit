@@ -16,6 +16,7 @@ class ParametrizedGaussian(nn.Module):
     input_dim: int
     z_dim: int
     bias: bool = False
+    min_std: float = 1e-4
     return_params: bool = True
 
     def __post_init__(self):
@@ -24,7 +25,7 @@ class ParametrizedGaussian(nn.Module):
 
     def forward(self, h):
         mu, logvar = torch.chunk(self.fc(h), 2, dim=-1)
-        std = logvar.mul(0.5).exp_()
+        std = logvar.mul(0.5).exp().clamp(min=self.min_std)
         eps = torch.randn(*mu.size()).to(h.device)
         z = mu + std * eps
         if self.return_params:

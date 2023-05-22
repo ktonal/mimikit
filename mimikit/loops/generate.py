@@ -78,7 +78,7 @@ class PromptIndices(h5m.Input):
         self.getter = h5m.Getter()
         self.getter.n = n
 
-    def __call__(self, item, file=None):
+    def __call__(self, item, file=None, **kwargs):
         return np.array([item], dtype=np.int32)
 
 

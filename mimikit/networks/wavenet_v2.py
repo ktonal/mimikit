@@ -17,6 +17,17 @@ __all__ = [
 ]
 
 
+class DoubleConv(nn.Module):
+
+    def __init__(self, in_dim, out_dim, **kwargs):
+        super(DoubleConv, self).__init__()
+        self.cv_f = nn.Conv1d(in_dim, out_dim, **kwargs)
+        self.cv_g = nn.Conv1d(in_dim, out_dim, **kwargs)
+
+    def forward(self, x):
+        return self.cv_f(x), self.cv_g(x)
+
+
 class WNLayer(nn.Module):
 
     def __init__(
@@ -38,6 +49,8 @@ class WNLayer(nn.Module):
             # TODO
             act_skips: Optional[nn.Module] = None,
             act_residuals: Optional[nn.Module] = None,
+            skips_groups: int = 1,
+            residuals_groups: int = 1,
             dropout: float = 0.,
     ):
         super(WNLayer, self).__init__()
@@ -80,6 +93,7 @@ class WNLayer(nn.Module):
 
         if self.has_gated_units:
             self.conv_dil = nn.ModuleList([
+                # DoubleConv(in_dim, d, **kwargs_dil)
                 nn.Sequential(nn.Conv1d(in_dim, d * 2, **kwargs_dil),
                               Chunk(2, dim=1, sum_outputs=False))
                 for d in dims_dilated
@@ -97,9 +111,9 @@ class WNLayer(nn.Module):
                 nn.Conv1d(d, main_inner_dim, **kwargs_1x1) for d in dims_1x1
             ])
         if self.has_skips:
-            self.conv_skip = nn.Conv1d(main_inner_dim, skips_dim, **kwargs_1x1)
+            self.conv_skip = nn.Conv1d(main_inner_dim, skips_dim, **kwargs_1x1, groups=skips_groups)
         if self.has_residuals:
-            self.conv_res = nn.Conv1d(main_inner_dim, main_outer_dim, **kwargs_1x1)
+            self.conv_res = nn.Conv1d(main_inner_dim, main_outer_dim, **kwargs_1x1, groups=residuals_groups)
 
         # print("***********************")
         # print(f"in_dim={in_dim} main_inner={main_inner_dim} main_outer={main_outer_dim}")
@@ -175,6 +189,8 @@ class WaveNet(ARM, nn.Module):
         bias: bool = True
         use_fast_generate: bool = False
         tie_io_weights: bool = False
+        layerwise_inputs: bool = False
+        reverse_layer_order: bool = False
 
     @classmethod
     def get_layers(cls, config: "WaveNet.Config") -> List[WNLayer]:
@@ -237,7 +253,7 @@ class WaveNet(ARM, nn.Module):
         self._config = config
         self.input_modules = nn.ModuleList(input_modules)
         self.transpose = Transpose(1, 2)
-        self.layers: Iterable[WNLayer] = nn.ModuleList(layers)
+        self.layers: Iterable[WNLayer] = nn.ModuleList(reversed(layers) if config.reverse_layer_order else layers)
         self.has_skips = config.skips_dim is not None
         self.output_modules = nn.ModuleList(output_modules)
         self.eval_slice = slice(-1, None) if config.pad_side == 1 else slice(0, 1)
@@ -250,6 +266,8 @@ class WaveNet(ARM, nn.Module):
             dilated, skips = layer.forward(
                 inputs_dilated=(dilated,), inputs_1x1=in_1x1, skips=skips
             )
+            if self._config.layerwise_inputs:
+                dilated = dilated + inputs[0][..., -dilated.size(-1):]
             if not layer.needs_padding:
                 in_1x1 = tuple(layer.trim_cause(x) for x in in_1x1)
         if self.has_skips:

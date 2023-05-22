@@ -1,4 +1,6 @@
 from enum import auto
+from typing import Dict
+
 import torch
 from torch import nn
 import dataclasses as dtc
@@ -44,7 +46,7 @@ class ActivationConfig(Config, type_field=False):
     scaled: bool = False
     static: bool = False
     with_rate: bool = False
-
+    params: Dict = dtc.field(default_factory=lambda: {})
     dim: int = private_runtime_field(None)
 
     def get(self):
@@ -55,9 +57,9 @@ class ActivationConfig(Config, type_field=False):
         if self.act in ("PhaseA", "PhaseB"):
             return a(self.dim)
         if self.act == "Softmax":
-            a = a(dim=-1)
+            a = a(dim=-1, **self.params)
         else:
-            a = a()
+            a = a(**self.params)
         if self.scaled:
             if self.static:
                 return StaticScaledActivation(a, self.dim, self.with_rate)
