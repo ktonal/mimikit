@@ -492,6 +492,7 @@ class ClusterizerApp:
         self.labels_grid = W.GridBox(layout=dict(max_height='400px',
                                                  margin="16px auto",
                                                  grid_template_columns="1fr " * 10,
+                                                 grid_auto_rows="max-content",
                                                  grid_gap="8px",
                                                  overflow="scroll"))
         labels_w = []

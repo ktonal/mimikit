@@ -98,6 +98,7 @@ class ObjectiveType(AutoStrEnum):
     DiffOverTime = auto()
     WeightedL1 = auto()
     MaximizeMagnitude = auto()
+    MaximizeStd = auto()
 
 
 @dtc.dataclass
