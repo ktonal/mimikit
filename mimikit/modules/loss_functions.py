@@ -148,12 +148,13 @@ class CosineSimilarity(nn.Module):
 
 
 class AngularDistance(nn.Module):
-    def __init__(self, eps=1e-8):
+    def __init__(self, eps=1e-8, reduction="mean"):
         super(AngularDistance, self).__init__()
         if not isinstance(eps, torch.Tensor):
             eps = torch.tensor(eps)
         self.register_buffer("eps", eps)
         self.cosine_sim = CosineSimilarity(eps=eps)
+        self.reduction = reduction
 
     def safe_acos(self, x):
         # torch.acos returns nan near -1 and 1... see https://github.com/pytorch/pytorch/issues/8069
@@ -175,4 +176,12 @@ class AngularDistance(nn.Module):
         cos_theta = self.cosine_sim(X, Y)
         pi = torch.acos(torch.zeros(1)).item() * 2
         D_xy = (1 + int(not have_negatives)) * self.safe_acos(cos_theta) / pi
+        if self.reduction != 'none':
+            D_xy = getattr(torch, self.reduction)(D_xy)
         return D_xy
+
+
+class ElementWiseAngularDistance(AngularDistance):
+
+    def forward(self, output, target):
+        return super(ElementWiseAngularDistance, self).forward(output.unsqueeze(-2), target.unsqueeze(-2))

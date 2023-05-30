@@ -6,6 +6,7 @@ from itertools import accumulate, chain
 import operator as opr
 
 from .arm import ARM, NetworkConfig
+from .parametrized import ParametrizedLinear
 from ..io_spec import IOSpec
 from ..features.item_spec import ItemSpec, Step
 from ..modules.misc import Chunk, CausalPad, Transpose
@@ -46,6 +47,7 @@ class WNLayer(nn.Module):
             stride: int = 1,
             bias: bool = True,
             dilation: int = 1,
+            with_affine_residuals: bool = False,
             # TODO
             act_skips: Optional[nn.Module] = None,
             act_residuals: Optional[nn.Module] = None,
@@ -74,6 +76,8 @@ class WNLayer(nn.Module):
         self.has_gated_units = act_g is not None
         self.has_skips = skips_dim is not None
         self.has_residuals = residuals_dim is not None and (input_dim is None or input_dim == residuals_dim)
+        self.has_affine_residuals = with_affine_residuals
+
         if residuals_dim is None:
             main_inner_dim = main_outer_dim = dims_dilated[0]
             in_dim = main_outer_dim if input_dim is None else input_dim
@@ -114,6 +118,8 @@ class WNLayer(nn.Module):
             self.conv_skip = nn.Conv1d(main_inner_dim, skips_dim, **kwargs_1x1, groups=skips_groups)
         if self.has_residuals:
             self.conv_res = nn.Conv1d(main_inner_dim, main_outer_dim, **kwargs_1x1, groups=residuals_groups)
+        if self.has_affine_residuals:
+            self.aff_res = ParametrizedLinear(in_dim, in_dim, as_1x1_conv=True)
 
         # print("***********************")
         # print(f"in_dim={in_dim} main_inner={main_inner_dim} main_outer={main_outer_dim}")
@@ -139,6 +145,8 @@ class WNLayer(nn.Module):
                 y_f, y_g = conv(x)
                 cond_f += y_f
                 cond_g += y_g
+            if self.has_affine_residuals:
+                inputs_dilated = (self.aff_res(inputs_dilated[0]), *inputs_dilated[1:])
             x_f, x_g = self.conv_dil[0](inputs_dilated[0])
             y = self.act_f(x_f + cond_f) * self.act_g(x_g + cond_g)
         else:
@@ -146,7 +154,11 @@ class WNLayer(nn.Module):
             for conv, x in zip(self.conv_1x1, inputs_1x1):
                 if not self.needs_padding:
                     x = self.trim_cause(x)
+                if self.has_affine_residuals:
+                    x = self.aff_res(x) + x
                 cond += conv(x)
+            if self.has_affine_residuals:
+                inputs_dilated = (self.aff_res(inputs_dilated[0]), *inputs_dilated[1:])
             y = self.conv_dil[0](inputs_dilated[0])
             y = self.act_f(y + cond)
 
@@ -181,6 +193,7 @@ class WaveNet(ARM, nn.Module):
         residuals_dim: Optional[int] = None
         apply_residuals: bool = False
         skips_dim: Optional[int] = None
+        with_affine_residuals: bool = False
         groups: int = 1
         act_f: ActivationEnum = "Tanh"
         act_g: Optional[ActivationEnum] = "Sigmoid"
@@ -209,7 +222,8 @@ class WaveNet(ARM, nn.Module):
                 act_g=ActivationConfig(str(config.act_g)).get() if config.act_g is not None else None,
                 pad_side=config.pad_side,
                 stride=config.stride, bias=config.bias,
-                dilation=d
+                dilation=d,
+                with_affine_residuals=config.with_affine_residuals
             )
             for n, (k, d) in enumerate(zip(kernel_sizes, dilation))
         ]

@@ -1,5 +1,5 @@
 from .arm import *
-from .parametrized_gaussian import *
+from .parametrized import *
 from .sample_rnn_v2 import *
 from .s2s_lstm_v2 import *
 from .mlp import *

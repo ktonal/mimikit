@@ -6,9 +6,10 @@ import torch
 from pytorch_lightning import LightningModule, Trainer
 import os
 
-from torch.optim import Optimizer, Adam
+from torch.optim import Adam
 
 import h5mapper as h5m
+from .beta_scheduler import BetaScheduler
 
 from .logger import LoggingHooks
 from .callbacks import EpochProgressBarCallback, GenerateCallback, MMKCheckpoint, TrainingProgressBar, is_notebook
@@ -123,9 +124,10 @@ class TrainARMLoop(LoggingHooks,
 
     @classmethod
     def get_lr_scheduler(cls, net, opt, dl, cfg: TrainARMConfig):
+        steps_per_epoch = min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl)
         sched = torch.optim.lr_scheduler.OneCycleLR(
             opt,
-            steps_per_epoch=min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl),
+            steps_per_epoch=steps_per_epoch,
             epochs=cfg.max_epochs,
             max_lr=cfg.max_lr,
             div_factor=cfg.div_factor,
@@ -133,7 +135,28 @@ class TrainARMLoop(LoggingHooks,
             pct_start=cfg.pct_start,
             cycle_momentum=cfg.cycle_momentum
         )
+
         return {"scheduler": sched, "interval": "step", "frequency": 1}
+
+    @classmethod
+    def get_beta_scheduler(cls, net, opt, dl, cfg: TrainARMConfig):
+        steps_per_epoch = min(len(dl), cfg.limit_train_batches) if cfg.limit_train_batches is not None else len(dl)
+        beta_sched = BetaScheduler(
+            opt,
+            steps_per_epoch=steps_per_epoch,
+            epochs=cfg.max_epochs,
+            max_beta=.5,
+            div_factor=1,
+            final_div_factor=10,
+            pct_start=0.,
+        )
+        return {"scheduler": beta_sched, "interval": "step", "frequency": 1}
+
+    @classmethod
+    def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
+        opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
+        sched = cls.get_lr_scheduler(net, opt, dl, cfg)
+        return [opt], [sched]
 
     def reset_lr_scheduler(self, max_lr=None, div_factor=None, final_div_factor=None, pct_start=None):
         cfg = self.train_cfg
@@ -146,17 +169,13 @@ class TrainARMLoop(LoggingHooks,
             div_factor=div_factor or cfg.div_factor,
             final_div_factor=final_div_factor or cfg.final_div_factor,
             pct_start=pct_start or cfg.pct_start,
-            cycle_momentum=cfg.cycle_momentum
+            cycle_momentum=cfg.cycle_momentum,
+            # base_momentum=0.5,
+            # max_momentum=0.05
         )
         sched = [{"scheduler": sched, "interval": "step", "frequency": 1}]
         self.opt = self.opt[0], sched
         return self
-
-    @classmethod
-    def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
-        opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
-        sched = cls.get_lr_scheduler(net, opt, dl, cfg)
-        return [opt], [sched]
 
     @classmethod
     def get_callbacks(cls,

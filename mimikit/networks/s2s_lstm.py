@@ -5,7 +5,7 @@ from typing import Optional
 from .arm import NetworkConfig
 from ..networks.arm import ARMWithHidden
 from ..io_spec import IOSpec
-from ..networks.parametrized_gaussian import ParametrizedGaussian
+from ..networks.parametrized import ParametrizedGaussian
 
 __all__ = [
     'EncoderLSTM',

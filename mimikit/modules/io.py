@@ -8,7 +8,7 @@ from torch import nn as nn
 from .activations import ActivationConfig
 from .resamplers import Conv1dResampler
 from .targets import OutputWrapper
-from ..networks.parametrized_gaussian import ParametrizedGaussian
+from ..networks.parametrized import ParametrizedGaussian, ParametrizedLinear, ParametrizedLogistic
 from ..networks.mlp import MLP
 from ..config import Config, private_runtime_field
 from ..modules.misc import Unsqueeze, Flatten, Chunk, Unfold, ShapeWrap
@@ -25,6 +25,8 @@ __all__ = [
     "MLPIO",
     "VectorMix",
     "Gaussian",
+    "Affine",
+    "Logistic",
     "IOModule",
     "ZipMode",
     "ZipReduceVariables"
@@ -254,6 +256,27 @@ class Gaussian(IOModule):
             bias=self.bias,
             min_std=self.min_std,
             return_params=False
+        )
+
+
+@dtc.dataclass
+class Affine(IOModule):
+    bias: bool = True
+
+    def module(self) -> nn.Module:
+        return ParametrizedLinear(
+            self.in_dim, self.out_dim, self.bias
+        )
+
+
+@dtc.dataclass
+class Logistic(IOModule):
+    bias: bool = True
+
+    def module(self) -> nn.Module:
+        return ParametrizedLogistic(
+            self.in_dim, self.out_dim,
+            self.bias
         )
 
 

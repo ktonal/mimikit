@@ -99,6 +99,7 @@ class ObjectiveType(AutoStrEnum):
     WeightedL1 = auto()
     MaximizeMagnitude = auto()
     MaximizeStd = auto()
+    ElementWiseAngularDistance = auto()
 
 
 @dtc.dataclass
