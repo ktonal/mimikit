@@ -10,6 +10,7 @@ import qgrid
 
 from ..config import Config
 from ..extract.clusters import *
+# from ..extract.label_filter import LabelFilter
 from ..features.dataset import DatasetConfig
 from ..features.functionals import *
 from .clusters import *
@@ -50,6 +51,7 @@ TRANSFORMS = {
     "chroma": Meta(Chroma, chroma_view, [MagSpec], True),
     "auto-convolve": Meta(AutoConvolve, autoconvolve_view, [Any], False),
     "f0 filter": Meta(F0Filter, f0_filter_view, [MagSpec], False),
+    # "top k": Meta(TopKFilter, topk_filter_view, [MagSpec], False),
     "nearest neighbor filter": Meta(NearestNeighborFilter, nearest_neighbor_filter_view, [Any]),
     "pca": Meta(PCA, pca_view, [Any]),
     "nmf": Meta(NMF, nmf_view, [Any]),
@@ -306,7 +308,6 @@ class ClusterizerApp:
         self.pre_pipeline_widget = self.pre_pipeline.widget
         self.clusters = ClusterWidget()
         self.clusters_widget = self.clusters.widget
-
         self.save_as = W.HBox(children=(
             W.Label(value='Save clustering as: '), W.Text(value="labels")),
             layout=dict(margin="auto", width="max-content"))
@@ -590,8 +591,8 @@ class ClusterizerApp:
 
             remove_w.on_click(on_remove)
             self.bounced_container.children = (
+                new_waveform,
                 *self.bounced_container.children,
-                new_waveform
             )
 
         bounce = W.Button(description="Bounce Selection")
