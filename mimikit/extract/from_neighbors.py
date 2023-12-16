@@ -10,11 +10,11 @@ __all__ = [
 ]
 
 
-def nearest_neighbor(X, Y):
+def nearest_neighbor(X, Y, metric=AngularDistance()):
     """
     computes nearest neighbor by angular distance
     """
-    D_xy = AngularDistance()(X, Y)
+    D_xy = metric(X, Y)
     dists, nn = torch.min(D_xy, dim=-1)
     return dists, nn
 
