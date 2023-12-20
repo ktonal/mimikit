@@ -23,7 +23,8 @@ from .features.dataset import DatasetConfig
 
 __all__ = [
     'Checkpoint',
-    'CheckpointBank'
+    'CheckpointBank',
+    "CheckpointsMix"
 ]
 
 
@@ -64,7 +65,7 @@ class CheckpointBank(h5m.TypedFile):
         net_dict = network.state_dict()
         opt_dict = optimizer.state_dict() if optimizer is not None else {}
         cls.network.set_ds_kwargs(net_dict)
-        #if optimizer is not None:
+        # if optimizer is not None:
         #    cls.optimizer.set_ds_kwargs(opt_dict)
         os.makedirs(os.path.split(filename)[0], exist_ok=True)
 
@@ -73,9 +74,9 @@ class CheckpointBank(h5m.TypedFile):
         bank.network.add("state_dict", h5m.TensorDict.format(net_dict))
 
         if optimizer is not None:
-            #bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
+            # bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
             torch.save(opt_dict, os.path.splitext(filename)[0] + ".opt")
-                        
+
         if training_config is not None:
             bank.attrs["dataset"] = training_config.dataset.serialize()
             bank.attrs["training"] = training_config.training.serialize()
@@ -87,7 +88,7 @@ class CheckpointBank(h5m.TypedFile):
                                                   extractors=tuple(schema.values())).serialize()
         if trainer_state is not None:
             bank.attrs["trainer_state"] = OmegaConf.to_yaml(OmegaConf.structured(trainer_state))
-        
+
         bank.flush()
         bank.close()
         return bank
@@ -98,6 +99,7 @@ class Checkpoint:
     id: str
     epoch: int
     root_dir: str = "./"
+    weight: float = 1.
 
     def create(self,
                network: ConfigurableModule,
@@ -142,6 +144,13 @@ class Checkpoint:
         return Config.deserialize(bank.attrs["training"])
 
     @cached_property
+    def network_state_dict(self):
+        state_dict = self.bank.network.get("state_dict")
+        if self.weight != 1.:
+            state_dict = {k: v * self.weight for k, v in state_dict.items()}
+        return state_dict
+
+    @cached_property
     def network(self) -> ConfigurableModule:
         cfg: NetworkConfig = self.network_config
         cfg.io_spec.bind_to(self.dataset_config)
@@ -164,11 +173,24 @@ class Checkpoint:
         if os.path.isfile(opt_path):
             return torch.load(opt_path)
         return None
-        
+
     @cached_property
     def trainer_state(self):
         state = self.bank.attrs.get('trainer_state', None)
         if state is not None:
             return OmegaConf.create(state)
         return None
-    # Todo: method to add state_dict mul by weights -> def average(self, *others)
+
+
+def CheckpointsMix(*checkpoints: Checkpoint):
+    net_cfg = checkpoints[0].network_config
+    net_cfg.io_spec.bind_to(checkpoints[0].dataset_config)
+    cls = net_cfg.owner_class
+    net_state_dict = checkpoints[0].network_state_dict
+    for ckpt in checkpoints[1:]:
+        other_dict = ckpt.network_state_dict
+        for k, v in other_dict.items():
+            net_state_dict.update({k: net_state_dict[k] + v})
+    net = cls.from_config(net_cfg)
+    net.load_state_dict(net_state_dict, strict=True)
+    return net

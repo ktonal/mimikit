@@ -40,13 +40,26 @@ class MLP(nn.Module):
         if dropout1d > 0.:
             dp += [nn.Dropout1d(dropout1d)]
 
+        class AsResiduals(nn.Module):
+            def __init__(self, *modules):
+                super(AsResiduals, self).__init__()
+                self.mods = nn.Sequential(*modules)
+
+            def forward(self, x):
+                return self.mods(x) + x
+
+        # if in_dim == hidden_dim:
+        #     fc = [
+        #         AsResiduals(nn.Linear(in_dim, hidden_dim, bias=bias), self.activation, *dp)
+        #     ]
+        # else:
         fc = [
             nn.Linear(in_dim, hidden_dim, bias=bias), self.activation,
             *dp
         ]
         fc += [
-            *((nn.Linear(hidden_dim, hidden_dim, bias=bias), self.activation,
-               *dp) * n_hidden_layers)
+            *((AsResiduals(nn.Linear(hidden_dim, hidden_dim, bias=bias), self.activation,
+               *dp), ) * n_hidden_layers)
         ]
         self.fc = nn.Sequential(
             *fc, nn.Linear(hidden_dim, self.out_dim, bias=bias)

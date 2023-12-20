@@ -23,12 +23,13 @@ class ParametrizedGaussian(nn.Module):
 
     def forward(self, h):
         mu, logvar = torch.chunk(self.fc(h), 2, dim=-1)
-        std = logvar.mul(0.5).exp().clamp(min=self.min_std)
-        eps = torch.randn(*mu.size()).to(h.device)
-        z = mu + std * eps
-        if self.return_params:
-            return z, mu, std
-        return z
+        std = logvar.exp().clamp(min=self.min_std)
+        # mu = torch.nn.functional.softplus(mu)
+        # z = mu + std * eps
+        if self.training and self.return_params:
+            return mu, std
+        eps = torch.randn_like(mu)
+        return mu + std.sqrt() * eps
 
 
 class ParametrizedLinear(nn.Module):

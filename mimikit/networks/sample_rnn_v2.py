@@ -8,7 +8,8 @@ from .arm import ARMWithHidden, NetworkConfig
 from ..io_spec import IOSpec
 from ..features.functionals import *
 from ..features.item_spec import ItemSpec
-from ..modules.io import IOModule, ZipReduceVariables, ZipMode, FramedLinearIO, FramedConv1dIO, EmbeddingConv1d
+from ..modules.io import IOModule, ZipReduceVariables, ZipMode, FramedLinearIO, FramedConv1dIO, EmbeddingConv1d, \
+    EmbeddingIO, OneHotConv1dIO
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -161,10 +162,9 @@ class SampleRNN(ARMWithHidden, nn.Module):
         for in_spec in config.io_spec.inputs:
             if isinstance(in_spec.elem_type, Discrete):
                 params = dict(class_size=in_spec.elem_type.size)
-                if isinstance(in_spec.module, FramedLinearIO):
-                    module_type = FramedConv1dIO
-                else:
-                    module_type = EmbeddingConv1d
+                module_type = OneHotConv1dIO
+                # else:
+                #     raise NotImplementedError(f"no implementation for input module of type '{type(in_spec.module)}")
             else:
                 params = dict()
                 module_type = FramedConv1dIO

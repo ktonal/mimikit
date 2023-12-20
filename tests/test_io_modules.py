@@ -17,7 +17,7 @@ from assertpy import assert_that
     [128, 53, 13, 63]
 )
 def test_vector_mix(in_dim, hidden_dim, out_dim):
-    under_test = mmk.VectorMix(hidden_dim=hidden_dim)
+    under_test = mmk.VectorMixIO(hidden_dim=hidden_dim)
     under_test = under_test.set(in_dim=in_dim, out_dim=out_dim).module()
     input = torch.randn(4, 61, in_dim)
 

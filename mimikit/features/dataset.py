@@ -37,6 +37,9 @@ class DatasetConfig(Config, type_field=False):
             else:
                 fixed_sources += [src]
         self.sources = tuple(fixed_sources)
+        if "filename" in kwargs:
+            self.filename = kwargs["filename"]
+            kwargs.pop("filename")
         db = cls.create(self.filename, fixed_sources, **kwargs)
         db.attrs["config"] = self.serialize()
         return db

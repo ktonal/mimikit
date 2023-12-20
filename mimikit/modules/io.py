@@ -11,22 +11,25 @@ from .targets import OutputWrapper
 from ..networks.parametrized import ParametrizedGaussian, ParametrizedLinear, ParametrizedLogistic
 from ..networks.mlp import MLP
 from ..config import Config, private_runtime_field
-from ..modules.misc import Unsqueeze, Flatten, Chunk, Unfold, ShapeWrap
+from ..modules.misc import Unsqueeze, Flatten, Chunk, Unfold, ShapeWrap, OneHot
 from ..utils import AutoStrEnum
 
 __all__ = [
+    "IdentityIO",
     "LinearIO",
     "ChunkedLinearIO",
     "FramedLinearIO",
     "EmbeddingIO",
     "EmbeddingBagIO",
     "EmbeddingConv1d",
+    "OneHotConv1dIO",
     "FramedConv1dIO",
     "MLPIO",
-    "VectorMix",
+    "VectorMixIO",
     "Gaussian",
-    "Affine",
-    "Logistic",
+    "GaussianIO",
+    "AffineIO",
+    "LogisticIO",
     "IOModule",
     "ZipMode",
     "ZipReduceVariables"
@@ -112,6 +115,11 @@ class Linearizer(nn.Module):
         return ((x.float() / self.class_size) - .5) * 2
 
 
+class IdentityIO(IOModule):
+    def module(self) -> nn.Module:
+        return self.wrap(nn.Identity())
+
+
 @dtc.dataclass
 class LinearIO(IOModule):
     bias: bool = True
@@ -183,6 +191,23 @@ class EmbeddingConv1d(IOModule):
 
 
 @dtc.dataclass
+class OneHotConv1dIO(IOModule):
+
+    def module(self) -> nn.Module:
+        self.not_none("class_size", "frame_size", "hop_length", "out_dim")
+        mod = nn.Sequential(
+            OneHot(self.class_size),
+            # -> (batch, n_frames, frame_size, class_size)
+            Conv1dResampler(in_dim=self.class_size,
+                            t_factor=1 / self.frame_size,
+                            d_factor=self.out_dim/self.class_size)
+            # -> (batch, n_frames, hidden_dim)
+        )
+        self.with_unfold = True
+        return self.wrap(mod)
+
+
+@dtc.dataclass
 class FramedConv1dIO(IOModule):
 
     def module(self) -> nn.Module:
@@ -221,7 +246,7 @@ class MLPIO(IOModule):
 
 
 @dtc.dataclass
-class VectorMix(IOModule):
+class VectorMixIO(IOModule):
     hidden_dim: int = 128
     hidden_activation: ActivationConfig = ActivationConfig("Sigmoid")
 
@@ -241,7 +266,7 @@ class VectorMix(IOModule):
                 x = self.act(x)
                 return torch.matmul(x, self.v)
 
-        return _Vmix(self.in_dim, self.out_dim)
+        return self.wrap(_Vmix(self.in_dim, self.out_dim))
 
 
 @dtc.dataclass
@@ -255,29 +280,44 @@ class Gaussian(IOModule):
             z_dim=self.out_dim,
             bias=self.bias,
             min_std=self.min_std,
+            return_params=True
+        )
+
+
+@dtc.dataclass
+class GaussianIO(IOModule):
+    bias: bool = False
+    min_std: float = 1e-4
+
+    def module(self) -> nn.Module:
+        return self.wrap(ParametrizedGaussian(
+            input_dim=self.in_dim,
+            z_dim=self.out_dim,
+            bias=self.bias,
+            min_std=self.min_std,
             return_params=False
-        )
+        ))
 
 
 @dtc.dataclass
-class Affine(IOModule):
+class AffineIO(IOModule):
     bias: bool = True
 
     def module(self) -> nn.Module:
-        return ParametrizedLinear(
+        return self.wrap(ParametrizedLinear(
             self.in_dim, self.out_dim, self.bias
-        )
+        ))
 
 
 @dtc.dataclass
-class Logistic(IOModule):
+class LogisticIO(IOModule):
     bias: bool = True
 
     def module(self) -> nn.Module:
-        return ParametrizedLogistic(
+        return self.wrap(ParametrizedLogistic(
             self.in_dim, self.out_dim,
             self.bias
-        )
+        ))
 
 
 class ZipMode(AutoStrEnum):

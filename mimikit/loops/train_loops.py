@@ -6,7 +6,7 @@ import torch
 from pytorch_lightning import LightningModule, Trainer
 import os
 
-from torch.optim import Adam
+from torch.optim import Adam, AdamW
 
 import h5mapper as h5m
 from .beta_scheduler import BetaScheduler
@@ -43,9 +43,14 @@ class TrainARMConfig(Config):
     limit_train_batches: Optional[int] = None
     max_lr: float = 5e-4
     betas: Tuple[float, float] = (0.9, 0.93)
+    weight_decay: float = 0.
     div_factor: float = 3.
     final_div_factor: float = 1.
     pct_start: float = 0.
+    max_beta: Optional[float] = None
+    beta_div_factor: float = 3.
+    beta_final_div_factor: float = 1.
+    beta_pct_start: float = 0.
     cycle_momentum: bool = False
 
     CHECKPOINT_TRAINING: bool = True
@@ -111,12 +116,12 @@ class TrainARMLoop(LoggingHooks,
             )
         else:
             loader_kwargs = dict(batch_size=cfg.batch_size, shuffle=True)
-        n_workers = max(os.cpu_count(), min(cfg.batch_size, os.cpu_count()))
+        n_workers = min(cfg.batch_size, os.cpu_count())
         with_cuda = torch.cuda.is_available()
         return dataset.serve(batch,
                              sampling_jitter=cfg.sampling_jitter,
                              num_workers=n_workers,
-                             prefetch_factor=2,
+                             prefetch_factor=1,
                              pin_memory=with_cuda,
                              persistent_workers=True,
                              **loader_kwargs
@@ -145,18 +150,20 @@ class TrainARMLoop(LoggingHooks,
             opt,
             steps_per_epoch=steps_per_epoch,
             epochs=cfg.max_epochs,
-            max_beta=.5,
-            div_factor=1,
-            final_div_factor=10,
-            pct_start=0.,
+            max_beta=cfg.max_beta,
+            div_factor=cfg.beta_div_factor,
+            final_div_factor=cfg.beta_final_div_factor,
+            pct_start=cfg.beta_pct_start,
         )
         return {"scheduler": beta_sched, "interval": "step", "frequency": 1}
 
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
-        opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas)
-        sched = cls.get_lr_scheduler(net, opt, dl, cfg)
-        return [opt], [sched]
+        opt = AdamW(net.parameters(), lr=cfg.max_lr, betas=cfg.betas, weight_decay=cfg.weight_decay)
+        sched = [cls.get_lr_scheduler(net, opt, dl, cfg)]
+        if cfg.max_beta is not None:
+            sched += [cls.get_beta_scheduler(net, opt, dl, cfg)]
+        return [opt], sched
 
     def reset_lr_scheduler(self, max_lr=None, div_factor=None, final_div_factor=None, pct_start=None):
         cfg = self.train_cfg

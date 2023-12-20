@@ -5,6 +5,8 @@ import torch
 import torchaudio.functional as F
 import torchaudio.transforms as T
 import numpy as np
+from librosa.util import localmax
+from scipy.ndimage.filters import minimum_filter1d
 from scipy.signal import lfilter
 from scipy.interpolate import interp1d
 from sklearn.decomposition import PCA as skPCA, \
@@ -34,6 +36,8 @@ __all__ = [
     'MuLawExpand',
     'ALawCompress',
     'ALawExpand',
+    "PBitsCompress",
+    "PBitsExpand",
     'STFT',
     'ISTFT',
     'MagSpec',
@@ -50,12 +54,16 @@ __all__ = [
     'derivative_torch',
     'Derivative',
     "AutoConvolve",
+    "TopKFilter",
+    "GlobalPeaks",
     "F0Filter",
     "NearestNeighborFilter",
     "PCA",
     "NMF",
     "FactorAnalysis",
+    "pick_globally_sorted_maxes"
 ]
+
 
 N_FFT = 2048
 HOP_LENGTH = 512
@@ -445,6 +453,50 @@ class ALawExpand(Functional):
     @property
     def inv(self):
         return ALawCompress(self.A, self.q_levels)
+
+
+@dtc.dataclass
+class PBitsCompress(Functional):
+
+    q_levels: int = Q_LEVELS
+    compression: float = 1.
+
+    def __post_init__(self):
+        self.width = int(np.log2(self.q_levels))
+        self.compressor = MuLawCompress(self.q_levels, self.compression)
+
+    @property
+    def inv(self) -> "Functional":
+        return PBitsExpand(self.q_levels, self.compression)
+
+    def np_func(self, inputs):
+        qx = self.compressor(inputs)
+        return np.not_equal(np.bitwise_and(qx[:, None, ...], 2 ** np.arange(self.width, -1, -1, -1)), 0.).astype(int)
+
+    def torch_func(self, inputs):
+        qx = self.compressor(inputs)
+        return qx.unsqueeze(1).bitwise_and(2 ** torch.arange(self.width - 1, -1, -1)).ne(0.).int()
+
+
+@dtc.dataclass
+class PBitsExpand(Functional):
+
+    q_levels: int = Q_LEVELS
+    compression: float = 1.
+
+    def __post_init__(self):
+        self.width = int(np.log2(self.q_levels))
+        self.expander = MuLawExpand(self.q_levels, self.compression)
+
+    def np_func(self, inputs):
+        return self.expander((inputs * (2 ** np.arange(self.width - 1, -1, -1))).sum(dim=1))
+
+    def torch_func(self, inputs):
+        return self.expander((inputs * (2 ** torch.arange(self.width - 1, -1, -1))).sum(dim=1))
+
+    @property
+    def inv(self) -> "Functional":
+        return PBitsCompress(self.q_levels, self.compression)
 
 
 @dtc.dataclass
@@ -1037,6 +1089,57 @@ class AutoConvolve(Functional):
 
 
 @dtc.dataclass
+class TopKFilter(Functional):
+
+    k: int = 1
+
+    @property
+    def unit(self) -> Optional[Unit]:
+        return None
+
+    @property
+    def elem_type(self) -> Optional[EventType]:
+        return None
+
+    def np_func(self, inputs):
+        S = inputs
+        S_hat = np.zeros_like(S)
+        idx = np.argpartition(S, S.shape[-1]-self.k, axis=-1)
+        rg = np.arange(S.shape[0])[:, None]
+        S_hat[rg, idx[..., -self.k:]] = S[rg, idx[..., -self.k:]]
+        return S_hat
+
+    def torch_func(self, inputs):
+        # TODO
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        return Identity()
+
+
+@dtc.dataclass
+class GlobalPeaks(Functional):
+
+    window: int = 3
+    min_strength: float = .02
+
+    def np_func(self, inputs):
+        S_hat = np.zeros_like(inputs)
+        for i in range(inputs.shape[0]):
+            peaks = pick_globally_sorted_maxes(inputs[i], self.window//2, self.window//2, self.min_strength)
+            S_hat[i, peaks] = inputs[i, peaks]
+        return S_hat
+
+    def torch_func(self, inputs):
+        pass
+
+    @property
+    def inv(self) -> "Functional":
+        pass
+
+
+@dtc.dataclass
 class F0Filter(Functional):
     n_overtone: int = 4
     n_undertone: int = 4
@@ -1201,3 +1304,31 @@ class FactorAnalysis(Functional):
     @property
     def inv(self) -> "Functional":
         return Identity()
+
+
+def pick_globally_sorted_maxes(x, wait_before, wait_after, min_strength=0.02):
+    mn = minimum_filter1d(
+        x, wait_before + wait_after, mode='constant', cval=x.min()
+    )
+    glob_rg = x.max() - x.min()
+    strength = (x - mn) / glob_rg
+    # filter out peaks with too few contrasts
+    mx = localmax(x) & (strength >= min_strength)
+
+    mx_indices = mx.nonzero()[0][np.argsort(-x[mx])]
+
+    final_maxes = np.zeros_like(x, dtype=bool)
+
+    for m in mx_indices:
+        i, j = max(0, m - wait_before), min(x.shape[0], m + wait_after)
+        if np.any(final_maxes[i:j]):
+            continue
+        else:
+            # make sure the max dominates left and right
+            # aka we are not globally increasing/decreasing around it
+            mu_l = x[i:m].mean()
+            mu_r = x[m:j].mean()
+            mx = x[m]
+            if mx > mu_l and mx > mu_r:
+                final_maxes[m] = True
+    return final_maxes.nonzero()[0]

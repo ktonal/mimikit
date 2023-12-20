@@ -12,7 +12,8 @@ __all__ = [
     'CausalPad',
     'Unsqueeze',
     'Unfold',
-    'ShapeWrap'
+    'ShapeWrap',
+    'OneHot'
 ]
 
 
@@ -110,3 +111,13 @@ class ShapeWrap(nn.Module):
         B = x.size(0)
         x = self.m(x.view(*self.in_view)).squeeze()
         return x.view(B, *self.out_view)
+
+
+class OneHot(nn.Module):
+
+    def __init__(self, class_size: int):
+        super(OneHot, self).__init__()
+        self.class_size = class_size
+
+    def forward(self, x):
+        return nn.functional.one_hot(x, num_classes=self.class_size).float()
