@@ -121,8 +121,7 @@ class WNLayer(nn.Module):
             self.conv_skip = nn.Conv1d(main_outer_dim, skips_dim, **kwargs_1x1, groups=skips_groups)
             if act_skips is not None:
                 self.conv_skip = nn.Sequential(self.conv_skip, act_skips)
-        if layer_norm is not None:
-            self.norm = layer_norm.clone()
+        self.norm = layer_norm.clone() if layer_norm is not None else None
         # print("***********************")
         # print(f"in_dim={in_dim} main_inner={main_inner_dim} main_outer={main_outer_dim}")
         # for name, mod in self.named_modules():
