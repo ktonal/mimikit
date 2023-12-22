@@ -47,7 +47,7 @@ class CategoricalSampler(nn.Module):
         if self.training:
             return logits
         if temperature is None:
-            return logits.argmax(dim=-1, keepdim=True)
+            return logits.argmax(dim=-1, keepdim=False)
         temperature = as_tensor(temperature, logits)
         logits = logits / temperature
         logits = logits - logits.logsumexp(-1, keepdim=True)

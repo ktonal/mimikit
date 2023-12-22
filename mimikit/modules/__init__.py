@@ -5,6 +5,6 @@ from .no_nan_hooks import *
 from .resamplers import *
 from .io import *
 from .targets import *
-
+from .logistic_mix import *
 
 __all__ = [_ for _ in dir() if not _.startswith("_")]

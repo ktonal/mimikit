@@ -47,12 +47,12 @@ class WNLayer(nn.Module):
             stride: int = 1,
             bias: bool = True,
             dilation: int = 1,
-            with_affine_residuals: bool = False,
-            # TODO
             act_skips: Optional[nn.Module] = None,
             act_residuals: Optional[nn.Module] = None,
             skips_groups: int = 1,
             residuals_groups: int = 1,
+            layer_norm: Optional[nn.Module] = None,
+            # TODO
             dropout: float = 0.,
     ):
         super(WNLayer, self).__init__()
@@ -76,7 +76,6 @@ class WNLayer(nn.Module):
         self.has_gated_units = act_g is not None
         self.has_skips = skips_dim is not None
         self.has_residuals = residuals_dim is not None and (input_dim is None or input_dim == residuals_dim)
-        self.has_affine_residuals = with_affine_residuals
 
         if residuals_dim is None:
             main_inner_dim = main_outer_dim = dims_dilated[0]
@@ -87,7 +86,7 @@ class WNLayer(nn.Module):
             if self.has_residuals:
                 # cannot be false, just as a reminder:
                 assert input_dim is None or input_dim == residuals_dim, "input_dim and residuals_dim must be equal if both are not None"
-            in_dim = main_outer_dim if input_dim is None else input_dim
+            in_dim = main_outer_dim
 
         kwargs_dil = dict(kernel_size=(kernel_size,), dilation=dilation, stride=stride, bias=bias, groups=groups)
         kwargs_1x1 = dict(kernel_size=(1,), stride=stride, bias=bias)
@@ -114,13 +113,16 @@ class WNLayer(nn.Module):
             self.conv_1x1 = nn.ModuleList([
                 nn.Conv1d(d, main_inner_dim, **kwargs_1x1) for d in dims_1x1
             ])
-        if self.has_skips:
-            self.conv_skip = nn.Conv1d(main_inner_dim, skips_dim, **kwargs_1x1, groups=skips_groups)
         if self.has_residuals:
             self.conv_res = nn.Conv1d(main_inner_dim, main_outer_dim, **kwargs_1x1, groups=residuals_groups)
-        if self.has_affine_residuals:
-            self.aff_res = ParametrizedLinear(in_dim, in_dim, as_1x1_conv=True)
-
+            if act_residuals is not None:
+                self.conv_res = nn.Sequential(self.conv_res, act_residuals)
+        if self.has_skips:
+            self.conv_skip = nn.Conv1d(main_outer_dim, skips_dim, **kwargs_1x1, groups=skips_groups)
+            if act_skips is not None:
+                self.conv_skip = nn.Sequential(self.conv_skip, act_skips)
+        if layer_norm is not None:
+            self.norm = layer_norm.clone()
         # print("***********************")
         # print(f"in_dim={in_dim} main_inner={main_inner_dim} main_outer={main_outer_dim}")
         # for name, mod in self.named_modules():
@@ -145,8 +147,6 @@ class WNLayer(nn.Module):
                 y_f, y_g = conv(x)
                 cond_f += y_f
                 cond_g += y_g
-            if self.has_affine_residuals:
-                inputs_dilated = (self.aff_res(inputs_dilated[0]), *inputs_dilated[1:])
             x_f, x_g = self.conv_dil[0](inputs_dilated[0])
             y = self.act_f(x_f + cond_f) * self.act_g(x_g + cond_g)
         else:
@@ -154,14 +154,18 @@ class WNLayer(nn.Module):
             for conv, x in zip(self.conv_1x1, inputs_1x1):
                 if not self.needs_padding:
                     x = self.trim_cause(x)
-                if self.has_affine_residuals:
-                    x = self.aff_res(x) + x
                 cond += conv(x)
-            if self.has_affine_residuals:
-                inputs_dilated = (self.aff_res(inputs_dilated[0]), *inputs_dilated[1:])
             y = self.conv_dil[0](inputs_dilated[0])
             y = self.act_f(y + cond)
 
+        if self.has_residuals:
+            y = self.conv_res(y)
+        if self.apply_residuals:
+            # either x has been padded, or y is shorter -> we need to trim x!
+            x = self.trim_cause(inputs_dilated[0])
+            y = x + y
+        if self.norm is not None:
+            y = self.norm(y)
         if self.has_skips:
             if not self.needs_padding:
                 skips = self.trim_cause(skips) if skips is not None else skips
@@ -169,10 +173,6 @@ class WNLayer(nn.Module):
                 skips = self.conv_skip(y)
             else:
                 skips = self.conv_skip(y) + skips
-        if self.has_residuals:
-            # either x has been padded, or y is shorter -> we need to trim x!
-            x = self.trim_cause(inputs_dilated[0])
-            y = x + self.conv_res(y)
         return y, skips
 
     def trim_cause(self, x):
@@ -193,37 +193,46 @@ class WaveNet(ARM, nn.Module):
         residuals_dim: Optional[int] = None
         apply_residuals: bool = False
         skips_dim: Optional[int] = None
-        with_affine_residuals: bool = False
         groups: int = 1
+        skips_groups: int = 1
+        residuals_groups: int = 1
         act_f: ActivationEnum = "Tanh"
         act_g: Optional[ActivationEnum] = "Sigmoid"
+        act_skips: Optional[ActivationEnum] = None
+        act_residuals: Optional[ActivationEnum] = None
         pad_side: int = 0
         stride: int = 1
         bias: bool = True
+        layer_norm: bool = False
         use_fast_generate: bool = False
         tie_io_weights: bool = False
-        layerwise_inputs: bool = False
         reverse_layer_order: bool = False
 
     @classmethod
     def get_layers(cls, config: "WaveNet.Config") -> List[WNLayer]:
         kernel_sizes, dilation = cls.get_kernels_and_dilation(config.kernel_sizes, config.blocks)
+        last_layer = sum(config.blocks) - 1
         return [
             WNLayer(
                 input_dim=config.dims_dilated[0],
                 dims_dilated=config.dims_dilated, dims_1x1=config.dims_1x1,
-                # no residuals for last layer
-                residuals_dim=config.residuals_dim if n != sum(config.blocks) - 1 else None,
-                apply_residuals=config.apply_residuals and n != 0,
+                # no residuals for last layer if there are skips
+                residuals_dim=config.residuals_dim if n != last_layer and config.skips_dim is not None else None,
+                apply_residuals=config.apply_residuals if n != last_layer and config.skips_dim is not None else None,
                 skips_dim=config.skips_dim,
                 kernel_size=k,
                 groups=config.groups,
+                skips_groups=config.skips_groups,
+                residuals_groups=config.residuals_groups,
                 act_f=ActivationConfig(str(config.act_f)).get(),
                 act_g=ActivationConfig(str(config.act_g)).get() if config.act_g is not None else None,
+                act_skips=ActivationConfig(str(config.act_skips)).get() if config.act_skips is not None else None,
+                act_residuals=ActivationConfig(str(config.act_residuals)).get() if config.act_residuals is not None else None,
                 pad_side=config.pad_side,
                 stride=config.stride, bias=config.bias,
                 dilation=d,
-                with_affine_residuals=config.with_affine_residuals
+                layer_norm=nn.GroupNorm(1, config.dims_dilated[0] if config.residuals_dim is None else config.residuals_dim)\
+                if config.layer_norm else None,
             )
             for n, (k, d) in enumerate(zip(kernel_sizes, dilation))
         ]
@@ -231,7 +240,10 @@ class WaveNet(ARM, nn.Module):
     @classmethod
     def from_config(cls, config: "WaveNet.Config") -> "WaveNet":
         layers = cls.get_layers(config)
-        all_dims = [*config.dims_dilated, *config.dims_1x1]
+        if config.residuals_dim is not None:
+            all_dims = [config.residuals_dim, *config.dims_1x1]
+        else:
+            all_dims = [*config.dims_dilated, *config.dims_1x1]
         # set Inner Connection
         input_modules = [spec.module.copy()
                              .set(out_dim=h_dim)
@@ -280,8 +292,6 @@ class WaveNet(ARM, nn.Module):
             dilated, skips = layer.forward(
                 inputs_dilated=(dilated,), inputs_1x1=in_1x1, skips=skips
             )
-            if self._config.layerwise_inputs:
-                dilated = dilated + inputs[0][..., -dilated.size(-1):]
             if not layer.needs_padding:
                 in_1x1 = tuple(layer.trim_cause(x) for x in in_1x1)
         if self.has_skips:

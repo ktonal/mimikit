@@ -58,7 +58,7 @@ def test_layer_should_support_various_graphs(
 ):
     # if given_residuals is not None and given_input_dim is not None
     under_test = WNLayer(
-        input_dim=given_input_dim,
+        input_dim=given_input_dim if given_residuals is None else given_residuals,
         dims_dilated=given_dil,
         dims_1x1=given_1x1,
         skips_dim=given_skips,
@@ -68,13 +68,13 @@ def test_layer_should_support_various_graphs(
     )
     B, T = 1, 8
     # HOW INPUT_DIM WORKS:
-    if given_input_dim is None:
-        if given_residuals is None:
+    if given_residuals is None:
+        if given_input_dim is None:
             input_dim = given_dil[0]
         else:
-            input_dim = given_residuals
+            input_dim = given_input_dim
     else:
-        input_dim = given_input_dim
+        input_dim = given_residuals
 
     skips = None if not feed_skips or given_skips is None else inputs_(B, T, given_skips)
 
@@ -83,11 +83,7 @@ def test_layer_should_support_various_graphs(
     )
     # HOW OUTPUT DIM WORKS:
     if given_residuals is not None:
-        if given_input_dim is not None and given_input_dim != given_residuals:
-            # RESIDUALS ARE SKIPPED!
-            expected_out_dim = given_dil[0]
-        else:
-            expected_out_dim = given_residuals
+        expected_out_dim = given_residuals
     else:
         expected_out_dim = given_dil[0]
 

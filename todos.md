@@ -26,8 +26,8 @@
 
 ### Experiment
 
-- SamplerTransformer
-    - faster generate (cached attention + single query)
+- SampleTransformer
+    - [x] faster generate (cached attention + single query)
     - Context Encoder (Encoder -> Decoder == context_seq -> generate_seq ~ hidden...)
 - GMeans and batches
 - TiedAE 
@@ -50,7 +50,7 @@
     - class SegmentLabel(Feature):
         - from rec mat
     - KMer (seqPrior)
-    - BitVector
+    - [x] BitVector
     - Quantize / Digitize / Linearize
     - [/] MelSpec
     - [/] MFCC
@@ -58,7 +58,7 @@
     - Scaler
         - MinMax
         - Normal
-    - Augmentation(functional, prob)
+    - Augmentation(functional, prob) with audiomentation?
     ...................................
     - tuple or not tuple
     - AR Feature vs. Fixture vs. Auxiliary Target (vs. kwargs)
@@ -94,7 +94,7 @@
 - jitability / torch==2.0 compile()
     - no `*tuple` expr...
 - Network Visualizer (UI)
-- Resume Training
+- [x] Resume Training
     - Optimizer in Checkpoint
 - Upgrade python 3.9 ? (colab is 3.7.15...)
 
