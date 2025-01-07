@@ -19,6 +19,7 @@ __all__ = [
     "LinearIO",
     "ChunkedLinearIO",
     "FramedLinearIO",
+    "FramedIO",
     "EmbeddingIO",
     "EmbeddingBagIO",
     "EmbeddingConv1d",
@@ -45,6 +46,7 @@ class IOModule(Config, abc.ABC):
     dropout1d: float = 0.
 
     in_dim: Optional[int] = private_runtime_field(None)
+    h_dim: Optional[int] = private_runtime_field(None)
     out_dim: Optional[int] = private_runtime_field(None)
     hop_length: Optional[int] = private_runtime_field(None)
     frame_size: Optional[int] = private_runtime_field(None)
@@ -142,6 +144,22 @@ class FramedLinearIO(IOModule):
 
 
 @dtc.dataclass
+class FramedIO(IOModule):
+
+    def module(self) -> nn.Module:
+        self.not_none("frame_size", "hop_length", "class_size")
+
+        class Identity(nn.Identity):
+            def __init__(self, frame_size):
+                super(Identity, self).__init__()
+                self.frame_size = frame_size
+
+        self.with_linearizer = True
+        self.with_unfold = True
+        return self.wrap(Identity(self.frame_size))
+
+
+@dtc.dataclass
 class ChunkedLinearIO(IOModule):
     bias: bool = True
     n_chunks: int = 1
@@ -179,11 +197,11 @@ class EmbeddingBagIO(IOModule):
 class EmbeddingConv1d(IOModule):
 
     def module(self) -> nn.Module:
-        self.not_none("class_size", "frame_size", "hop_length", "out_dim")
+        self.not_none("class_size", "frame_size", "hop_length", "out_dim", "h_dim")
         mod = nn.Sequential(
-            nn.Embedding(self.class_size, self.out_dim),
+            nn.Embedding(self.class_size, self.h_dim),
             # -> (batch, n_frames, frame_size, hidden_dim)
-            Conv1dResampler(in_dim=self.out_dim, t_factor=1 / self.frame_size, d_factor=1)
+            Conv1dResampler(in_dim=self.h_dim, t_factor=1 / self.frame_size, d_factor=self.out_dim/self.h_dim)
             # -> (batch, n_frames, hidden_dim)
         )
         self.with_unfold = True

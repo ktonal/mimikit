@@ -33,11 +33,35 @@ class H0Init(AutoStrEnum):
     randn = auto()
 
 
+class RNNStack(nn.Module):
+    def __init__(
+            self,
+            rnn_type: RNNType = "lstm",
+            input_dim: int = 8,
+            hidden_dim: int = 1024,
+            n_rnn: int = 1,
+            with_skip: bool = False,
+            weight_norm: bool = False,
+            dropout: float = 0.,
+            bias: bool = True,
+    ):
+        super(RNNStack, self).__init__()
+        module = getattr(nn, rnn_type.upper())
+        in_hdim = hidden_dim + input_dim if with_skip else hidden_dim
+        self.rnn = nn.ModuleList([
+            module(
+                input_dim if i == 0 else in_hdim, hidden_dim,
+                batch_first=True, bias=bias, dropout=dropout
+            ) for i in range(n_rnn)
+        ])
+
+
 class SampleRNNTier(nn.Module):
 
     def __init__(
             self, *,
             input_module: nn.Module = nn.Identity(),
+            frame_size: int = 256,
             hidden_dim: int = 256,
             rnn_class: RNNType = "lstm",
             n_rnn: int = 1,
@@ -63,7 +87,7 @@ class SampleRNNTier(nn.Module):
         self.has_up_sampling = up_sampling is not None
         if self.has_rnn:
             module = getattr(nn, rnn_class.upper())
-            self.rnn = module(hidden_dim, hidden_dim, num_layers=n_rnn,
+            self.rnn = module(frame_size, hidden_dim, num_layers=n_rnn,
                               batch_first=True, dropout=rnn_dropout, bias=rnn_bias)
             if weight_norm:
                 for name in dict(self.rnn.named_parameters()):
@@ -125,6 +149,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
     class Config(NetworkConfig):
         frame_sizes: Tuple[int, ...] = (16, 8, 8)
         hidden_dim: int = 256
+        embedding_dim: int = 256
         rnn_class: RNNType = "lstm"
         n_rnn: int = 1
         rnn_dropout: float = 0.
@@ -146,6 +171,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
             tiers += [
                 SampleRNNTier(
                     input_module=input_module,
+                    frame_size=fs,
                     hidden_dim=config.hidden_dim,
                     rnn_class=config.rnn_class,
                     n_rnn=config.n_rnn,
@@ -162,7 +188,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         for in_spec in config.io_spec.inputs:
             if isinstance(in_spec.elem_type, Discrete):
                 params = dict(class_size=in_spec.elem_type.size)
-                module_type = OneHotConv1dIO
+                module_type = EmbeddingConv1d
                 # else:
                 #     raise NotImplementedError(f"no implementation for input module of type '{type(in_spec.module)}")
             else:
@@ -171,7 +197,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
             modules += [module_type()
                             .set(**params,
                                  frame_size=config.frame_sizes[-1],
-                                 hop_length=1, out_dim=h_dim).module()]
+                                 hop_length=1, out_dim=h_dim, h_dim=config.embedding_dim).module()]
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
         tiers += [
             SampleRNNTier(
