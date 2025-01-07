@@ -475,7 +475,7 @@ class PBitsCompress(Functional):
 
     def torch_func(self, inputs):
         qx = self.compressor(inputs)
-        return qx.unsqueeze(1).bitwise_and(2 ** torch.arange(self.width - 1, -1, -1)).ne(0.).int()
+        return qx.unsqueeze(-1).bitwise_and(2 ** torch.arange(self.width - 1, -1, -1)).ne(0.).int()
 
 
 @dtc.dataclass
@@ -489,10 +489,10 @@ class PBitsExpand(Functional):
         self.expander = MuLawExpand(self.q_levels, self.compression)
 
     def np_func(self, inputs):
-        return self.expander((inputs * (2 ** np.arange(self.width - 1, -1, -1))).sum(dim=1))
+        return self.expander((inputs * (2 ** np.arange(self.width - 1, -1, -1))).sum(dim=-1))
 
     def torch_func(self, inputs):
-        return self.expander((inputs * (2 ** torch.arange(self.width - 1, -1, -1))).sum(dim=1))
+        return self.expander((inputs * (2 ** torch.arange(self.width - 1, -1, -1))).sum(dim=-1))
 
     @property
     def inv(self) -> "Functional":
@@ -548,11 +548,13 @@ class STFT(Functional):
         if self.coordinate == 'pol':
             S = np.stack((abs(S), np.angle(S)), axis=-1)
         elif self.coordinate == 'car':
-            S = np.stack(S.real, S.imag, axis=-1)
+            S = np.stack((S.real, S.imag), axis=-1)
         elif self.coordinate == 'mag':
             S = abs(S)
         elif self.coordinate == 'angle':
             S = np.angle(S)
+        elif self.coordinate == "comp":
+            pass
         # S = _add_metadata(S, n_samples=inputs.shape[0], **_to_dict(inputs.dtype.metadata))
         return S
 
@@ -603,6 +605,8 @@ class ISTFT(Functional):
             inputs = inputs[..., 0] * np.exp(1j * inputs[..., 1])
         elif self.coordinate == 'car':
             inputs = inputs[..., 0] * (1j * inputs[..., 1])
+        elif self.coordinate == "comp":
+            pass
         y = librosa.istft(inputs.T, n_fft=self.n_fft, hop_length=self.hop_length, center=self.center,
                           window=self.window if self.window is not None else 1.)
         return y
@@ -614,6 +618,8 @@ class ISTFT(Functional):
             inputs = inputs[..., 0] * torch.exp(1j * inputs[..., 1])
         elif self.coordinate == 'car':
             inputs = inputs[..., 0] * (1j * inputs[..., 1])
+        elif self.coordinate == "comp":
+            pass
         y = torch.istft(inputs.transpose(1, 2).contiguous(),
                         n_fft=self.n_fft, hop_length=self.hop_length,
                         # center=self.center,

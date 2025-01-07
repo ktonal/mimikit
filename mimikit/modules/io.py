@@ -53,6 +53,7 @@ class IOModule(Config, abc.ABC):
     with_linearizer: bool = private_runtime_field(False)
     with_unfold: bool = private_runtime_field(False)
     with_n_chunks: Optional[int] = private_runtime_field(None)
+    with_layer_norm: bool = private_runtime_field(False)
 
     def set(self, **kwargs):
         for k, v in kwargs.items():
@@ -94,6 +95,8 @@ class IOModule(Config, abc.ABC):
             if self.activation.scaled:
                 self.activation.dim = self.out_dim
             after += [self.activation.get()]
+        if self.with_layer_norm:
+            after += [nn.LayerNorm(self.out_dim)]
         if self.dropout > 0:
             after += [nn.Dropout(self.dropout)]
         if self.dropout1d > 0:

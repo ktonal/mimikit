@@ -135,7 +135,7 @@ def sample_from_discretized_mix_logistic(y, log_scale_min=-7.0,
     _, argmax = temp.max(dim=-1)
 
     # (B, T) -> (B, T, nr_mix)
-    one_hot = to_one_hot(argmax, nr_mix)
+    one_hot = F.one_hot(argmax, num_classes=nr_mix)
     # select logistic parameters
     means = torch.sum(y[:, :, nr_mix:2 * nr_mix] * one_hot, dim=-1)
     log_scales = torch.sum(y[:, :, 2 * nr_mix:3 * nr_mix] * one_hot, dim=-1)

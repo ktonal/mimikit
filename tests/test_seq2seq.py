@@ -5,7 +5,7 @@ from assertpy import assert_that
 
 import torch
 
-from mimikit import IOSpec, TrainARMConfig, TrainARMLoop, GenerateLoopV2
+from mimikit import IOSpec, TrainARMConfig, TrainARMLoop, GenerateLoopV2, Sample
 from mimikit.networks.s2s_lstm_v2 import EncoderLSTM, DecoderLSTM, Seq2SeqLSTMNetwork
 
 from .test_utils import tmp_db
@@ -46,20 +46,23 @@ def inputs_(b=8, t=32, d=16):
 def test_encoder_forward(
         hop, input_dim, apply_residuals, num_layers, output_dim, downsampling, weight_norm
 ):
-    given_input = inputs_(4, hop, input_dim)
+    given_input = inputs_(4, hop * 4, input_dim)
     under_test = EncoderLSTM(
         downsampling=downsampling, input_dim=input_dim, output_dim=output_dim,
         num_layers=num_layers, apply_residuals=apply_residuals, hop=hop,
         weight_norm=weight_norm
     )
 
-    y, (hidden, h_c) = under_test.forward(given_input)
+    y, hidden = under_test.forward(given_input)
 
     assert_that(y).is_instance_of(torch.Tensor)
     assert_that(y.size(0)).is_equal_to(given_input.size(0))
-    assert_that(y.size(1)).is_equal_to(1)
+    assert_that(y.size(1)).is_equal_to(given_input.size(1)//hop)
     assert_that(y.size(2)).is_equal_to(output_dim)
 
+    assert_that(hidden).is_instance_of(list)
+    assert_that(len(hidden)).is_equal_to(given_input.size(1)//hop)
+    (hidden, h_c) = hidden[0]
     assert_that(hidden).is_instance_of(torch.Tensor)
     assert_that(hidden.size(1)).is_equal_to(given_input.size(0))
     assert_that(hidden.size(0)).is_equal_to(2)
@@ -94,8 +97,8 @@ def test_decoder_forward(
         hop, model_dim, apply_residuals, num_layers, upsampling, weight_norm
 ):
     B = 4
-    x = torch.randn(B, 1, model_dim)
-    hidden = torch.randn(2, B, model_dim), torch.randn(2, B, model_dim)
+    x = torch.randn(B, 4, model_dim)
+    hidden = [(torch.randn(2, B, model_dim), torch.randn(2, B, model_dim))] * 4
     under_test = DecoderLSTM(
         upsampling=upsampling, model_dim=model_dim, weight_norm=weight_norm,
         num_layers=num_layers, apply_residuals=apply_residuals, hop=hop
@@ -105,7 +108,7 @@ def test_decoder_forward(
 
     assert_that(y).is_instance_of(torch.Tensor)
     assert_that(y.size(0)).is_equal_to(x.size(0))
-    assert_that(y.size(1)).is_equal_to(hop)
+    assert_that(y.size(1)).is_equal_to(hop*x.size(1))
     assert_that(y.size(2)).is_equal_to(model_dim)
 
 
@@ -116,7 +119,7 @@ def test_seq2seq_forward():
         )
     )
     given_inputs = (inputs_(
-        4, under_test.config.hop, under_test.config.io_spec.inputs[0].elem_type.size),)
+        4, under_test.config.hop*4, under_test.config.io_spec.inputs[0].elem_type.size),)
 
     outputs = under_test.forward(given_inputs)
 
@@ -150,7 +153,8 @@ def test_should_generate(tmp_db):
     "given_io",
     [
         IOSpec.magspec_io(IOSpec.MagSpecIOConfig()),
-        IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="embedding"))
+        IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="embedding")),
+        IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="framed_linear"))
     ]
 )
 def test_should_train(tmp_db, tmp_path, given_io):
@@ -166,10 +170,12 @@ def test_should_train(tmp_db, tmp_path, given_io):
         root_dir=str(tmp_path),
         limit_train_batches=2,
         batch_size=2,
-        batch_length=s2s.config.hop,
+        batch_length=s2s.config.hop*4,
         downsampling=64,
         max_epochs=2,
         every_n_epochs=1,
+        outputs_duration_sec=(100 / given_io.sr) if isinstance(given_io.unit, Sample) else .1,
+        prompt_length_sec=(100 / given_io.sr) if isinstance(given_io.unit, Sample) else 1.,
         CHECKPOINT_TRAINING=True,
         MONITOR_TRAINING=True,
         OUTPUT_TRAINING=True,

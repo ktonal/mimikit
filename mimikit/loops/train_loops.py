@@ -6,7 +6,7 @@ import torch
 from pytorch_lightning import LightningModule, Trainer
 import os
 
-from torch.optim import Adam, AdamW
+from torch.optim import Adam, AdamW, Adamax
 
 import h5mapper as h5m
 from .beta_scheduler import BetaScheduler
@@ -159,7 +159,7 @@ class TrainARMLoop(LoggingHooks,
 
     @classmethod
     def get_optimizer(cls, net, dl, cfg: TrainARMConfig):
-        opt = AdamW(net.parameters(), lr=cfg.max_lr, betas=cfg.betas, weight_decay=cfg.weight_decay)
+        opt = Adam(net.parameters(), lr=cfg.max_lr, betas=cfg.betas, weight_decay=cfg.weight_decay)
         sched = [cls.get_lr_scheduler(net, opt, dl, cfg)]
         if cfg.max_beta is not None:
             sched += [cls.get_beta_scheduler(net, opt, dl, cfg)]
@@ -311,7 +311,7 @@ class TrainARMLoop(LoggingHooks,
 
     def training_step(self, batch, batch_idx):
         batch, target = batch
-        output = self.net.forward(batch)
+        output = self.net(batch)
         if not isinstance(output, tuple):
             output = output,
         return self.loss_fn(output, target)
