@@ -56,22 +56,30 @@ class RNNStackWithSkip(nn.Module):
         self.skips = nn.ModuleList([
             nn.Linear(hidden_dim, hidden_dim) for _ in range(n_rnn)
         ])
+        if weight_norm:
+            for module in self.modules():
+                if isinstance(module, nn.ModuleList) or list(module.children()) != []:
+                    continue
+                for name in dict(module.named_parameters()):
+                    nn.utils.weight_norm(module, name)
 
     def forward(self, x, hidden):
         out = 0
         rnn_in = x
         is_tensor = isinstance(hidden, T)
-        for i, (rnn, skip) in zip(self.rnns, self.skips):
+        new_hidden = []
+        for i, (rnn, skip) in enumerate(zip(self.rnns, self.skips)):
             h_in = hidden[i:i + 1] if is_tensor else (hidden[0][i:i + 1], hidden[1][i:i + 1])
             rnn_out, h_out = rnn(rnn_in, h_in)
-            if is_tensor:
-                hidden[i:i + 1] = h_out
-            else:
-                hidden[0][i:i + 1] = h_out[0]
-                hidden[1][i:i + 1] = h_out[1]
+            new_hidden += [h_out]
             out += skip(rnn_out)
             rnn_in = torch.concatenate((rnn_out, x), dim=-1)
-        return out, hidden
+        if is_tensor:
+            new_hidden = torch.concat(new_hidden, dim=0)
+        else:
+            h, c = zip(*new_hidden)
+            new_hidden = torch.concat(h, dim=0), torch.concat(c, dim=0)
+        return out, new_hidden
 
     def flatten_parameters(self):
         pass
@@ -112,12 +120,13 @@ class SampleRNNTier(nn.Module):
                 module = getattr(nn, rnn_class.upper())
                 self.rnn = module(input_dim, hidden_dim, num_layers=n_rnn,
                                   batch_first=True, dropout=rnn_dropout, bias=rnn_bias)
+                if weight_norm:
+                    for name in dict(self.rnn.named_parameters()):
+                        nn.utils.weight_norm(self.rnn, name)
             else:
                 self.rnn = RNNStackWithSkip(rnn_type=rnn_class, input_dim=input_dim, hidden_dim=hidden_dim,
                                             n_rnn=n_rnn, dropout=rnn_dropout, weight_norm=weight_norm, bias=rnn_bias)
-            if weight_norm:
-                for name in dict(self.rnn.named_parameters()):
-                    nn.utils.weight_norm(self.rnn, name)
+
         if self.has_up_sampling:
             self.up_sampler = LinearResampler(hidden_dim, t_factor=up_sampling, d_factor=1)
             if weight_norm:
@@ -153,8 +162,8 @@ class SampleRNNTier(nn.Module):
         if self.rnn_class == "lstm":
             if hidden is None or x.size(0) != hidden[0].size(1):
                 B = x.size(0)
-                h0 = nn.Parameter(self._init_h0(self.n_rnn, B, self.hidden_dim).to(x.device))
-                c0 = nn.Parameter(self._init_h0(self.n_rnn, B, self.hidden_dim).to(x.device))
+                h0 = self._init_h0(self.n_rnn, B, self.hidden_dim).to(x.device)
+                c0 = self._init_h0(self.n_rnn, B, self.hidden_dim).to(x.device)
                 return h0, c0
             else:
                 return hidden[0].detach(), hidden[1].detach()
@@ -209,6 +218,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
                     input_dim=in_dim,
                     hidden_dim=config.hidden_dim,
                     rnn_class=config.rnn_class,
+                    with_skips=config.with_skips,
                     n_rnn=config.n_rnn,
                     rnn_dropout=config.rnn_dropout,
                     rnn_bias=config.rnn_bias,
