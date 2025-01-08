@@ -6,7 +6,6 @@ from ipywidgets import widgets as W
 import numpy as np
 import pandas as pd
 from peaksjs_widget import PeaksJSWidget, Segment
-import qgrid
 
 from ..config import Config
 from ..extract.clusters import *
@@ -377,7 +376,7 @@ class ClusterizerApp:
         with self.out:
             db.signal.compute({
                 self.feature_name: pipeline
-            }, parallelism='none')
+            }, parallelism='none', destination=db)
             feat = getattr(db, self.feature_name)
             feat.attrs["config"] = pipeline.serialize()
             db.flush()
@@ -488,8 +487,6 @@ class ClusterizerApp:
         self.main_waveform.id_count = len(df)
         empty = pd.DataFrame([])
         empty.index.name = "id"
-        g = qgrid.show_grid(empty,
-                            grid_options=dict(maxVisibleRows=10))
 
         self.labels_grid = W.GridBox(layout=dict(max_height='400px',
                                                  margin="16px auto",
@@ -523,55 +520,15 @@ class ClusterizerApp:
                     ]
                     widget.button_style = ""
                     self.selected_labels.remove(index)
-                if w.segments:
-                    g.df = pd.DataFrame.from_dict(w.segments).sort_values(by="startTime").set_index("id", drop=True)
-                else:
-                    g.df = pd.DataFrame([])
-                    g.df.index.name = "id"
 
             btn.observe(on_click, "value")
             labels_w += [W.HBox(children=(btn,))]
 
         self.labels_grid.children = tuple(labels_w)
 
-        def on_new_segment(wdg, seg):
-            w = self.main_waveform
-            new_seg = Segment(**seg).dict()
-            if w.segments:
-                g.add_row(row=[*new_seg.items()])
-                # i = {**new_seg}.pop("id")
-                # df.loc[i] = {**new_seg}
-            else:
-                g.df = pd.DataFrame.from_dict([new_seg]).set_index("id", drop=True)
-
-        def on_edit_segment(wdg, seg):
-            seg = Segment(**seg).dict()
-            for k, v in seg.items():
-                if k == "id": continue
-                g.edit_cell(seg["id"], k, v)
-                # df.loc[seg["id"], k] = v
-            g.change_selection([seg["id"]])
-
-        def on_remove_segment(wdg, seg):
-            g.remove_row([seg["id"]])
-            # df.drop(seg["id"], inplace=True)
-
-        def segments_changed(ev):
-            pass
-            # print("segments changed")
-
-        self.main_waveform.observe(segments_changed, "segments")
-        self.main_waveform.on_new_segment(on_new_segment)
         self.main_waveform.on_new_segment(PeaksJSWidget.add_segment)
-        self.main_waveform.on_edit_segment(on_edit_segment)
         self.main_waveform.on_edit_segment(PeaksJSWidget.edit_segment)
-        self.main_waveform.on_remove_segment(on_remove_segment)
         self.main_waveform.on_remove_segment(PeaksJSWidget.remove_segment)
-
-        # g.on("selection_changed", on_selection_changed)
-        # g.on("cell_edited", on_edited_cell)
-        # g.on("filter_changed", lambda ev, qg: print(ev))
-        # g.on("row_removed", on_row_removed)
 
         def on_bounce(ev):
             title = ", ".join(map(str, sorted(map(int, self.selected_labels))))
@@ -616,6 +573,5 @@ class ClusterizerApp:
                    layout=dict(margin="8px auto",
                                )),
             self.labels_grid,
-            W.HTML("<h4>Selected Labels Segments Table: </h4>"),
-            g,
+            W.HTML("<h4>Selected Labels Segments Table: </h4>")
         )

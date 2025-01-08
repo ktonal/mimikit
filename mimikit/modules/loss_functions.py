@@ -29,7 +29,7 @@ __all__ = [
 
 
 class MeanL1Prop(nn.Module):
-    def __init__(self, raise_on_nan=True, eps=1e-8, logspace=True):
+    def __init__(self, raise_on_nan=True, eps=1e-8, logspace=False):
         super(MeanL1Prop, self).__init__()
         self.raise_on_nan = raise_on_nan
         self.eps = eps

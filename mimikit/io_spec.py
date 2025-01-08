@@ -235,7 +235,7 @@ class IOSpec(Config, type_field=False):
         sr: int = 16000
         q_levels: int = 256
         compression: float = 1.
-        input_module_type: Literal['framed_linear', 'embedding', 'framed'] = 'framed'
+        input_module_type: Literal['framed_linear', 'embedding', 'onehot', 'framed_conv'] = 'framed_linear'
         mlp_dim: int = 128
         n_mlp_layers: int = 0
         min_temperature: float = 1e-4
@@ -255,10 +255,10 @@ class IOSpec(Config, type_field=False):
         mu_law = MuLawCompress(c.q_levels, c.compression)
         if config.input_module_type == "framed_linear":
             module_type = FramedLinearIO
-        elif config.input_module_type == "framed":
-            module_type = FramedIO
         elif config.input_module_type == "embedding":
-            module_type = EmbeddingIO
+            module_type = EmbeddingConv1d
+        elif config.input_module_type == "framed_conv":
+            module_type = FramedConv1dIO
         elif config.input_module_type == "onehot":
             module_type = OneHotConv1dIO
         else:

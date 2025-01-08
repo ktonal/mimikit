@@ -248,7 +248,7 @@ class FramedConv1dIO(IOModule):
 class MLPIO(IOModule):
     hidden_dim: int = 128
     n_hidden_layers: int = 1
-    activation: ActivationConfig = ActivationConfig("Mish")
+    activation: ActivationConfig = dtc.field(default_factory=lambda:ActivationConfig("Mish"))
     bias: bool = True
     dropout: float = 0.
     dropout1d: float = 0.
@@ -269,7 +269,7 @@ class MLPIO(IOModule):
 @dtc.dataclass
 class VectorMixIO(IOModule):
     hidden_dim: int = 128
-    hidden_activation: ActivationConfig = ActivationConfig("Sigmoid")
+    hidden_activation: ActivationConfig = dtc.field(default_factory=lambda:ActivationConfig("Sigmoid"))
 
     def module(self):
         h = self.hidden_dim

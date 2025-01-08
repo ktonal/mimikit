@@ -64,9 +64,9 @@ colab = [
     "pytorch-lightning>=2.0.2",
 ]
 torch = [
-    "torch==2.0.0",
-    "torchaudio==2.0.1",
-    "pytorch-lightning>=2.0.2",
+    "torch==2.2.2",
+    "torchaudio==2.2.2",
+    "pytorch-lightning>=2.5.0",
 ]
 test = [
     "assertpy==1.1",
