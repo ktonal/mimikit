@@ -122,7 +122,7 @@ class TrainARMLoop(LoggingHooks,
                              sampling_jitter=cfg.sampling_jitter,
                              num_workers=n_workers,
                              prefetch_factor=1,
-                             pin_memory=with_cuda,
+                             pin_memory=with_cuda and cfg.batch_size < 200,
                              persistent_workers=True,
                              **loader_kwargs
                              )
