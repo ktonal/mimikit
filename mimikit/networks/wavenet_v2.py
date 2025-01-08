@@ -121,7 +121,7 @@ class WNLayer(nn.Module):
             self.conv_skip = nn.Conv1d(main_outer_dim, skips_dim, **kwargs_1x1, groups=skips_groups)
             if act_skips is not None:
                 self.conv_skip = nn.Sequential(self.conv_skip, act_skips)
-        self.norm = layer_norm.clone() if layer_norm is not None else None
+        self.norm = layer_norm
         # print("***********************")
         # print(f"in_dim={in_dim} main_inner={main_inner_dim} main_outer={main_outer_dim}")
         # for name, mod in self.named_modules():
@@ -187,6 +187,7 @@ class WaveNet(ARM, nn.Module):
         io_spec: IOSpec = None
         kernel_sizes: Tuple[int, ...] = (2,)
         blocks: Tuple[int, ...] = (4,)
+        dilation_base: Optional[int] = None
         dims_dilated: Tuple[int, ...] = (128,)
         dims_1x1: Tuple[int, ...] = ()
         residuals_dim: Optional[int] = None
@@ -209,7 +210,7 @@ class WaveNet(ARM, nn.Module):
 
     @classmethod
     def get_layers(cls, config: "WaveNet.Config") -> List[WNLayer]:
-        kernel_sizes, dilation = cls.get_kernels_and_dilation(config.kernel_sizes, config.blocks)
+        kernel_sizes, dilation = cls.get_kernels_and_dilation(config.kernel_sizes, config.blocks, config.dilation_base)
         last_layer = sum(config.blocks) - 1
         return [
             WNLayer(
@@ -302,14 +303,14 @@ class WaveNet(ARM, nn.Module):
         return tuple(mod(y, **parameters) for mod in self.output_modules)
 
     @classmethod
-    def get_kernels_and_dilation(cls, kernel_sizes, blocks):
+    def get_kernels_and_dilation(cls, kernel_sizes, blocks, dilation_base):
         # figure out the layers dilation.
         # User can pass :
         # - 1 kernel, n blocks
         # - 1 block of kernel & n times the length of this block
         # - n kernels for sum(blocks) == n
         # - n kernels & no blocks = 1 block
-        if not blocks:
+        if not blocks and dilation_base is None:
             # single block from kernels
             dilation = accumulate([1, *kernel_sizes], opr.mul)
         else:
@@ -333,6 +334,8 @@ class WaveNet(ARM, nn.Module):
             else:
                 raise ValueError(f"number of layers and number of kernel sizes not compatible."
                                  f" Got kernel_sizes={kernel_sizes} ; blocks={blocks}")
+        if dilation_base is not None:
+            dilation = list(accumulate([1, *([dilation_base]*sum(blocks))], opr.mul))
         return kernel_sizes, dilation
 
     @property

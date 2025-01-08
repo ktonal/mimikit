@@ -8,6 +8,7 @@ from torch import distributions as D, nn as nn
 __all__ = [
     "OutputWrapper",
     "CategoricalSampler",
+    "BernoulliSampler",
     "VectorOfGaussianLoss",
     "VectorOfGaussianSampler",
 ]
@@ -56,6 +57,16 @@ class CategoricalSampler(nn.Module):
             logits = logits.view(-1, o_shape[-1])
             return torch.multinomial(logits.exp_(), 1).reshape(*o_shape[:-1])
         return torch.multinomial(logits.exp_(), 1)
+
+
+class BernoulliSampler(nn.Module):
+
+    def forward(self, logits, ):
+        if self.training:
+            return logits
+        probs = torch.sigmoid(logits)
+        u = torch.rand_like(probs)
+        return (u < probs).long()
 
 
 class _MixOfRealVectorBase(nn.Module):

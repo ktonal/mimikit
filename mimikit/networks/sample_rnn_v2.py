@@ -9,7 +9,7 @@ from ..io_spec import IOSpec
 from ..features.functionals import *
 from ..features.item_spec import ItemSpec
 from ..modules.io import IOModule, ZipReduceVariables, ZipMode, FramedLinearIO, FramedConv1dIO, EmbeddingConv1d, \
-    EmbeddingIO, OneHotConv1dIO
+    EmbeddingIO, OneHotConv1dIO, FramedIO
 from ..modules.resamplers import LinearResampler
 from ..utils import AutoStrEnum
 
@@ -33,27 +33,48 @@ class H0Init(AutoStrEnum):
     randn = auto()
 
 
-class RNNStack(nn.Module):
+class RNNStackWithSkip(nn.Module):
     def __init__(
             self,
             rnn_type: RNNType = "lstm",
             input_dim: int = 8,
             hidden_dim: int = 1024,
             n_rnn: int = 1,
-            with_skip: bool = False,
             weight_norm: bool = False,
             dropout: float = 0.,
             bias: bool = True,
     ):
-        super(RNNStack, self).__init__()
-        module = getattr(nn, rnn_type.upper())
-        in_hdim = hidden_dim + input_dim if with_skip else hidden_dim
-        self.rnn = nn.ModuleList([
-            module(
+        super(RNNStackWithSkip, self).__init__()
+        rnn = getattr(nn, rnn_type.upper())
+        in_hdim = hidden_dim + input_dim
+        self.rnns = nn.ModuleList([
+            rnn(
                 input_dim if i == 0 else in_hdim, hidden_dim,
                 batch_first=True, bias=bias, dropout=dropout
             ) for i in range(n_rnn)
         ])
+        self.skips = nn.ModuleList([
+            nn.Linear(hidden_dim, hidden_dim) for _ in range(n_rnn)
+        ])
+
+    def forward(self, x, hidden):
+        out = 0
+        rnn_in = x
+        is_tensor = isinstance(hidden, T)
+        for i, (rnn, skip) in zip(self.rnns, self.skips):
+            h_in = hidden[i:i + 1] if is_tensor else (hidden[0][i:i + 1], hidden[1][i:i + 1])
+            rnn_out, h_out = rnn(rnn_in, h_in)
+            if is_tensor:
+                hidden[i:i + 1] = h_out
+            else:
+                hidden[0][i:i + 1] = h_out[0]
+                hidden[1][i:i + 1] = h_out[1]
+            out += skip(rnn_out)
+            rnn_in = torch.concatenate((rnn_out, x), dim=-1)
+        return out, hidden
+
+    def flatten_parameters(self):
+        pass
 
 
 class SampleRNNTier(nn.Module):
@@ -61,9 +82,10 @@ class SampleRNNTier(nn.Module):
     def __init__(
             self, *,
             input_module: nn.Module = nn.Identity(),
-            frame_size: int = 256,
+            input_dim: int = 256,
             hidden_dim: int = 256,
             rnn_class: RNNType = "lstm",
+            with_skips: bool = False,
             n_rnn: int = 1,
             rnn_dropout: float = 0.,
             rnn_bias: bool = True,
@@ -86,9 +108,13 @@ class SampleRNNTier(nn.Module):
         self.has_rnn = rnn_class != "none"
         self.has_up_sampling = up_sampling is not None
         if self.has_rnn:
-            module = getattr(nn, rnn_class.upper())
-            self.rnn = module(frame_size, hidden_dim, num_layers=n_rnn,
-                              batch_first=True, dropout=rnn_dropout, bias=rnn_bias)
+            if not with_skips or n_rnn == 1:
+                module = getattr(nn, rnn_class.upper())
+                self.rnn = module(input_dim, hidden_dim, num_layers=n_rnn,
+                                  batch_first=True, dropout=rnn_dropout, bias=rnn_bias)
+            else:
+                self.rnn = RNNStackWithSkip(rnn_type=rnn_class, input_dim=input_dim, hidden_dim=hidden_dim,
+                                            n_rnn=n_rnn, dropout=rnn_dropout, weight_norm=weight_norm, bias=rnn_bias)
             if weight_norm:
                 for name in dict(self.rnn.named_parameters()):
                     nn.utils.weight_norm(self.rnn, name)
@@ -152,6 +178,7 @@ class SampleRNN(ARMWithHidden, nn.Module):
         embedding_dim: int = 256
         rnn_class: RNNType = "lstm"
         n_rnn: int = 1
+        with_skips: bool = False
         rnn_dropout: float = 0.
         rnn_bias: bool = True
         h0_init: H0Init = "zeros"
@@ -163,15 +190,23 @@ class SampleRNN(ARMWithHidden, nn.Module):
     def from_config(cls, config: "SampleRNN.Config") -> "SampleRNN":
         tiers = []
         h_dim = config.hidden_dim
+        # only one input module supported
+        spec_input_module = config.io_spec.inputs[0].module
         for i, fs in enumerate(config.frame_sizes[:-1]):
-            modules = tuple(in_spec.module.copy()
-                            .set(frame_size=fs, hop_length=fs, out_dim=h_dim).module()
-                            for in_spec in config.io_spec.inputs)
-            input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
+            if isinstance(spec_input_module, FramedIO) and i == 0:  # only the top-tier has no proj of the input
+                input_module = FramedIO() \
+                    .set(class_size=spec_input_module.class_size, frame_size=fs, hop_length=fs).module()
+                in_dim = fs
+            else:
+                input_module = FramedLinearIO() \
+                    .set(class_size=spec_input_module.class_size, in_dim=spec_input_module.in_dim,
+                         frame_size=fs, hop_length=fs, out_dim=h_dim).module()
+                in_dim = h_dim
             tiers += [
                 SampleRNNTier(
-                    input_module=input_module,
-                    frame_size=fs,
+                    input_module=ZipReduceVariables(mode="sum", modules=[input_module]),
+                    # we need to support tuples as inputs...
+                    input_dim=in_dim,
                     hidden_dim=config.hidden_dim,
                     rnn_class=config.rnn_class,
                     n_rnn=config.n_rnn,
@@ -184,20 +219,10 @@ class SampleRNN(ARMWithHidden, nn.Module):
                         if i < len(config.frame_sizes) - 2
                         else 1)
                 )]
-        modules = []
-        for in_spec in config.io_spec.inputs:
-            if isinstance(in_spec.elem_type, Discrete):
-                params = dict(class_size=in_spec.elem_type.size)
-                module_type = EmbeddingConv1d
-                # else:
-                #     raise NotImplementedError(f"no implementation for input module of type '{type(in_spec.module)}")
-            else:
-                params = dict()
-                module_type = FramedConv1dIO
-            modules += [module_type()
-                            .set(**params,
-                                 frame_size=config.frame_sizes[-1],
-                                 hop_length=1, out_dim=h_dim, h_dim=config.embedding_dim).module()]
+
+        modules = [spec_input_module.copy()
+                   .set(frame_size=config.frame_sizes[-1],
+                        hop_length=1, out_dim=h_dim, h_dim=config.embedding_dim).module()]
         input_module = ZipReduceVariables(mode=config.inputs_mode, modules=modules)
         tiers += [
             SampleRNNTier(

@@ -55,6 +55,7 @@ class IOModule(Config, abc.ABC):
     with_linearizer: bool = private_runtime_field(False)
     with_unfold: bool = private_runtime_field(False)
     with_n_chunks: Optional[int] = private_runtime_field(None)
+    with_layer_norm: bool = private_runtime_field(False)
 
     def set(self, **kwargs):
         for k, v in kwargs.items():
@@ -96,6 +97,8 @@ class IOModule(Config, abc.ABC):
             if self.activation.scaled:
                 self.activation.dim = self.out_dim
             after += [self.activation.get()]
+        if self.with_layer_norm:
+            after += [nn.LayerNorm(self.out_dim)]
         if self.dropout > 0:
             after += [nn.Dropout(self.dropout)]
         if self.dropout1d > 0:
@@ -245,7 +248,7 @@ class FramedConv1dIO(IOModule):
 class MLPIO(IOModule):
     hidden_dim: int = 128
     n_hidden_layers: int = 1
-    activation: ActivationConfig = ActivationConfig("Mish")
+    activation: ActivationConfig = dtc.field(default_factory=lambda:ActivationConfig("Mish"))
     bias: bool = True
     dropout: float = 0.
     dropout1d: float = 0.
@@ -266,7 +269,7 @@ class MLPIO(IOModule):
 @dtc.dataclass
 class VectorMixIO(IOModule):
     hidden_dim: int = 128
-    hidden_activation: ActivationConfig = ActivationConfig("Sigmoid")
+    hidden_activation: ActivationConfig = dtc.field(default_factory=lambda:ActivationConfig("Sigmoid"))
 
     def module(self):
         h = self.hidden_dim

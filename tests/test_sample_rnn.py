@@ -24,9 +24,21 @@ def test_should_instantiate_from_default_config():
     assert_that(len(under_test.tiers)).is_equal_to(len(given_config.frame_sizes))
 
 
-def test_should_take_n_unfolded_inputs():
+@pytest.mark.parametrize(
+    "given_rnn_class", ["rnn", "lstm"]
+)
+@pytest.mark.parametrize(
+    "given_num_layers", [1, 3]
+)
+@pytest.mark.parametrize(
+    "given_skips", [True, False]
+)
+def test_should_take_n_unfolded_inputs(given_skips, given_num_layers, given_rnn_class):
     given_frame_sizes = (16, 4, 2,)
     given_config = SampleRNN.Config(
+        with_skips=given_skips,
+        n_rnn=given_num_layers,
+        rnn_class=given_rnn_class,
         frame_sizes=given_frame_sizes,
         io_spec=IOSpec.mulaw_io(
             IOSpec.MuLawIOConfig()
@@ -112,10 +124,18 @@ def test_generate_loop_integration(tmp_db):
         assert_that(outputs[0].dtype).is_equal_to(torch.float)
 
 
-def test_should_train(tmp_db, tmp_path):
-    given_config = SampleRNN.Config(io_spec=IOSpec.mulaw_io(
-        IOSpec.MuLawIOConfig()
-    ), frame_sizes=(4, 2, 2))
+@pytest.mark.parametrize(
+    "given_io_and_config",
+    [
+        [IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="embedding")), dict(n_rnn=2, with_skips=True, rnn_class="lstm", weight_norm=True)],
+        [IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="onehot")), dict(n_rnn=2, with_skips=False, rnn_class="lstm")],
+        [IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="framed_linear")), dict(n_rnn=2, with_skips=True, rnn_class="gru", weight_norm=True)],
+        [IOSpec.mulaw_io(IOSpec.MuLawIOConfig(input_module_type="framed_conv")), dict(n_rnn=2, with_skips=False, rnn_class="gru")],
+    ]
+)
+def test_should_train(tmp_db, tmp_path, given_io_and_config):
+    given_io, kwargs = given_io_and_config
+    given_config = SampleRNN.Config(io_spec=given_io, frame_sizes=(4, 2, 2), **kwargs)
     srnn = SampleRNN.from_config(given_config)
     db = tmp_db("train-loop.h5")
     config = TrainARMConfig(

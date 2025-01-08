@@ -29,11 +29,12 @@ __all__ = [
 
 
 class MeanL1Prop(nn.Module):
-    def __init__(self, raise_on_nan=True, eps=1e-8):
+    def __init__(self, raise_on_nan=True, eps=1e-8, logspace=False):
         super(MeanL1Prop, self).__init__()
         self.raise_on_nan = raise_on_nan
         self.eps = eps
         self.l1loss = nn.L1Loss(reduction="none")
+        self.logspace = logspace
 
     def forward(self, output, target):
         if self.raise_on_nan and torch.any(torch.isnan(output)):
@@ -42,6 +43,8 @@ class MeanL1Prop(nn.Module):
         # L = self.l1loss(output, target).sum(dim=(-1), keepdim=True)
         # # t_sum = target.sum(dim=(-1), keepdim=True)
         # return (L).mean()
+        if self.logspace:
+            output, target = output.log1p(), target.log1p()
         L = self.l1loss(output, target).sum(dim=(0, -1,), keepdim=True)
         target_sums = target.abs().sum(dim=(0, -1,), keepdim=True)
         # make the upcoming division safe
@@ -79,20 +82,16 @@ class MeanSqrtProp(nn.Module):
         super(MeanSqrtProp, self).__init__()
         self.raise_on_nan = raise_on_nan
         self.eps = eps
-        self.loss = lambda x, y: (x - y).abs().clamp(min=1e-8).sqrt()
+        self.loss = nn.L1Loss(reduction="mean")
 
     def forward(self, output, target):
         if self.raise_on_nan and torch.any(torch.isnan(output)):
             raise RuntimeError("nan values in output")
-        L = self.loss(output, target).sum(dim=(0, -1,), keepdim=True)
-        target_sums = target.abs().sum(dim=(0, -1,), keepdim=True)
-        # make the upcoming division safe
-        prop = torch.maximum(L.detach(), torch.tensor(self.eps).to(L.device))
-        target_sums = target_sums + (target_sums < 1.).float() * prop
-        if self.raise_on_nan and torch.any(torch.isnan(target_sums)):
-            raise RuntimeError("nan values in target_sums")
-        L = (L / target_sums).mean()
-        return L
+        output_norm = output.abs().sum(dim=-1, keepdim=True)
+        target_norm = target.abs().sum(dim=-1, keepdim=True)
+        output = output / output_norm
+        target = target / target_norm
+        return self.loss(output, target).mul(100).log() + (self.loss(output_norm, target_norm).log())
 
 
 class IoU(nn.Module):
@@ -191,9 +190,9 @@ class DiffOverTime(nn.Module):
         self.l1loss = nn.L1Loss(reduction="mean")
 
     def forward(self, output, target):
-        diff_output = torch.diff(output, dim=1)
+        # diff_output = torch.diff(output, dim=1)
         diff_target = torch.diff(target, dim=1)
-        return self.l1loss(diff_output, diff_target)
+        return self.l1loss(output[:, 1:], diff_target)
 
 
 class DistanceOverTime(nn.Module):
