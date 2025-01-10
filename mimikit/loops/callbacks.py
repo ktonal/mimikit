@@ -107,7 +107,6 @@ class MMKCheckpoint(Callback):
     def __init__(self,
                  epochs=None,
                  root_dir=''
-                 # todo: save_optimizer
                  ):
         super().__init__()
         self.epochs = epochs

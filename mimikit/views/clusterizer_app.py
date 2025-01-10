@@ -572,6 +572,5 @@ class ClusterizerApp:
             W.HBox(children=(reset_label_button, bounce),
                    layout=dict(margin="8px auto",
                                )),
-            self.labels_grid,
-            W.HTML("<h4>Selected Labels Segments Table: </h4>")
+            self.labels_grid
         )

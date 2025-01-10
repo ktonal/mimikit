@@ -65,8 +65,6 @@ class CheckpointBank(h5m.TypedFile):
         net_dict = network.state_dict()
         opt_dict = optimizer.state_dict() if optimizer is not None else {}
         cls.network.set_ds_kwargs(net_dict)
-        # if optimizer is not None:
-        #    cls.optimizer.set_ds_kwargs(opt_dict)
         os.makedirs(os.path.split(filename)[0], exist_ok=True)
 
         bank = cls(filename, mode="w")
@@ -74,7 +72,7 @@ class CheckpointBank(h5m.TypedFile):
         bank.network.add("state_dict", h5m.TensorDict.format(net_dict))
 
         if optimizer is not None:
-            # bank.optimizer.add("state_dict", h5m.TensorDict.format(opt_dict))
+            # opt is saved in a separate file
             torch.save(opt_dict, os.path.splitext(filename)[0] + ".opt")
 
         if training_config is not None:
