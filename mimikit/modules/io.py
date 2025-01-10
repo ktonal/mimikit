@@ -11,22 +11,26 @@ from .targets import OutputWrapper
 from ..networks.parametrized import ParametrizedGaussian, ParametrizedLinear, ParametrizedLogistic
 from ..networks.mlp import MLP
 from ..config import Config, private_runtime_field
-from ..modules.misc import Unsqueeze, Flatten, Chunk, Unfold, ShapeWrap
+from ..modules.misc import Unsqueeze, Flatten, Chunk, Unfold, ShapeWrap, OneHot
 from ..utils import AutoStrEnum
 
 __all__ = [
+    "IdentityIO",
     "LinearIO",
     "ChunkedLinearIO",
     "FramedLinearIO",
+    "FramedIO",
     "EmbeddingIO",
     "EmbeddingBagIO",
     "EmbeddingConv1d",
+    "OneHotConv1dIO",
     "FramedConv1dIO",
     "MLPIO",
-    "VectorMix",
+    "VectorMixIO",
     "Gaussian",
-    "Affine",
-    "Logistic",
+    "GaussianIO",
+    "AffineIO",
+    "LogisticIO",
     "IOModule",
     "ZipMode",
     "ZipReduceVariables"
@@ -42,6 +46,7 @@ class IOModule(Config, abc.ABC):
     dropout1d: float = 0.
 
     in_dim: Optional[int] = private_runtime_field(None)
+    h_dim: Optional[int] = private_runtime_field(None)
     out_dim: Optional[int] = private_runtime_field(None)
     hop_length: Optional[int] = private_runtime_field(None)
     frame_size: Optional[int] = private_runtime_field(None)
@@ -50,6 +55,7 @@ class IOModule(Config, abc.ABC):
     with_linearizer: bool = private_runtime_field(False)
     with_unfold: bool = private_runtime_field(False)
     with_n_chunks: Optional[int] = private_runtime_field(None)
+    with_layer_norm: bool = private_runtime_field(False)
 
     def set(self, **kwargs):
         for k, v in kwargs.items():
@@ -91,6 +97,8 @@ class IOModule(Config, abc.ABC):
             if self.activation.scaled:
                 self.activation.dim = self.out_dim
             after += [self.activation.get()]
+        if self.with_layer_norm:
+            after += [nn.LayerNorm(self.out_dim)]
         if self.dropout > 0:
             after += [nn.Dropout(self.dropout)]
         if self.dropout1d > 0:
@@ -112,6 +120,11 @@ class Linearizer(nn.Module):
         return ((x.float() / self.class_size) - .5) * 2
 
 
+class IdentityIO(IOModule):
+    def module(self) -> nn.Module:
+        return self.wrap(nn.Identity())
+
+
 @dtc.dataclass
 class LinearIO(IOModule):
     bias: bool = True
@@ -131,6 +144,22 @@ class FramedLinearIO(IOModule):
         self.with_linearizer = True
         self.with_unfold = True
         return self.wrap(mod)
+
+
+@dtc.dataclass
+class FramedIO(IOModule):
+
+    def module(self) -> nn.Module:
+        self.not_none("frame_size", "hop_length", "class_size")
+
+        class Identity(nn.Identity):
+            def __init__(self, frame_size):
+                super(Identity, self).__init__()
+                self.frame_size = frame_size
+
+        self.with_linearizer = True
+        self.with_unfold = True
+        return self.wrap(Identity(self.frame_size))
 
 
 @dtc.dataclass
@@ -171,11 +200,28 @@ class EmbeddingBagIO(IOModule):
 class EmbeddingConv1d(IOModule):
 
     def module(self) -> nn.Module:
+        self.not_none("class_size", "frame_size", "hop_length", "out_dim", "h_dim")
+        mod = nn.Sequential(
+            nn.Embedding(self.class_size, self.h_dim),
+            # -> (batch, n_frames, frame_size, hidden_dim)
+            Conv1dResampler(in_dim=self.h_dim, t_factor=1 / self.frame_size, d_factor=self.out_dim/self.h_dim)
+            # -> (batch, n_frames, hidden_dim)
+        )
+        self.with_unfold = True
+        return self.wrap(mod)
+
+
+@dtc.dataclass
+class OneHotConv1dIO(IOModule):
+
+    def module(self) -> nn.Module:
         self.not_none("class_size", "frame_size", "hop_length", "out_dim")
         mod = nn.Sequential(
-            nn.Embedding(self.class_size, self.out_dim),
-            # -> (batch, n_frames, frame_size, hidden_dim)
-            Conv1dResampler(in_dim=self.out_dim, t_factor=1 / self.frame_size, d_factor=1)
+            OneHot(self.class_size),
+            # -> (batch, n_frames, frame_size, class_size)
+            Conv1dResampler(in_dim=self.class_size,
+                            t_factor=1 / self.frame_size,
+                            d_factor=self.out_dim/self.class_size)
             # -> (batch, n_frames, hidden_dim)
         )
         self.with_unfold = True
@@ -202,7 +248,7 @@ class FramedConv1dIO(IOModule):
 class MLPIO(IOModule):
     hidden_dim: int = 128
     n_hidden_layers: int = 1
-    activation: ActivationConfig = ActivationConfig("Mish")
+    activation: ActivationConfig = dtc.field(default_factory=lambda:ActivationConfig("Mish"))
     bias: bool = True
     dropout: float = 0.
     dropout1d: float = 0.
@@ -221,9 +267,9 @@ class MLPIO(IOModule):
 
 
 @dtc.dataclass
-class VectorMix(IOModule):
+class VectorMixIO(IOModule):
     hidden_dim: int = 128
-    hidden_activation: ActivationConfig = ActivationConfig("Sigmoid")
+    hidden_activation: ActivationConfig = dtc.field(default_factory=lambda:ActivationConfig("Sigmoid"))
 
     def module(self):
         h = self.hidden_dim
@@ -241,7 +287,7 @@ class VectorMix(IOModule):
                 x = self.act(x)
                 return torch.matmul(x, self.v)
 
-        return _Vmix(self.in_dim, self.out_dim)
+        return self.wrap(_Vmix(self.in_dim, self.out_dim))
 
 
 @dtc.dataclass
@@ -255,29 +301,44 @@ class Gaussian(IOModule):
             z_dim=self.out_dim,
             bias=self.bias,
             min_std=self.min_std,
+            return_params=True
+        )
+
+
+@dtc.dataclass
+class GaussianIO(IOModule):
+    bias: bool = False
+    min_std: float = 1e-4
+
+    def module(self) -> nn.Module:
+        return self.wrap(ParametrizedGaussian(
+            input_dim=self.in_dim,
+            z_dim=self.out_dim,
+            bias=self.bias,
+            min_std=self.min_std,
             return_params=False
-        )
+        ))
 
 
 @dtc.dataclass
-class Affine(IOModule):
+class AffineIO(IOModule):
     bias: bool = True
 
     def module(self) -> nn.Module:
-        return ParametrizedLinear(
+        return self.wrap(ParametrizedLinear(
             self.in_dim, self.out_dim, self.bias
-        )
+        ))
 
 
 @dtc.dataclass
-class Logistic(IOModule):
+class LogisticIO(IOModule):
     bias: bool = True
 
     def module(self) -> nn.Module:
-        return ParametrizedLogistic(
+        return self.wrap(ParametrizedLogistic(
             self.in_dim, self.out_dim,
             self.bias
-        )
+        ))
 
 
 class ZipMode(AutoStrEnum):

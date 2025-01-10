@@ -22,6 +22,7 @@ class MLP(nn.Module):
             dropout: float = 0.,
             dropout1d: float = 0.,
             min_temperature: Optional[float] = 1e-4,
+            hidden_as_residuals: bool = False
     ):
         super(MLP, self).__init__()
         self.in_dim = in_dim
@@ -40,13 +41,27 @@ class MLP(nn.Module):
         if dropout1d > 0.:
             dp += [nn.Dropout1d(dropout1d)]
 
+        class AsResiduals(nn.Module):
+            def __init__(self, *modules):
+                super(AsResiduals, self).__init__()
+                self.mods = nn.Sequential(*modules)
+
+            def forward(self, x):
+                return self.mods(x) + x
+
+        wrap_hidden = AsResiduals if hidden_as_residuals else nn.Sequential
+        # if in_dim == hidden_dim:
+        #     fc = [
+        #         AsResiduals(nn.Linear(in_dim, hidden_dim, bias=bias), self.activation, *dp)
+        #     ]
+        # else:
         fc = [
             nn.Linear(in_dim, hidden_dim, bias=bias), self.activation,
             *dp
         ]
         fc += [
-            *((nn.Linear(hidden_dim, hidden_dim, bias=bias), self.activation,
-               *dp) * n_hidden_layers)
+            *((wrap_hidden(nn.Linear(hidden_dim, hidden_dim, bias=bias), self.activation,
+               *dp), ) * n_hidden_layers)
         ]
         self.fc = nn.Sequential(
             *fc, nn.Linear(hidden_dim, self.out_dim, bias=bias)

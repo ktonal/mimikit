@@ -168,7 +168,7 @@ class AudioLogger:
         audio = self.to_numpy(audio)
         filename = self.format_template(self.file_template, **template_params)
         os.makedirs(self.target_dir, exist_ok=True)
-        # normalize
+        # TODO: normalize
         y = np.int16(audio * 2 ** 15)
         segment = pydub.AudioSegment(y.tobytes(),
                                      frame_rate=self.sr,

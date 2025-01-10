@@ -15,11 +15,14 @@ __all__ = [
     "Sin",
     "Cos",
     "GatingUnit",
+    "SnakeSin",
+    "SnakeCos",
     "StaticScaledActivation",
     "ScaledActivation",
     "PhaseA",
     "PhaseB",
-    "PhaseC"
+    "PhaseC",
+    "UnitV"
 ]
 
 
@@ -38,6 +41,10 @@ class ActivationEnum(AutoStrEnum):
     Cos = auto()
     GLU = auto()
     Softmax = auto()
+    ExpMSq = auto()
+    SnakeSin = auto()
+    SnakeCos = auto()
+    UnitV = auto()
 
 
 @dtc.dataclass
@@ -79,8 +86,23 @@ class Sin(nn.Module):
 
 
 class Cos(nn.Module):
+    def __init__(self, with_rate=True):
+        super(Cos, self).__init__()
+        self.with_rate = with_rate
+        self.rates = None
+
     def forward(self, x):
+        if self.with_rate:
+            if self.rates is None:
+                self.rates = nn.Parameter(torch.rand(1, x.size(1), 1).to(x.device))
+            x = x * self.rates
         return torch.cos(x)
+
+
+class ExpMSq(nn.Module):
+
+    def forward(self, x):
+        return torch.exp(- x.pow(2))
 
 
 class GatingUnit(nn.Module):
@@ -92,6 +114,49 @@ class GatingUnit(nn.Module):
 
     def forward(self, x_f, x_g):
         return self.act_f(x_f) * self.act_g(x_g)
+
+
+# @torch.jit.script
+def snake_sin(x, alpha):
+    x = x + (alpha + 1e-9).reciprocal() * torch.sin(alpha * x).pow(2)
+    return x
+
+
+# @torch.jit.script
+def snake_cos(x, alpha):
+    x = x + (alpha + 1e-9).reciprocal() * torch.cos(alpha * x).pow(2)
+    return x
+
+
+class SnakeSin(nn.Module):
+    def __init__(self, conv_order=True):
+        super().__init__()
+        self.conv_order = conv_order
+        self.alpha = None
+
+    def forward(self, x):
+        if self.alpha is None:
+            if self.conv_order:
+                self.alpha = nn.Parameter(torch.ones(1, x.shape[1], 1, device=x.device))
+            else:
+                self.alpha = nn.Parameter(torch.ones(x.shape[-1], device=x.device))
+
+        return snake_sin(x, self.alpha)
+
+
+class SnakeCos(nn.Module):
+    def __init__(self, conv_order=True):
+        super().__init__()
+        self.conv_order = conv_order
+        self.alpha = None
+
+    def forward(self, x):
+        if self.alpha is None:
+            if self.conv_order:
+                self.alpha = nn.Parameter(torch.ones(1, x.shape[1], 1, device=x.device))
+            else:
+                self.alpha = nn.Parameter(torch.ones(x.shape[-1], device=x.device))
+        return snake_cos(x, self.alpha)
 
 
 class ScaledActivation(nn.Module):
@@ -111,14 +176,14 @@ class StaticScaledActivation(nn.Module):
     def __init__(self, activation, dim, with_rate=True):
         super(StaticScaledActivation, self).__init__()
         self.activation = activation
-        self.s = nn.Parameter(torch.ones(dim), )
+        self.s = nn.Parameter(torch.ones(dim) * .2 * .5 * 2048, )
         self.r = nn.Parameter(torch.ones(dim, )) if with_rate else torch.tensor([1.])
         self.dim = dim
 
     def forward(self, x):
         s, r = self.s.to(x.device).expand(*(1,) * (len(x.size()) - 1), self.dim),\
                self.r.to(x.device).expand(*(1,) * (len(x.size()) - 1), self.dim)
-        return self.activation(r * x / s) * s
+        return self.activation(r * x) * s
 
 # softplus, - logsigmoid,
 
@@ -155,3 +220,9 @@ class PhaseC(nn.Module):
 
     def forward(self, phs):
         return self.tanh(phs) * PI
+
+
+class UnitV(nn.Module):
+
+    def forward(self, x):
+        return x / (torch.sum(x.abs(), keepdim=True, dim=1) + 1e-5)

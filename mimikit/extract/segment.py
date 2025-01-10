@@ -1,12 +1,14 @@
 import numpy as np
-from librosa.util import peak_pick, localmax
+from librosa.util import peak_pick
 from librosa.sequence import dtw
-from scipy.ndimage.filters import minimum_filter1d
 from sklearn.metrics import pairwise_distances as pwd
 from typing import List
 from numba import njit, prange, float64, intp
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+
+from mimikit.features.functionals import pick_globally_sorted_maxes
+
 mpl.rcParams['agg.path.chunksize'] = 10000
 
 __all__ = [
@@ -130,34 +132,6 @@ def discontinuity_scores(
         scr = convolve_diagonals(dk, kernel)
         scores[i] = scr - scr.min()
     return scores
-
-
-def pick_globally_sorted_maxes(x, wait_before, wait_after, min_strength=0.02):
-    mn = minimum_filter1d(
-        x, wait_before + wait_after, mode='constant', cval=x.min()
-    )
-    glob_rg = x.max() - x.min()
-    strength = (x - mn) / glob_rg
-    # filter out peaks with too few contrasts
-    mx = localmax(x) & (strength >= min_strength)
-
-    mx_indices = mx.nonzero()[0][np.argsort(-x[mx])]
-
-    final_maxes = np.zeros_like(x, dtype=bool)
-
-    for m in mx_indices:
-        i, j = max(0, m - wait_before), min(x.shape[0], m + wait_after)
-        if np.any(final_maxes[i:j]):
-            continue
-        else:
-            # make sure the max dominates left and right
-            # aka we are not globally increasing/decreasing around it
-            mu_l = x[i:m].mean()
-            mu_r = x[m:j].mean()
-            mx = x[m]
-            if mx > mu_l and mx > mu_r:
-                final_maxes[m] = True
-    return final_maxes.nonzero()[0]
 
 
 def from_recurrence_matrix(X,

@@ -100,6 +100,18 @@ class ObjectiveType(AutoStrEnum):
     MaximizeMagnitude = auto()
     MaximizeStd = auto()
     ElementWiseAngularDistance = auto()
+    gaussian_dist = auto()
+    GaussianNLL = auto()
+    MeanL2Prop = auto()
+    MeanSqrtProp = auto()
+    LogCoshLoss = auto()
+    XSigmoidLoss = auto()
+    XTanhLoss = auto()
+    IoU = auto()
+    EoME = auto()
+    KLDivLoss = auto()
+    KLDivLossOT = auto()
+    BCELoss = auto()
 
 
 @dtc.dataclass
@@ -113,6 +125,8 @@ class Objective(Config, type_field=False):
             return lfuncs.MeanL1Prop(**self.params)
         elif self.objective_type == "categorical_dist":
             return self.cross_entropy
+        elif self.objective_type == "gaussian_dist":
+            return VectorOfGaussianLoss(**self.params)
         elif hasattr(lfuncs, self.objective_type):
             return getattr(lfuncs, self.objective_type)(**self.params)
 
@@ -121,6 +135,8 @@ class Objective(Config, type_field=False):
             return None
         elif self.objective_type == "categorical_dist":
             return CategoricalSampler()
+        elif self.objective_type == "gaussian_dist":
+            return VectorOfGaussianSampler(**self.params)
 
     @staticmethod
     def cross_entropy(output, target):
@@ -137,12 +153,19 @@ class TargetSpec(_FeatureSpec, type_field=False):
         super(TargetSpec, self).bind_to(extractor)
         # wire feature, objective, module
         sampler = self.objective.get_sampler()
-        if self.objective.objective_type == "reconstruction":
+        if self.objective.objective_type in ("reconstruction", "GaussianNLL"):
             assert isinstance(self.elem_type, Continuous)
             self.module.set(out_dim=self.elem_type.size)
         elif self.objective.objective_type == "categorical_dist":
             assert isinstance(self.elem_type, Discrete)
             self.module.set(out_dim=self.elem_type.size,
+                            sampler=sampler)
+        elif self.objective.objective_type in \
+                {"logistic_vector", "gaussian_dist", "laplace_vector"}:
+            self.objective.params["vector_dim"] = self.elem_type.size
+            sampler = self.objective.get_sampler()
+            n_components = self.objective.params.get("n_components", 1)
+            self.module.set(out_dim=self.elem_type.size * 2 * n_components + n_components,
                             sampler=sampler)
         self.criterion = self.objective.get_criterion()
         self.extra_terms = {obj.objective_type: (obj.get_criterion(), obj.weight) for obj in self.extra_loss_terms}
@@ -212,7 +235,7 @@ class IOSpec(Config, type_field=False):
         sr: int = 16000
         q_levels: int = 256
         compression: float = 1.
-        input_module_type: Literal['framed_linear', 'embedding'] = 'framed_linear'
+        input_module_type: Literal['framed_linear', 'embedding', 'onehot', 'framed_conv'] = 'framed_linear'
         mlp_dim: int = 128
         n_mlp_layers: int = 0
         min_temperature: float = 1e-4
@@ -233,7 +256,11 @@ class IOSpec(Config, type_field=False):
         if config.input_module_type == "framed_linear":
             module_type = FramedLinearIO
         elif config.input_module_type == "embedding":
-            module_type = EmbeddingIO
+            module_type = EmbeddingConv1d
+        elif config.input_module_type == "framed_conv":
+            module_type = FramedConv1dIO
+        elif config.input_module_type == "onehot":
+            module_type = OneHotConv1dIO
         else:
             raise ValueError(f"Unimplemented input_module_type: '{config.input_module_type}'")
         return IOSpec(

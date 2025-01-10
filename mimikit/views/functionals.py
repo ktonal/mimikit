@@ -2,7 +2,7 @@ from ipywidgets import widgets as W
 
 from ..features.functionals import MagSpec, MelSpec, MFCC, Chroma, \
     HarmonicSource, PercussiveSource, AutoConvolve, F0Filter, \
-    NearestNeighborFilter, PCA, NMF, FactorAnalysis
+    NearestNeighborFilter, PCA, NMF, FactorAnalysis, TopKFilter, GlobalPeaks
 from .. import ui as UI
 
 __all__ = [
@@ -14,6 +14,8 @@ __all__ = [
     "percussive_source_view",
     "autoconvolve_view",
     "f0_filter_view",
+    "topk_filter_view",
+    "global_peaks_view",
     "nearest_neighbor_filter_view",
     "pca_view",
     "nmf_view",
@@ -22,7 +24,6 @@ __all__ = [
 
 
 def magspec_view(cfg: MagSpec):
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_fft",
@@ -182,6 +183,40 @@ def f0_filter_view(cfg: F0Filter):
                 layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
 
     view.set_title(0, "F0 Filter")
+    return view
+
+
+def topk_filter_view(cfg: TopKFilter):
+    view = UI.ConfigView(
+        cfg,
+        UI.Param("k",
+                 widget=UI.Labeled("N Maxes: ",
+                                   W.IntText(value=cfg.k, layout=dict(width='auto')),
+                                   ), )
+    ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
+
+    view.set_title(0, "Top K Filter")
+    return view
+
+
+def global_peaks_view(cfg: GlobalPeaks):
+    view = UI.ConfigView(
+        cfg,
+        UI.Param("window",
+                 widget=UI.Labeled("window size: ",
+                                   W.IntText(value=cfg.window, layout=dict(width='auto')),
+                                   ), ),
+        UI.Param(name='min_strength',
+                 widget=UI.Labeled(
+                     "minimum strength",
+                     W.FloatText(value=cfg.min_strength),
+                 ),
+         )
+    ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
+                layout=W.Layout(margin="0 auto 0 0"), selected_index=0)
+
+    view.set_title(0, "Global Peaks")
     return view
 
 

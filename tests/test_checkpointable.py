@@ -11,19 +11,7 @@ import mimikit.networks.arm
 class MyCustom(mimikit.config.Configurable, nn.Module):
     @dtc.dataclass
     class CustomConfig(mimikit.networks.arm.NetworkConfig):
-        io_spec: mmk.IOSpec = mmk.IOSpec(
-            inputs=(mmk.InputSpec(
-                extractor_name="signal",
-                transform=mmk.Normalize(),
-                module=mmk.LinearIO()
-            ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),),
-            targets=(mmk.TargetSpec(
-                extractor_name="signal",
-                transform=mmk.Normalize(),
-                module=mmk.LinearIO(),
-                objective=mmk.Objective(objective_type="reconstruction")
-            ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),)
-        )
+        io_spec: mmk.IOSpec = None
         x: int = 1
 
     @classmethod
@@ -43,7 +31,21 @@ class MyCustom(mimikit.config.Configurable, nn.Module):
 
 
 def test_should_save_and_load_class_defined_outside_mmk(tmp_path_factory):
-    model = MyCustom.from_config(MyCustom.CustomConfig())
+    model = MyCustom.from_config(MyCustom.CustomConfig(
+        io_spec=mmk.IOSpec(
+            inputs=(mmk.InputSpec(
+                extractor_name="signal",
+                transform=mmk.Normalize(),
+                module=mmk.LinearIO()
+            ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),),
+            targets=(mmk.TargetSpec(
+                extractor_name="signal",
+                transform=mmk.Normalize(),
+                module=mmk.LinearIO(),
+                objective=mmk.Objective(objective_type="reconstruction")
+            ).bind_to(mmk.Extractor("signal", mmk.FileToSignal(16000))),)
+        )
+    ))
 
     output = model(torch.randn(2, 1, 1))
 

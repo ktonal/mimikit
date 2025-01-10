@@ -11,9 +11,10 @@ __all__ = [
     "spectral_clustering_view"
 ]
 
+from ..extract.label_filter import LabelFilter
+
 
 def qcluster_view(cfg: QCluster):
-
     view = UI.ConfigView(
         cfg,
         UI.Param("metric",
@@ -46,7 +47,6 @@ def qcluster_view(cfg: QCluster):
 
 
 def gcluster_view(cfg: GCluster):
-
     view = UI.ConfigView(
         cfg,
         UI.Param("metric",
@@ -103,7 +103,6 @@ def argmax_view(cfg=None):
 
 
 def kmeans_view(cfg: KMeans):
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_clusters",
@@ -131,7 +130,6 @@ def kmeans_view(cfg: KMeans):
 
 
 def spectral_clustering_view(cfg: SpectralClustering):
-
     view = UI.ConfigView(
         cfg,
         UI.Param("n_clusters",
@@ -155,4 +153,23 @@ def spectral_clustering_view(cfg: SpectralClustering):
                 layout=W.Layout(margin="0"), selected_index=0)
 
     view.set_title(0, "Spectral Clustering Clustering")
+    return view
+
+
+def label_filter_view(cfg: LabelFilter):
+    view = UI.ConfigView(
+        cfg,
+        UI.Param("min_repetition",
+                 widget=UI.Labeled("Min Repetition: ",
+                                   W.IntText(value=cfg.min_repetition, layout=dict(margin='4px', width='auto')),
+                                   ), ),
+        UI.Param("label_undecidable",
+                 widget=UI.Labeled(
+                     "Label undecidable: ",
+                     UI.yesno_widget(initial_value=cfg.label_undecidable),
+                 ))
+    ).as_widget(lambda children, **kwargs: W.Accordion([W.VBox(children=children)], **kwargs),
+                layout=W.Layout(margin="0"), selected_index=0)
+
+    view.set_title(0, "Label Filter")
     return view
